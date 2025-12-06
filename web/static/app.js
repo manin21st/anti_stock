@@ -342,7 +342,8 @@ document.getElementById("btn-restart").onclick = async () => {
 };
 
 // Logs WebSocket
-const ws = new WebSocket(`ws://${location.host}/ws/logs`);
+const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${protocol}//${location.host}/ws/logs`);
 ws.onmessage = (event) => {
     const logViewer = document.getElementById("log-viewer");
     const div = document.createElement("div");
