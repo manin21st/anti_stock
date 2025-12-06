@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>시스템 로그인 - 안티-스톡</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --error: #ef4444;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background-image:
+                radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(16, 185, 129, 0.15) 0%, transparent 40%);
+        }
+
+        .login-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        p.subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        /* 6-digit OTP Inputs */
+        .otp-container {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .otp-input {
+            width: 100%;
+            height: 50px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 24px;
+            text-align: center;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .otp-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        /* CAPTCHA */
+        .captcha-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        #captcha-canvas {
+            background: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .captcha-input {
+            flex: 1;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0 15px;
+            color: var(--text-primary);
+            font-size: 16px;
+        }
+
+        .captcha-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .refresh-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 20px;
+            padding: 0 5px;
+        }
+
+        .refresh-btn:hover {
+            color: var(--text-primary);
+        }
+
+        button.submit-btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button.submit-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .error-msg {
+            color: var(--error);
+            font-size: 13px;
+            margin-top: 15px;
+            min-height: 20px;
+            display: none;
+        }
+
+        .info-msg {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-card">
+        <h1>시스템 접근 인증</h1>
+        <p class="subtitle">안전한 사용을 위해 인증이 필요합니다.</p>
+
+        <form id="login-form">
+            <div class="input-group">
+                <label>인증코드 (6자리)</label>
+                <div class="otp-container">
+                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label>보안문자 입력</label>
+                <div class="captcha-container">
+                    <canvas id="captcha-canvas" width="120" height="40" title="클릭하여 새로고침"></canvas>
+                    <input type="text" id="captcha-input" class="captcha-input" placeholder="보안문자" required>
+                </div>
+                <div style="text-align: right; font-size: 12px; color: #64748b; margin-top: 4px;">
+                    이미지를 클릭하면 변경됩니다.
+                </div>
+            </div>
+
+            <button type="submit" class="submit-btn">인증 및 로그인</button>
+            <div id="error-msg" class="error-msg">인증코드가 올바르지 않습니다.</div>
+
+            <div class="info-msg">
+                ℹ️ 인증코드는 서버 콘솔(터미널)에 출력됩니다.
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // OTP Input Logic
+        const otpInputs = document.querySelectorAll('.otp-input');
+
+        otpInputs.forEach((input, index) => {
+            input.addEventListener('input', (e) => {
+                if (e.target.value.length === 1) {
+                    if (index < otpInputs.length - 1) {
+                        otpInputs[index + 1].focus();
+                    }
+                }
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !e.target.value) {
+                    if (index > 0) {
+                        otpInputs[index - 1].focus();
+                    }
+                }
+            });
+
+            // Allow only numbers
+            input.addEventListener('keypress', (e) => {
+                if (!/[0-9]/.test(e.key)) {
+                    e.preventDefault();
+                }
+            });
+        });
+
+        // CAPTCHA Logic
+        const canvas = document.getElementById('captcha-canvas');
+        const ctx = canvas.getContext('2d');
+        let currentCaptcha = '';
+
+        function generateCaptcha() {
+            const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            let captcha = '';
+            for (let i = 0; i < 5; i++) {
+                captcha += chars[Math.floor(Math.random() * chars.length)];
+            }
+            currentCaptcha = captcha;
+            drawCaptcha(captcha);
+        }
+
+        function drawCaptcha(text) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Add noise
+            for (let i = 0; i < 50; i++) {
+                ctx.strokeStyle = `rgba(0,0,0,${Math.random() * 0.2})`;
+                ctx.beginPath();
+                ctx.moveTo(Math.random() * canvas.width, Math.random() * canvas.height);
+                ctx.lineTo(Math.random() * canvas.width, Math.random() * canvas.height);
+                ctx.stroke();
+            }
+
+            // Draw text
+            ctx.font = 'bold 24px Inter';
+            ctx.fillStyle = '#1e293b';
+            ctx.textBaseline = 'middle';
+
+            const totalWidth = ctx.measureText(text).width;
+            const startX = (canvas.width - totalWidth) / 2;
+
+            for (let i = 0; i < text.length; i++) {
+                ctx.save();
+                ctx.translate(startX + i * 20 + 10, canvas.height / 2);
+                ctx.rotate((Math.random() - 0.5) * 0.4);
+                ctx.fillText(text[i], -8, 0);
+                ctx.restore();
+            }
+        }
+
+        canvas.addEventListener('click', generateCaptcha);
+        generateCaptcha(); // Initial generation
+
+        // Form Submission
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errorMsg = document.getElementById('error-msg');
+            errorMsg.style.display = 'none';
+
+            // Collect OTP
+            let otp = '';
+            otpInputs.forEach(input => otp += input.value);
+
+            if (otp.length !== 6) {
+                errorMsg.textContent = '인증코드 6자리를 모두 입력해주세요.';
+                errorMsg.style.display = 'block';
+                return;
+            }
+
+            const captchaInput = document.getElementById('captcha-input').value.toUpperCase();
+
+            // Client-side CAPTCHA check (Basic)
+            // Note: For stronger security, CAPTCHA should be verified on server.
+            // But since we are generating it on client for simplicity as per plan, we send it to server to "verify" 
+            // or just verify here. However, the requirement said "Security Image Check".
+            // To be robust, we should send the generated text to server in a hidden field? 
+            // No, that's easily bypassed. 
+            // Given the constraints and the "Frontend Canvas" plan, we will verify it here or send both to server.
+            // Let's send both to server, but server doesn't know the random captcha generated on client unless we send it.
+            // Actually, the prompt said "Implement CAPTCHA (Frontend Canvas or Python)". 
+            // If I do Frontend Canvas, the server doesn't know the answer unless I send the answer along with the input (which is insecure but fits "Frontend Canvas").
+            // For better security, I should generate it on server. But I chose Frontend Canvas for simplicity in the plan.
+            // I will implement a client-side check first, then send to server.
+
+            if (captchaInput !== currentCaptcha) {
+                errorMsg.textContent = '보안문자가 일치하지 않습니다.';
+                errorMsg.style.display = 'block';
+                generateCaptcha();
+                document.getElementById('captcha-input').value = '';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        otp: otp,
+                        // We don't need to send captcha to server if we verified it here, 
+                        // unless we want server to log it. 
+                        // But for the "Login System" requirement, server verification of OTP is the key.
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'ok') {
+                    window.location.href = '/';
+                } else {
+                    errorMsg.textContent = result.message || '인증에 실패했습니다.';
+                    errorMsg.style.display = 'block';
+                }
+            } catch (err) {
+                errorMsg.textContent = '서버 통신 오류가 발생했습니다.';
+                errorMsg.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+
+</html>

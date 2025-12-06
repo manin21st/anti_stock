@@ -1,0 +1,38 @@
+from .base import BaseStrategy
+import pandas as pd
+
+class VWAPScalping(BaseStrategy):
+    def on_bar(self, symbol, bar):
+        bars = self.market_data.get_bars(symbol, timeframe="1m", lookback=200)
+        if len(bars) < 5:
+            return
+
+        typical_price = (bars.high + bars.low + bars.close) / 3
+        cum_pv = (typical_price * bars.volume).cumsum()
+        cum_vol = bars.volume.cumsum()
+        vwap_series = cum_pv / cum_vol
+        vwap_now = vwap_series.iloc[-1]
+
+        close = bars.close.iloc[-1]
+        prev_close = bars.close.iloc[-2]
+
+        position = self.portfolio.get_position(symbol)
+
+        # Entry
+        if position is None:
+            # Cross up VWAP
+            crossed_up = (prev_close < vwap_series.iloc[-2]) and (close > vwap_now)
+            if crossed_up:
+                qty = self.calc_position_size(symbol, risk_pct=self.config.get("risk_pct", 0.01))
+                if self.risk.can_open_new_position(symbol, qty):
+                    self.logger.info(f"BUY Signal (VWAP Cross): {symbol} {qty}")
+                    self.broker.buy_market(symbol, qty, tag=self.config["id"])
+            return
+
+        # Exit
+        pnl_pct = (close - position.avg_price) / position.avg_price * 100
+        
+        # Stop Loss (Below VWAP) or Take Profit
+        if close < vwap_now or pnl_pct >= self.config["take_profit_pct"]:
+            self.logger.info(f"SELL Signal (VWAP Exit): {symbol}")
+            self.broker.sell_market(symbol, position.qty, tag=self.config["id"])

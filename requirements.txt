@@ -1,0 +1,10 @@
+requests
+pandas
+pyyaml
+pycryptodome
+websockets
+fastapi
+uvicorn
+jinja2
+pytest
+itsdangerous

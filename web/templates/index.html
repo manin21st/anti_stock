@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>안티-스톡 트레이딩 봇</title>
+    <link rel="stylesheet" href="/static/style.css?v=4">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+
+<body>
+    <script>
+        window.onerror = function (msg, url, line, col, error) {
+            const statusEl = document.getElementById('chart-status');
+            if (statusEl) {
+                statusEl.innerHTML += `<br><span style="color: red;">[Script Error] ${msg} (Line ${line})</span>`;
+            }
+            return false;
+        };
+    </script>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1>안티-스톡 트레이딩 봇</h1>
+                <div class="global-controls">
+                    <button id="btn-start" class="btn-primary small-btn">시작</button>
+                    <button id="btn-stop" class="btn-danger small-btn">중지</button>
+                </div>
+            </div>
+            <div class="header-right">
+                <a href="/manual" target="_blank" class="manual-link"
+                    style="margin-right: 15px; text-decoration: none; color: var(--accent); font-weight: 500;">사용
+                    설명서</a>
+                <div id="active-strategy" class="active-strategy">전략: 없음</div>
+                <div id="status-indicator" class="status-stopped">중지됨</div>
+            </div>
+        </header>
+
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="tab-portfolio">포트폴리오</button>
+            <button class="tab-btn" data-tab="tab-chart">차트</button>
+            <button class="tab-btn" data-tab="tab-settings">환경 설정</button>
+            <button class="tab-btn" data-tab="tab-logs">시스템 로그</button>
+        </nav>
+
+        <main>
+            <!-- Tab 1: Portfolio -->
+            <div id="tab-portfolio" class="tab-content active">
+                <section class="card portfolio-card">
+                    <div class="metric-group">
+                        <div class="metric">
+                            <span class="label">총 자산</span>
+                            <span class="value" id="total-asset">₩0</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">예수금</span>
+                            <span class="value" id="cash">₩0</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">익일 예수금</span>
+                            <span class="value" id="deposit-d1">₩0</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">D+2 예수금</span>
+                            <span class="value" id="deposit-d2">₩0</span>
+                        </div>
+                    </div>
+                    <h3>보유 종목 현황</h3>
+                    <div class="table-container">
+                        <table id="positions-table">
+                            <thead>
+                                <tr>
+                                    <th>종목명</th>
+                                    <th>종목코드</th>
+                                    <th>수량</th>
+                                    <th>매입평균</th>
+                                    <th>매입금액</th>
+                                    <th>현재가</th>
+                                    <th>평가금액</th>
+                                    <th>평가손익</th>
+                                    <th>수익률</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Rows will be added here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab 2: Chart -->
+            <div id="tab-chart" class="tab-content">
+                <section class="card chart-card full-height">
+                    <div class="chart-controls">
+                        <input type="text" id="chart-symbol" placeholder="종목코드 (예: 005930)" value="005930">
+                        <select id="chart-timeframe">
+                            <option value="1m">1분</option>
+                            <option value="3m">3분</option>
+                            <option value="5m">5분</option>
+                            <option value="15m">15분</option>
+                            <option value="30m">30분</option>
+                            <option value="60m">60분</option>
+                            <option value="D">일봉</option>
+                        </select>
+                        <input type="number" id="chart-lookback" placeholder="건수" value="1000" min="10" max="2000"
+                            style="width: 60px; padding: 5px; border-radius: 4px; border: 1px solid #444; background: #fff; color: #000; margin-left: 5px;">
+                        <span style="font-size: 14px; margin-left: 2px; margin-right: 5px; color: #333;">건</span>
+                        <button id="btn-load-chart" class="btn-primary small-btn">조회</button>
+                    </div>
+                    <div id="chart-status"
+                        style="padding: 5px; color: #aaa; font-size: 12px; margin-bottom: 5px; border-bottom: 1px solid #333;">
+                        상태: 대기 중...</div>
+                    <div class="chart-overlays"
+                        style="padding: 5px 10px; display: flex; gap: 10px; align-items: center; background: #252525; border-bottom: 1px solid #333;">
+                        <span style="font-size: 12px; color: #aaa;">이동평균선:</span>
+                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-5" checked>
+                            5일</label>
+                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-10" checked>
+                            10일</label>
+                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-20" checked>
+                            20일</label>
+                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-60" checked>
+                            60일</label>
+                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-120">
+                            120일</label>
+                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-200">
+                            200일</label>
+                    </div>
+                    <div id="chart-container"
+                        style="width: 100%; flex: 1; min-height: 400px; position: relative; overflow: hidden;">
+                    </div>
+
+                    <!-- Trade History List -->
+                    <div class="trade-history-section"
+                        style="margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+                        <div
+                            style="display: flex; justify-content: flex-start; align-items: center; gap: 15px; margin-bottom: 5px;">
+                            <h3 style="font-size: 14px; color: #aaa; font-weight: bold; margin: 0;">매매 내역</h3>
+                            <button id="btn-inject-data" class="btn-primary small-btn"
+                                style="padding: 2px 8px; font-size: 11px;">테스트
+                                데이터</button>
+                            <button id="btn-debug-marker" class="btn-secondary small-btn"
+                                style="padding: 2px 8px; font-size: 11px; background-color: #555;">디버그 마커</button>
+                        </div>
+                        <div style="width: 100%; overflow-x: auto;">
+                            <table id="chart-trade-table"
+                                style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                                <thead style="background: #252525;">
+                                    <tr>
+                                        <th style="padding: 5px; text-align: left;">시간</th>
+                                        <th style="padding: 5px; text-align: center;">유형</th>
+                                        <th style="padding: 5px; text-align: right;">가격</th>
+                                        <th style="padding: 5px; text-align: right;">수량</th>
+                                        <th style="padding: 5px; text-align: right;">금액</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="chart-trade-list">
+                                    <!-- Trade rows will be added here -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- Pagination Controls -->
+                        <div id="trade-pagination"
+                            style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 10px;">
+                            <button id="btn-prev-page" class="btn-secondary small-btn" disabled>&lt;</button>
+                            <span id="page-info" style="font-size: 12px; color: #aaa;">1 / 1</span>
+                            <button id="btn-next-page" class="btn-secondary small-btn" disabled>&gt;</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab 3: Settings -->
+            <div id="tab-settings" class="tab-content">
+                <div class="settings-grid">
+                    <!-- Left: System Settings -->
+                    <section class="card system-card">
+                        <h2>시스템 설정</h2>
+                        <div class="system-options">
+                            <div class="option-group">
+                                <label class="group-label">투자 모드</label>
+                                <div class="radio-group">
+                                    <label><input type="radio" name="env_type" value="real" checked>
+                                        실전투자</label>
+                                    <label><input type="radio" name="env_type" value="paper"> 모의투자</label>
+                                </div>
+                            </div>
+                            <div class="option-group">
+                                <label class="group-label">거래소</label>
+                                <div class="radio-group">
+                                    <label><input type="radio" name="market_type" value="KRX" checked> 정규장
+                                        (KRX)</label>
+                                    <label><input type="radio" name="market_type" value="NXT"> 대체거래소
+                                        (NXT)</label>
+                                </div>
+                            </div>
+                            <div class="option-group">
+                                <label class="group-label">종목 선정</label>
+                                <label><input type="checkbox" id="use_auto_scanner"> 자동 선정
+                                    (Auto-Scanner)</label>
+                            </div>
+                            <div class="option-group" id="scanner-mode-group" style="display: none;">
+                                <label class="group-label">스캐너 모드</label>
+                                <div class="radio-group">
+                                    <label><input type="radio" name="scanner_mode" value="volume" checked> 거래량
+                                        상위</label>
+                                    <label><input type="radio" name="scanner_mode" value="gainers"> 급등주
+                                        상위</label>
+                                </div>
+                            </div>
+                            <div class="option-group" id="universe-group">
+                                <label class="group-label">수동 종목 지정 (콤마 구분)</label>
+                                <textarea id="universe-input" rows="3" placeholder="예: 005930, 000660"></textarea>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Right: Strategy Settings -->
+                    <section class="card config-card">
+                        <h2>전략 설정</h2>
+                        <div class="strategy-selector">
+                            <label for="strategy-select">전략 선택</label>
+                            <select id="strategy-select">
+                                <option value="" disabled selected>전략을 선택하세요</option>
+                            </select>
+                        </div>
+                        <form id="config-form">
+                            <!-- Config fields will be generated here -->
+                        </form>
+                        <div class="form-actions">
+                            <button id="save-config" class="btn-secondary">설정 저장</button>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="restart-section">
+                    <p class="restart-note">* 설정을 변경한 후에는 반드시 아래 버튼을 눌러 적용해주세요.</p>
+                    <button id="btn-restart" class="btn-warning large-btn">설정 적용 및 재시작</button>
+                </div>
+            </div>
+
+            <!-- Tab 4: Logs -->
+            <div id="tab-logs" class="tab-content">
+                <section class="card logs-card full-height">
+                    <div class="logs-header">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <h2>시스템 로그</h2>
+                            <span class="log-status">실시간 스트리밍 중...</span>
+                        </div>
+                        <a href="/api/logs/download" target="_blank" class="btn-secondary small-btn"
+                            style="text-decoration: none; display: inline-block;">로그 다운로드</a>
+                    </div>
+                    <div id="log-viewer"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+    <script src="/static/app.js?v=8"></script>
+    <script src="/static/chart.js?v=24"></script>
+</body>
+
+</html>
