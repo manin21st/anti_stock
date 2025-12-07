@@ -4,8 +4,12 @@ __pycache__/
 *$py.class
 
 # Logs
-*.log
 logs/
+*.log
+debug_stack.txt
+
+# Data
+data/
 
 # Local State
 portfolio_state.json

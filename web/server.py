@@ -11,6 +11,7 @@ import sys
 import yaml
 import random
 import string
+from utils.data_loader import DataLoader
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -323,3 +324,55 @@ async def inject_trades(request: Request):
             logger.error(traceback.format_exc())
             return {"status": "error", "message": str(e)}
     return {"status": "error", "message": "Engine not initialized"}
+
+# Backtest APIs
+
+@app.post("/api/backtest/check_data")
+async def check_data(request: Request):
+    data = await request.json()
+    symbol = data.get("symbol")
+    start = data.get("start")
+    end = data.get("end")
+    
+    loader = DataLoader()
+    exists = loader.check_availability(symbol, start, end)
+    return {"status": "ok", "exists": exists}
+
+@app.post("/api/backtest/download")
+async def download_data(request: Request):
+    data = await request.json()
+    symbol = data.get("symbol")
+    start = data.get("start")
+    end = data.get("end")
+    
+    loader = DataLoader()
+    try:
+        df = loader.download_data(symbol, start, end)
+        return {"status": "ok", "count": len(df)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/backtest/run")
+async def run_backtest_api(request: Request):
+    if not engine_instance:
+         return {"status": "error", "message": "Engine not initialized"}
+
+    data = await request.json()
+    strategy_id = data.get("strategy_id")
+    symbol = data.get("symbol")
+    start = data.get("start")
+    end = data.get("end")
+    initial_cash = int(data.get("initial_cash", 100000000))
+    
+    try:
+        result = engine_instance.run_backtest(strategy_id, symbol, start, end, initial_cash)
+        if "error" in result:
+             return {"status": "error", "message": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        logger.error(f"Backtest API Failed: {e}")
+        import traceback
+        with open("debug_stack.txt", "w", encoding="utf-8") as f:
+            f.write(str(e) + "\n" + traceback.format_exc())
+        logger.error(traceback.format_exc())
+        return {"status": "error", "message": repr(e)}

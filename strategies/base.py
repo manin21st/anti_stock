@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -46,3 +47,26 @@ class BaseStrategy(ABC):
             
         qty = int(alloc // price)
         return max(qty, 1) # Minimum 1 share
+
+    def check_rate_limit(self, symbol: str, interval_seconds: int = 60) -> bool:
+        """
+        Check if we should proceed with analysis based on rate limits.
+        Returns True if safe to proceed, False if we should skip.
+        """
+        # 1. Bypass checks in simulation mode
+        if getattr(self.market_data, 'simulation_date', None):
+            return True
+            
+        # 2. Check real-time rate limit
+        now = time.time()
+        if not hasattr(self, "_last_analysis_time"):
+            self._last_analysis_time = {}
+            
+        if now - self._last_analysis_time.get(symbol, 0) < interval_seconds:
+            return False
+            
+        self._last_analysis_time[symbol] = now
+        
+        # 3. Add safety sleep for real trading to prevent API burst
+        time.sleep(0.5) 
+        return True

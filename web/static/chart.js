@@ -570,4 +570,68 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('차트 데이터를 불러오는데 실패했습니다.');
         }
     }
+
+    // Expose API for external control
+    window.chartApi = {
+        setMarkers: (events) => {
+            currentMarkers = []; // Reset global markers
+            if (!events || events.length === 0) {
+                candleSeries.setMarkers([]);
+                return;
+            }
+
+            events.forEach((event, index) => {
+                // Ensure event_id exists
+                if (!event.event_id) {
+                    event.event_id = `bt_${Date.now()}_${index}`;
+                }
+                let time = new Date(event.timestamp).getTime() / 1000;
+
+                // For Daily timeframe, use YYYY-MM-DD string to align with candles
+                if (currentChartTimeframe === 'D') {
+                    const d = new Date(event.timestamp);
+                    const pad = (n) => n.toString().padStart(2, '0');
+                    time = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+                }
+
+                let color = '#2196F3';
+                let shape = 'circle';
+                let text = event.event_type || 'Trade';
+
+                if (event.side === 'BUY') {
+                    color = '#26a69a';
+                    shape = 'arrowUp';
+                    text = 'Buy ' + event.qty;
+                } else if (event.side === 'SELL') {
+                    color = '#ef5350';
+                    shape = 'arrowDown';
+                    text = 'Sell ' + event.qty;
+                }
+
+                currentMarkers.push({
+                    time: time,
+                    position: event.side === 'BUY' ? 'belowBar' : 'aboveBar',
+                    color: color,
+                    shape: shape,
+                    text: text,
+                    id: event.event_id
+                });
+            });
+
+            // Sort markers by time
+            currentMarkers.sort((a, b) => {
+                const tA = typeof a.time === 'string' ? new Date(a.time).getTime() : a.time * 1000;
+                const tB = typeof b.time === 'string' ? new Date(b.time).getTime() : b.time * 1000;
+                return tA - tB;
+            });
+
+            candleSeries.setMarkers(currentMarkers);
+            console.log(`[chartApi] Set ${currentMarkers.length} markers from external source.`);
+
+            // Also update Trade Table
+            allTradeEvents = [...events].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            currentPage = 1;
+            renderTradeTable();
+        }
+    };
 });

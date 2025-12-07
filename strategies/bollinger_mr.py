@@ -3,6 +3,10 @@ import pandas as pd
 
 class BollingerMeanReversion(BaseStrategy):
     def on_bar(self, symbol, bar):
+        # Rate Limit Check
+        if not self.check_rate_limit(symbol):
+            return
+
         bars = self.market_data.get_bars(symbol, timeframe=self.config["timeframe"], lookback=60)
         if len(bars) < 20:
             return

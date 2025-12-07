@@ -3,6 +3,10 @@ import pandas as pd
 
 class PreviousHighBreakout(BaseStrategy):
     def on_bar(self, symbol, bar):
+        # Rate Limit Check
+        if not self.check_rate_limit(symbol):
+            return
+
         daily = self.market_data.get_bars(symbol, timeframe="1d", lookback=2)
         if len(daily) < 2:
             return

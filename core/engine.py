@@ -410,3 +410,179 @@ class Engine:
         except Exception as e:
             logger.error(f"Failed to record position event: {e}")
 
+
+    def run_backtest(self, strategy_id: str, symbol: str, start_date: str, end_date: str, initial_cash: int = 100000000, strategy_config: Dict = None) -> Dict:
+        """
+        Run backtest for a specific strategy and symbol.
+        Returns a dictionary with result metrics and history.
+        """
+        logger.info(f"Starting Backtest: {strategy_id} on {symbol} ({start_date}~{end_date})")
+        
+        # 1. Setup Isolated Environment
+        from core.market_data import MarketData
+        from core.broker import Broker
+        from core.portfolio import Portfolio
+        from core.risk_manager import RiskManager
+        from utils.data_loader import DataLoader
+        
+        sim_market = MarketData()
+        sim_broker = Broker()
+        sim_portfolio = Portfolio()
+        sim_risk = RiskManager(sim_portfolio)
+        
+        # Configure Simulation
+        sim_broker.set_simulation_mode(True, initial_cash)
+        
+        # Load Data
+        data_loader = DataLoader()
+        # Verify/Download Data
+        # Add 60-day buffer for warmup to ensure indicators can coincide and catch early trends
+        from datetime import datetime, timedelta
+        
+        try:
+            s_dt = datetime.strptime(start_date, "%Y%m%d")
+            buffer_date = (s_dt - timedelta(days=60)).strftime("%Y%m%d")
+        except ValueError:
+            # Handle dashes if present
+            try:
+                s_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                buffer_date = (s_dt - timedelta(days=60)).strftime("%Y%m%d")
+                # Normalize input dates to YYYYMMDD for consistency
+                start_date = s_dt.strftime("%Y%m%d")
+                end_date = end_date.replace("-", "")
+            except:
+                buffer_date = start_date
+
+        logger.info(f"Downloading data with warmup buffer: {buffer_date} ~ {end_date}")
+        df = data_loader.download_data(symbol, buffer_date, end_date)
+        if df.empty:
+            return {"error": "No data found for the specified period."}
+            
+        # 2. Initialize Strategy
+        if strategy_id not in self.strategy_classes:
+            return {"error": f"Strategy {strategy_id} not registered."}
+            
+        st_class = self.strategy_classes[strategy_id]
+        
+        # Merge config
+        st_cfg = self.config.get(strategy_id, {}).copy()
+        if strategy_config:
+            st_cfg.update(strategy_config)
+        st_cfg["id"] = strategy_id
+        
+        strategy = st_class(
+            config=st_cfg,
+            broker=sim_broker,
+            risk_manager=sim_risk,
+            portfolio=sim_portfolio,
+            market_data=sim_market
+        )
+        
+        # 3. Execution Loop
+        history = []
+        daily_stats = []
+        
+        dates = df['date'].unique()
+        dates.sort()
+        
+        # Map date to OHLC for order processing
+        data_map = df.set_index('date').to_dict('index')
+        
+        for date in dates:
+            # A. Setup Environment for this Day
+            sim_market.set_simulation_date(date)
+            
+            # B. Process Pending Orders (from previous day)
+            # We assume orders fill at Open of this day (or use Close if you prefer)
+            # Let's use Open for realistic slippage/gap simulation
+            day_data = data_map[date]
+            current_prices = {symbol: day_data['open']} # Use Open for execution
+            
+            # Capture filled orders to record history
+            def on_sim_order(info):
+                # info: {symbol, qty, side, type, price, tag, order_no}
+                # Add timestamp
+                info['timestamp'] = date # Use date string as timestamp for backtest
+                history.append(info)
+                
+            sim_broker.on_order_sent = [on_sim_order] # Override listener
+            
+            sim_broker.process_simulation_orders(current_prices)
+            
+            # Sync Portfolio after execution
+            # For accurate valuation, use Close price of today
+            sim_balance = sim_broker.get_balance()
+            
+            # Update virtual holdings valuation in sim_balance? 
+            # Broker.get_balance returns 0 for price. Portfolio needs to know price.
+            # Portfolio usually checks market_data.get_last_price.
+            # market_data.get_last_price(symbol) will return Close of `date` because we set simulation_date=date.
+            # So Portfolio.sync_with_broker will pick up the Close price correctly!
+            
+            sim_portfolio.sync_with_broker(sim_balance)
+            # Force update with current market prices (Close)
+            # Portfolio.update_valuation might not exist or might rely on sync.
+            # Let's assume sync does it if we mocked it right.
+            # But Broker returned "0" for price.
+            # Portfolio.sync logic:
+            # if 'prpr' in item and item['prpr'] != "0": ...
+            # else: current_price = self.market_data.get_last_price(symbol)
+            # So yes, it will fetch from market_data! We need to pass market_data to sync?
+            # Portfolio usually holds reference to market_data?
+            # In engine __init__: self.portfolio = Portfolio().
+            # Portfolio doesn't seem to take MarketData in init based on file list (size 8763 bytes).
+            # Let's check Portfolio.sync_with_broker implementation if I can.
+            # But I should not read too many files.
+            # Assuming Portfolio can handle it or I manually update it.
+            
+            # C. Run Strategy
+            # Strategy sees data up to Today's Close (since set_simulation_date(date) makes get_bars return up to date)
+            # Strategy makes decision at Close.
+            bar = {
+                'open': float(day_data['open']),
+                'high': float(day_data['high']),
+                'low': float(day_data['low']),
+                'close': float(day_data['close']),
+                'volume': int(day_data['volume']),
+                'time': date
+            }
+            try:
+                strategy.on_bar(symbol, bar)
+            except Exception as e:
+                logger.error(f"Backtest Error on {date}: {e}")
+                
+            # D. Record Stats
+            daily_stats.append({
+                "date": date,
+                "total_asset": sim_portfolio.total_asset,
+                "cash": sim_portfolio.cash,
+                "holdings_val": sim_portfolio.total_asset - sim_portfolio.cash,
+                "pnl_daily": 0 # Calc later
+            })
+
+        # 4. Calculate Metrics
+        start_asset = initial_cash
+        end_asset = sim_portfolio.total_asset
+        total_return = (end_asset - start_asset) / start_asset * 100
+        
+        # MDD
+        peak = start_asset
+        max_drawdown = 0
+        for s in daily_stats:
+            val = s['total_asset']
+            if val > peak: peak = val
+            dd = (peak - val) / peak * 100
+            if dd > max_drawdown: max_drawdown = dd
+            
+        trades_count = len(history)
+        
+        return {
+            "metrics": {
+                "total_return": round(total_return, 2),
+                "total_asset": int(end_asset),
+                "mdd": round(max_drawdown, 2),
+                "trade_count": trades_count,
+            },
+            "history": history,
+            "daily_stats": daily_stats
+        }

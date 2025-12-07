@@ -60,25 +60,23 @@ class MovingAverageTrendStrategy(BaseStrategy):
             return # Exit logic done
 
         # 2. Entry Logic (Needs History)
-        # Optimization: Don't fetch history every tick. Run entry logic max once per minute per symbol.
-        now = time.time()
-        if not hasattr(self, "last_analysis_time"):
-            self.last_analysis_time = {}
-        
-        if now - self.last_analysis_time.get(symbol, 0) < 60:
+        # Rate Limit Check
+        if not self.check_rate_limit(symbol):
             return
 
+        # Optimization handled by check_rate_limit
         # Only fetch history if we don't have a position and might want to enter
-        # Rate Limit Optimization: Sleep before fetching to prevent burst
-        time.sleep(0.5)
         bars = self.market_data.get_bars(symbol, timeframe=self.config["timeframe"])
         daily = self.market_data.get_bars(symbol, timeframe="1d")
 
+        # Debug Data Status
+        self.logger.info(f"DEBUG: {symbol} Date={bar.get('date')} Bars={len(bars)} Daily={len(daily)}")
+
         if bars is None or daily is None or len(bars) < 20 or len(daily) < 20:
-            # self.logger.info(f"DEBUG: Insufficient data for {symbol}. Bars: {len(bars) if bars is not None else 'None'}, Daily: {len(daily) if daily is not None else 'None'}")
-            return
+             self.logger.info(f"DEBUG: Insufficient data for {symbol}. Bars: {len(bars)}, Daily: {len(daily)}")
+             return
         
-        self.last_analysis_time[symbol] = now
+        # self.last_analysis_time[symbol] = time.time()  # REMOVED: Redundant and causes AttributeError
 
         # Daily Trend Filter
         ma20_daily_now = daily.close.iloc[-20:].mean()
@@ -87,6 +85,8 @@ class MovingAverageTrendStrategy(BaseStrategy):
         # Check if MA20 is rising and Close > MA20
         trend_up = (ma20_daily_now > ma20_daily_prev) and (daily.close.iloc[-1] > ma20_daily_now)
         
+        self.logger.info(f"DEBUG: Trend Up? {trend_up} (MA20_Now: {ma20_daily_now:.2f}, Close: {daily.close.iloc[-1]})")
+
         if not trend_up: return
 
         # Intraday MA Calculation
@@ -100,6 +100,8 @@ class MovingAverageTrendStrategy(BaseStrategy):
 
         golden_cross = (ma5_prev <= ma20_prev) and (ma5_now > ma20_now)
         vol_ok = volume_now > avg_vol20 * self.config.get("vol_k", 1.5)
+        
+        self.logger.info(f"DEBUG: GC? {golden_cross} Vol_OK? {vol_ok} (Vol: {volume_now} vs Avg*K: {avg_vol20 * self.config.get('vol_k', 1.5):.2f})")
 
         if golden_cross and vol_ok:
             qty = self.calc_position_size(symbol)

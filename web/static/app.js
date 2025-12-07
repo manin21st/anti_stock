@@ -373,6 +373,13 @@ console.log("App.js initializing...");
     }
 
     try {
+        console.log("Initializing backtest...");
+        initBacktest();
+    } catch (e) {
+        console.error("Error initializing backtest:", e);
+    }
+
+    try {
         console.log("Updating status...");
         await updateStatus();
     } catch (e) {
@@ -382,3 +389,196 @@ console.log("App.js initializing...");
     setInterval(updateStatus, 2000);
     console.log("Init complete. Polling started.");
 })();
+
+// Backtest Logic
+function initBacktest() {
+    const btnCheck = document.getElementById("btn-check-data");
+    const btnRun = document.getElementById("btn-run-backtest");
+    const btnViewChart = document.getElementById("btn-view-chart");
+    const statusDiv = document.getElementById("data-status");
+    const strategySelect = document.getElementById("bt-strategy-select");
+
+    // Populate Strategy Select
+    Object.keys(strategyNames).forEach(key => {
+        if (key === "common") return;
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = strategyNames[key];
+        strategySelect.appendChild(opt);
+    });
+
+    // Default dates
+    const today = new Date();
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(today.getMonth() - 1);
+
+    // Format YYYY-MM-DD
+    const pad = (n) => n.toString().padStart(2, '0');
+    const toYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    if (document.getElementById("bt-end-date")) {
+        document.getElementById("bt-end-date").value = toYMD(today);
+        document.getElementById("bt-start-date").value = toYMD(oneMonthAgo);
+    }
+
+    // Check Data Button
+    if (btnCheck) {
+        btnCheck.addEventListener("click", async () => {
+            const symbol = document.getElementById("bt-symbol").value;
+            const start = document.getElementById("bt-start-date").value.replace(/-/g, "");
+            const end = document.getElementById("bt-end-date").value.replace(/-/g, "");
+
+            statusDiv.textContent = "데이터 확인 중...";
+            statusDiv.style.color = "#aaa";
+
+            try {
+                // 1. Check existence
+                const resCheck = await fetch(`${API_BASE}/backtest/check_data`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ symbol, start, end })
+                });
+                const dataCheck = await resCheck.json();
+
+                if (dataCheck.exists) {
+                    statusDiv.textContent = "데이터가 준비되었습니다.";
+                    statusDiv.style.color = "#4ade80"; // green
+                    btnRun.disabled = false;
+                } else {
+                    statusDiv.textContent = "데이터 다운로드 필요. 다운로드 시작...";
+
+                    // 2. Download
+                    const resDown = await fetch(`${API_BASE}/backtest/download`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ symbol, start, end })
+                    });
+                    const dataDown = await resDown.json();
+
+                    if (dataDown.status === "ok") {
+                        statusDiv.textContent = `다운로드 완료 (데이터 ${dataDown.count}건).`;
+                        statusDiv.style.color = "#4ade80";
+                        btnRun.disabled = false;
+                    } else {
+                        statusDiv.textContent = `다운로드 실패: ${dataDown.message}`;
+                        statusDiv.style.color = "#f87171";
+                    }
+                }
+            } catch (e) {
+                statusDiv.textContent = `통신 오류: ${e.message}`;
+                statusDiv.style.color = "#f87171";
+            }
+        });
+    }
+
+    // Run Backtest Button
+    if (btnRun) {
+        btnRun.addEventListener("click", async (e) => {
+            e.preventDefault(); // Prevent form submission
+
+            const symbol = document.getElementById("bt-symbol").value;
+            const start = document.getElementById("bt-start-date").value.replace(/-/g, "");
+            const end = document.getElementById("bt-end-date").value.replace(/-/g, "");
+            const strategy_id = strategySelect.value;
+            const initial_cash = document.getElementById("bt-initial-cash").value;
+
+            if (!strategy_id) {
+                alert("전략을 선택해주세요.");
+                return;
+            }
+
+            btnRun.textContent = "실행 중...";
+            btnRun.disabled = true;
+
+            try {
+                const res = await fetch(`${API_BASE}/backtest/run`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        strategy_id, symbol, start, end, initial_cash
+                    })
+                });
+                const data = await res.json();
+
+                if (data.status === "ok") {
+                    renderBacktestResults(data.result);
+                } else {
+                    alert(`백테스트 실패: ${data.message}`);
+                }
+            } catch (e) {
+                alert(`오류 발생: ${e.message}`);
+            } finally {
+                btnRun.textContent = "백테스트 실행";
+                btnRun.disabled = false;
+            }
+        });
+    }
+
+    // View Chart Button
+    if (btnViewChart) {
+        btnViewChart.addEventListener("click", () => {
+            // Switch to chart tab
+            document.querySelector('[data-tab="tab-chart"]').click();
+
+            // Trigger chart load with backtest params
+            const symbol = document.getElementById("bt-symbol").value;
+            document.getElementById("chart-symbol").value = symbol;
+
+            // Force Daily timeframe for backtest view as we mostly run daily backtests
+            const timeframeSelect = document.getElementById("chart-timeframe");
+            if (timeframeSelect) {
+                timeframeSelect.value = "D";
+            }
+
+            if (window.lastBacktestResult) {
+                console.log("Loading backtest trades into chart...");
+
+                document.getElementById("btn-load-chart").click();
+
+                setTimeout(() => {
+                    if (window.chartApi) {
+                        window.chartApi.setMarkers(window.lastBacktestResult.history);
+                    }
+                }, 1000);
+            }
+        });
+    }
+}
+
+function renderBacktestResults(result) {
+    // Show content
+    document.getElementById("bt-results-placeholder").style.display = "none";
+    document.getElementById("bt-results-content").style.display = "flex";
+
+    // Metrics
+    const m = result.metrics;
+    document.getElementById("bt-total-return").textContent = `${m.total_return}%`;
+    document.getElementById("bt-total-return").className = m.total_return >= 0 ? "value pnl-positive" : "value pnl-negative";
+
+    document.getElementById("bt-final-asset").textContent = formatCurrency(m.total_asset);
+    document.getElementById("bt-mdd").textContent = `${m.mdd}%`;
+    document.getElementById("bt-trade-count").textContent = m.trade_count;
+
+    // Trade Table
+    const tbody = document.querySelector("#bt-trade-table tbody");
+    tbody.innerHTML = "";
+
+    // Reverse order (newest first)
+    const history = [...result.history].reverse();
+
+    history.forEach(trade => {
+        const tr = document.createElement("tr");
+        const typeClass = trade.side === "BUY" ? "type-buy" : "type-sell";
+        tr.innerHTML = `
+            <td>${trade.timestamp}</td>
+            <td class="${typeClass}">${trade.side}</td>
+            <td>${trade.symbol}</td>
+            <td>${trade.qty}</td>
+            <td>${formatCurrency(trade.price)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Save for Chart
+    window.lastBacktestResult = result;
+}

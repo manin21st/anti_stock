@@ -11,6 +11,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import kis_auth as ka
+from utils.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,8 @@ class MarketData:
         self.bars: Dict[str, pd.DataFrame] = {} # symbol -> DataFrame (OHLCV)
         self.subscribers: List[Callable] = []
         self.ws = None
+        self.simulation_date = None
+        self.data_loader = DataLoader()
         self._initialize_api()
 
     def _initialize_api(self):
@@ -40,6 +43,24 @@ class MarketData:
         timeframe: "1m", "3m", "5m", "1d"
         """
         logger.info(f"DEBUG: get_bars called for {symbol}, timeframe={timeframe}, lookback={lookback}")
+        
+        if self.simulation_date:
+            # Simulation Mode
+            # TODO: caching for performance
+            df = self.data_loader.load_data(symbol)
+            if df.empty:
+                return pd.DataFrame()
+            
+            # Filter up to simulation_date
+            df = df[df['date'] <= self.simulation_date]
+            
+            # If minute timeframe requested but we only have daily...
+            # For now, just return daily if timeframe='1d' or 'D', else... we might return empty or daily?
+            # Let's assume if they ask for minute in backtest, we might not support it yet unless we have minute data.
+            # But the user asked for simple backtest first.
+            
+            return df.tail(lookback)
+
         env_dv = "demo" if ka.isPaperTrading() else "real"
         
         if timeframe == "1d":
@@ -128,6 +149,11 @@ class MarketData:
                 logger.info(f"Successfully fetched {len(df)} daily bars for {symbol} (requested {lookback})")
                 return df.tail(lookback)
             else:
+                logger.warning(f"API returned no data for {symbol}. Attempting to load from local storage.")
+                df = self.data_loader.load_data(symbol)
+                if not df.empty:
+                    logger.info(f"Loaded {len(df)} bars from local storage.")
+                    return df.tail(lookback)
                 return pd.DataFrame()
 
         elif timeframe in ["1m", "3m", "5m"]:
@@ -278,8 +304,20 @@ class MarketData:
             callback(data)
 
     
+    def set_simulation_date(self, date_str: Optional[str]):
+        """Set current simulation date (YYYYMMDD) or None to disable"""
+        self.simulation_date = date_str
+        logger.debug(f"MarketData simulation date set to: {date_str}")
+
     def get_last_price(self, symbol: str) -> float:
         """Get the latest price for a symbol"""
+        if self.simulation_date:
+            # In simulation, use the Close price of the current simulation date
+            df = self.get_bars(symbol, timeframe="1d", lookback=1)
+            if not df.empty:
+                return float(df.iloc[-1]['close'])
+            return 0.0
+
         # Use inquire-price API
         env_dv = "demo" if ka.isPaperTrading() else "real"
         tr_id = "FHKST01010100"

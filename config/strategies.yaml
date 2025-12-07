@@ -32,7 +32,7 @@ ma_trend:
   risk_pct: 0.03
   stop_loss_pct: 2
   take_profit1_pct: 3
-  timeframe: 5m
+  timeframe: 1d
   trail_stop_pct: 1.5
   vol_k: 1.5
 system:

@@ -41,6 +41,7 @@
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="tab-portfolio">포트폴리오</button>
             <button class="tab-btn" data-tab="tab-chart">차트</button>
+            <button class="tab-btn" data-tab="tab-backtest">백테스트</button>
             <button class="tab-btn" data-tab="tab-settings">환경 설정</button>
             <button class="tab-btn" data-tab="tab-logs">시스템 로그</button>
         </nav>
@@ -173,7 +174,10 @@
                 </section>
             </div>
 
-            <!-- Tab 3: Settings -->
+            <!-- Tab 3: Backtest -->
+            {% include 'backtest.html' %}
+
+            <!-- Tab 4: Settings -->
             <div id="tab-settings" class="tab-content">
                 <div class="settings-grid">
                     <!-- Left: System Settings -->
@@ -242,7 +246,7 @@
                 </div>
             </div>
 
-            <!-- Tab 4: Logs -->
+            <!-- Tab 5: Logs -->
             <div id="tab-logs" class="tab-content">
                 <section class="card logs-card full-height">
                     <div class="logs-header">
