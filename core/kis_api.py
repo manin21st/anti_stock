@@ -8,7 +8,10 @@ from typing import Dict, Optional, Any
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import kis_auth as ka
+# Add open-trading-api/examples_user to path to import original kis_auth
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "open-trading-api", "examples_user"))
+
+import kis_auth as ka
 
 logger = logging.getLogger(__name__)
 
