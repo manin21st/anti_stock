@@ -6,7 +6,7 @@ from typing import List, Dict
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import kis_auth as ka
+from core import kis_api as ka
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class Scanner:
             "FID_INPUT_DATE_1": ""
         }
         
-        res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/volume-rank", tr_id, "", params)
+        res = ka.issue_request("/uapi/domestic-stock/v1/quotations/volume-rank", tr_id, "", params)
         
         results = []
         if res.isOK():
@@ -83,7 +83,7 @@ class Scanner:
             "FID_INPUT_DATE_1": ""
         }
         
-        res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/volume-rank", tr_id, "", params)
+        res = ka.issue_request("/uapi/domestic-stock/v1/quotations/volume-rank", tr_id, "", params)
         
         results = []
         if res.isOK():
@@ -148,7 +148,7 @@ class Scanner:
             "FID_INPUT_DATE_1": ""
         }
         
-        res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/psearch-result", tr_id, "", params)
+        res = ka.issue_request("/uapi/domestic-stock/v1/quotations/psearch-result", tr_id, "", params)
         
         results = []
         if res.isOK():
@@ -185,7 +185,7 @@ class Scanner:
         
         # Need user_id from config. ka.getTREnv() might have it or we need to look it up.
         # ka._cfg has 'my_htsid'
-        user_id = ka.getEnv().get("my_htsid", "")
+        user_id = ka.get_env().get("my_htsid", "")
         if not user_id:
             logger.error("HTS ID (my_htsid) not found in config. Cannot fetch watchlist.")
             return []
@@ -197,7 +197,7 @@ class Scanner:
             "USER_ID": user_id
         }
         
-        res_group = ka._url_fetch("/uapi/domestic-stock/v1/quotations/intstock-grouplist", tr_id_group, "", params_group)
+        res_group = ka.issue_request("/uapi/domestic-stock/v1/quotations/intstock-grouplist", tr_id_group, "", params_group)
         
         watchlist_symbols = set()
         
@@ -232,7 +232,7 @@ class Scanner:
                     "CNTG_CLS_CODE": ""
                 }
                 
-                res_stock = ka._url_fetch("/uapi/domestic-stock/v1/quotations/intstock-stocklist-by-group", tr_id_stock, "", params_stock)
+                res_stock = ka.issue_request("/uapi/domestic-stock/v1/quotations/intstock-stocklist-by-group", tr_id_stock, "", params_stock)
                 
                 if res_stock.isOK():
                     stocks = res_stock.getBody().output2

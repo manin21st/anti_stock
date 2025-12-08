@@ -28,53 +28,54 @@ class RateLimiter:
         return cls._instance
 
     def _initialize(self):
-        self.max_calls = 10  # Max calls per window
-        self.window = 1.0    # Window size in seconds
-        self.calls = []      # List of timestamps
+        # Target: 2 requests per second (Safe mode for Paper Trading)
+        # Interval: 1.0 / 2 = 0.5 seconds
+        self.min_interval = 0.5
+        self.last_call_time = 0.0
         self.lock = threading.Lock()
 
-    def wait(self):
+    def execute(self, func, *args, **kwargs):
+        """
+        Executes the function with Rate Limiting Lock held.
+        Ensures that no other thread can execute an API call until the interval has passed.
+        """
         with self.lock:
+            # 1. Enforce Interval
             now = time.time()
+            elapsed = now - self.last_call_time
             
-            # Remove calls older than window
-            self.calls = [t for t in self.calls if now - t < self.window]
-            
-            if len(self.calls) >= self.max_calls:
-                # Calculate sleep time to wait until the current window theoretically ends
-                # or just wait for the full window duration to be safe if we want to "reset"
-                # Strategy: Wait until the oldest call expires, or force a small sleep?
-                # User requested: "Window가 초기화될 때까지 강제 지연"
-                
-                # Option 1: Sliding Window (Strict) - Wait until separate calls expire
-                # sleep_time = self.window - (now - self.calls[0])
-                
-                # Option 2: Bucket Reset (Simpler/User's preference?) - Wait remainder of window
-                # If we hit 10 calls in 0.1s, we wait 0.9s.
-                
-                # Let's use a safe logic:
-                earliest_call = self.calls[0]
-                sleep_time = self.window - (now - earliest_call)
-                
-                if sleep_time < 0.05:
-                    sleep_time = 0.05 # Minimum penalty
-                
-                logger.debug(f"Rate Limit Hit ({len(self.calls)} reqs). Sleeping {sleep_time:.3f}s")
+            if elapsed < self.min_interval:
+                sleep_time = self.min_interval - elapsed
+                # logger.debug(f"Rate Limit Sleep: {sleep_time:.3f}s")
                 time.sleep(sleep_time)
-                
-                # After sleep, we can clear calls or re-evaluate.
-                # If we clear, we allow a fresh burst.
-                self.calls = [] 
-                now = time.time() # Update now
-
-            self.calls.append(now)
+            
+            # 2. Execute API Call
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                # 3. Update Timestamp (after execution start, or before? 
+                # Updating here means interval starts AFTER call returns. 
+                # This is safer but slower. 
+                # If we want interval between REQUESTS, update before call.
+                # Let's update before call to maximize throughput while respecting rate limit.
+                pass
+            
+            self.last_call_time = time.time()
+            return result
 
 # Global Instance
 rate_limiter = RateLimiter()
 
-def auth():
+def auth(svr="prod", product=None, url=None):
     """Wrapper for kis_auth.auth"""
-    ka.auth()
+    kwargs = {"svr": svr}
+    if product is not None:
+        kwargs["product"] = product
+    if url is not None:
+        kwargs["url"] = url
+        
+    # Auth probably doesn't need strict rate limiting but good to be safe if it calls API
+    ka.auth(**kwargs)
 
 def is_paper_trading():
     return ka.isPaperTrading()
@@ -82,20 +83,31 @@ def is_paper_trading():
 def get_tr_env():
     return ka.getTREnv()
 
+def get_env():
+    return ka.getEnv()
+
+# Aliases for compatibility
+getTREnv = get_tr_env
+isPaperTrading = is_paper_trading
+
+def issue_request(api_url, ptr_id, tr_cont, params, appendHeaders=None, postFlag=False, hashFlag=True):
+    """
+    Generic wrapper for _url_fetch with Rate Limiting
+    """
+    return rate_limiter.execute(ka._url_fetch, api_url, ptr_id, tr_cont, params, appendHeaders, postFlag, hashFlag)
+
 def fetch_price(symbol: str) -> Dict[str, Any]:
     """
     Wrapper for inquire-price (Current Price)
     TR_ID: FHKST01010100
     """
-    rate_limiter.wait()
-    
     tr_id = "FHKST01010100"
     params = {
         "FID_COND_MRKT_DIV_CODE": "J",
         "FID_INPUT_ISCD": symbol
     }
     
-    res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params)
+    res = rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params)
     
     if res.isOK():
         return res.getBody().output
@@ -108,8 +120,6 @@ def fetch_daily_chart(symbol: str, start_dt: str, end_dt: str, lookback: int = 1
     Wrapper for inquire-daily-itemchartprice
     TR_ID: FHKST03010100
     """
-    rate_limiter.wait()
-    
     tr_id = "FHKST03010100"
     params = {
         "FID_COND_MRKT_DIV_CODE": "J",
@@ -120,16 +130,13 @@ def fetch_daily_chart(symbol: str, start_dt: str, end_dt: str, lookback: int = 1
         "FID_ORG_ADJ_PRC": "1"
     }
     
-    res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params)
-    return res
+    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params)
 
 def fetch_minute_chart(symbol: str, current_time: str) -> Any:
     """
     Wrapper for inquire-time-itemchartprice
     TR_ID: FHKST03010200
     """
-    rate_limiter.wait()
-    
     tr_id = "FHKST03010200"
     params = {
         "FID_COND_MRKT_DIV_CODE": "J",
@@ -139,24 +146,17 @@ def fetch_minute_chart(symbol: str, current_time: str) -> Any:
         "FID_ETC_CLS_CODE": ""
     }
     
-    res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params)
-    return res
+    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params)
 
 def send_order(tr_id: str, params: Dict[str, str]) -> Any:
     """
     Wrapper for order-cash
     """
-    rate_limiter.wait()
-    
     # postFlag=True is standard for orders
-    res = ka._url_fetch("/uapi/domestic-stock/v1/trading/order-cash", tr_id, "", params, postFlag=True)
-    return res
+    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/order-cash", tr_id, "", params, postFlag=True)
 
 def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
     """
     Wrapper for inquire-balance
     """
-    rate_limiter.wait()
-    
-    res = ka._url_fetch("/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params)
-    return res
+    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params)

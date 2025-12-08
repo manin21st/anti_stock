@@ -31,7 +31,7 @@ class Engine:
         svr = "vps" if env_type == "paper" else "prod"
         logger.info(f"DEBUG: Authenticating for {env_type} ({svr})")
         
-        from utils import kis_auth as ka
+        from core import kis_api as ka
         try:
             ka.auth(svr=svr)
         except Exception as e:
@@ -100,7 +100,7 @@ class Engine:
             env_type = self.system_config.get("env_type", "paper")
             svr = "vps" if env_type == "paper" else "prod"
             
-            from utils import kis_auth as ka
+            from core import kis_api as ka
             try:
                 # On restart, we might want to re-auth to be safe
                 if self.restart_requested:
