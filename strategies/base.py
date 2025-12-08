@@ -68,5 +68,5 @@ class BaseStrategy(ABC):
         self._last_analysis_time[symbol] = now
         
         # 3. Add safety sleep for real trading to prevent API burst
-        time.sleep(0.5) 
+        # time.sleep(0.5) # REMOVED: Handled by core.kis_api RateLimiter
         return True

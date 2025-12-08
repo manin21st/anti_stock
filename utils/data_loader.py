@@ -9,7 +9,7 @@ from typing import Optional
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import kis_auth as ka
+from core import kis_api as ka
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ class DataLoader:
                 "FID_ORG_ADJ_PRC": "1"
             }
             
-            res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params)
+            res = ka.fetch_daily_chart(symbol, start_date, current_end_dt)
             
             if res.isOK():
                 chunk_df = pd.DataFrame(res.getBody().output2)
@@ -138,7 +138,7 @@ class DataLoader:
                 if current_end_dt < start_date:
                     break
                     
-                time.sleep(0.3) # Rate limit
+                # time.sleep(0.3) # Rate limit handled by kis_api
             else:
                 logger.error(f"API Error: {res.getErrorMessage()}")
                 break

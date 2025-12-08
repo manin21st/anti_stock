@@ -146,7 +146,7 @@ class Engine:
                 else:
                     logger.error("DEBUG: Failed to fetch balance from Broker")
                 
-                time.sleep(1.0) # Prevent rate limit
+                # time.sleep(1.0) # Prevent rate limit (Handled by RateLimiter)
 
                 # 2. Cache Watchlist
                 target_group = self.system_config.get("watchlist_group_code", "000")
@@ -158,7 +158,7 @@ class Engine:
                     logger.error(f"Failed to cache watchlist: {e}")
                     self.cached_watchlist = []
 
-                time.sleep(1.0) # Prevent rate limit
+                # time.sleep(1.0) # Prevent rate limit (Handled by RateLimiter)
 
                 # 3. Initial Universe Scan
                 self._update_universe()
