@@ -10,7 +10,7 @@ import os
 # Add project root to path to allow imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import kis_auth as ka
+from core import kis_api as ka
 from utils.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ class MarketData:
                     "FID_ORG_ADJ_PRC": "1"
                 }
                 
-                res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params)
+                res = ka.fetch_daily_chart(symbol, start_dt, current_end_dt)
                 
                 if res.isOK():
                     chunk_df = pd.DataFrame(res.getBody().output2)
@@ -138,7 +138,7 @@ class MarketData:
                         logger.info(f"DEBUG: Next end_dt {current_end_dt} < start_dt {start_dt}, breaking.")
                         break
                         
-                    time.sleep(0.25) # Rate limit safety (increased from 0.1)
+                    # time.sleep(0.25) # Rate limit handled by kis_api
                 else:
                     logger.error(f"Failed to fetch chunk: {res.getErrorMessage()}")
                     break
@@ -173,7 +173,7 @@ class MarketData:
                 "FID_ETC_CLS_CODE": ""
             }
             
-            res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params)
+            res = ka.fetch_minute_chart(symbol, current_time)
             
             if res.isOK():
                 df = pd.DataFrame(res.getBody().output2)
@@ -266,7 +266,8 @@ class MarketData:
                 # Rate limiting: 20 req/s max.
                 # With multiple symbols, 0.2s is too fast (5 calls/sec * N symbols).
                 # Increased to 1.0s to be safe.
-                time.sleep(1.0) 
+                # Rate limiting is handled by core.kis_api
+                # time.sleep(1.0) 
 
     def _fetch_and_publish(self, symbol: str):
         """Fetch current price via REST API and publish to subscribers"""
@@ -275,12 +276,10 @@ class MarketData:
             "FID_COND_MRKT_DIV_CODE": "J",
             "FID_INPUT_ISCD": symbol
         }
-        # Use _url_fetch for REST API call
-        res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100", "", params)
+        # Use wrapper for REST API call
+        data = ka.fetch_price(symbol)
         
-        if res.isOK():
-            data = res.getBody().output
-            # Map API response to our 'bar' format
+        if data:
             # API returns strings, need to convert
             current_price = float(data.get('stck_prpr', 0))
             
@@ -327,10 +326,11 @@ class MarketData:
             "FID_INPUT_ISCD": symbol
         }
         
-        res = ka._url_fetch("/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params)
-        if res.isOK():
+        # Use wrapper
+        data = ka.fetch_price(symbol)
+        if data:
             # output: stck_prpr (Current Price)
-            return float(res.getBody().output["stck_prpr"])
+            return float(data.get("stck_prpr", 0))
         else:
             logger.error(f"Failed to get last price for {symbol}")
             return 0.0

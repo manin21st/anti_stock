@@ -7,7 +7,7 @@ import time
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import kis_auth as ka
+from core import kis_api as ka
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class Broker:
         
         logger.info(f"Sending Order: {buy_sell_gb} {symbol} {qty} @ {ord_dv} (Tag: {tag})")
         
-        res = ka._url_fetch("/uapi/domestic-stock/v1/trading/order-cash", tr_id, "", params, postFlag=True)
+        res = ka.send_order(tr_id, params)
         
         if res.isOK():
             logger.info(f"Order Success: {res.getBody().msg1} (Order No: {res.getBody().output['ODNO']})")
@@ -164,7 +164,7 @@ class Broker:
             "CTX_AREA_NK100": ""
         }
         
-        res = ka._url_fetch("/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params)
+        res = ka.get_balance(tr_id, params)
         
         if res.isOK():
             # output1: Holdings list
