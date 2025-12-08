@@ -48,7 +48,7 @@ class BaseStrategy(ABC):
         qty = int(alloc // price)
         return max(qty, 1) # Minimum 1 share
 
-    def check_rate_limit(self, symbol: str, interval_seconds: int = 60) -> bool:
+    def check_rate_limit(self, symbol: str, interval_seconds: int = 5) -> bool:
         """
         Check if we should proceed with analysis based on rate limits.
         Returns True if safe to proceed, False if we should skip.

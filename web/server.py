@@ -268,7 +268,8 @@ def start_server(engine):
     visualization_service = TradeVisualizationService(engine)
     import uvicorn
     # Run in a separate thread
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    # Disable access log to prevent "GET /api/status" spam
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning", access_log=False)
     server = uvicorn.Server(config)
     server.run()
 

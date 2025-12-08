@@ -29,7 +29,7 @@ class VWAPScalping(BaseStrategy):
             if crossed_up:
                 qty = self.calc_position_size(symbol, risk_pct=self.config.get("risk_pct", 0.01))
                 if self.risk.can_open_new_position(symbol, qty):
-                    self.logger.info(f"BUY Signal (VWAP Cross): {symbol} {qty}")
+                    self.logger.info(f"[{symbol}] 매수 진입 (VWAP 상향 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > VWAP: {int(vwap_now):,}원")
                     self.broker.buy_market(symbol, qty, tag=self.config["id"])
             return
 
@@ -38,5 +38,6 @@ class VWAPScalping(BaseStrategy):
         
         # Stop Loss (Below VWAP) or Take Profit
         if close < vwap_now or pnl_pct >= self.config["take_profit_pct"]:
-            self.logger.info(f"SELL Signal (VWAP Exit): {symbol}")
+            reason = "VWAP 이탈" if close < vwap_now else "목표 수익 달성"
+            self.logger.info(f"[{symbol}] 매도 실행 ({reason}) | 수익률: {pnl_pct:.2f}% | 현재가: {int(close):,}원")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])

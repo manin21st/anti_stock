@@ -143,7 +143,8 @@ class Portfolio:
                     max_price=saved_max
                 )
                 if saved_partial:
-                    print(f"DEBUG: Restored {symbol} state: Partial={saved_partial}, Max={saved_max}")
+                    pass
+                    # print(f"DEBUG: Restored {symbol} state: Partial={saved_partial}, Max={saved_max}")
         
         # Remove positions that are no longer in broker
         for sym in list(self.positions.keys()):
@@ -196,13 +197,14 @@ class Portfolio:
             with open("portfolio_state.json", "r", encoding="utf-8") as f:
                 state = json.load(f)
             
-            print(f"DEBUG: Loading portfolio state: {state}")
+            # print(f"DEBUG: Loading portfolio state: {state}")
             for symbol, data in state.items():
                 if symbol in self.positions:
                     pos = self.positions[symbol]
                     pos.partial_taken = data.get("partial_taken", False)
                     pos.max_price = data.get("max_price", pos.current_price)
                     pos.tag = data.get("tag", "")
-                    print(f"DEBUG: Restored state for {symbol}: Partial={pos.partial_taken}, Max={pos.max_price}")
+                    pos.tag = data.get("tag", "")
+                    # print(f"DEBUG: Restored state for {symbol}: Partial={pos.partial_taken}, Max={pos.max_price}")
         except Exception as e:
             print(f"Failed to load portfolio state: {e}")

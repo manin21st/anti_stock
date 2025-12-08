@@ -25,7 +25,7 @@ class BollingerMeanReversion(BaseStrategy):
             if close < lower * 0.99:
                 qty = self.calc_position_size(symbol, risk_pct=self.config.get("risk_pct", 0.03))
                 if self.risk.can_open_new_position(symbol, qty):
-                    self.logger.info(f"BUY Signal (Bollinger Lower): {symbol} {qty}")
+                    self.logger.info(f"[{symbol}] 매수 진입 (볼린저 하단 반등) | 수량: {qty}주 | 현재가: {int(close):,}원 < 하단: {int(lower):,}원")
                     self.broker.buy_market(symbol, qty, tag=self.config["id"])
             return
 
@@ -34,11 +34,11 @@ class BollingerMeanReversion(BaseStrategy):
 
         # Stop Loss
         if pnl_pct <= -self.config["stop_loss_pct"]:
-            self.logger.info(f"SELL Signal (Stop Loss): {symbol} {pnl_pct:.2f}%")
+            self.logger.info(f"[{symbol}] 손절매 (Stop Loss) | 수익률: {pnl_pct:.2f}% (조건: -{self.config['stop_loss_pct']}%)")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
             return
 
         # Mean Reversion Target (MA20)
         if close >= ma20:
-            self.logger.info(f"SELL Signal (Mean Reversion): {symbol} Reached MA20")
+            self.logger.info(f"[{symbol}] 수익 실현 (평균회귀 도달) | 현재가: {int(close):,}원 >= MA20: {int(ma20):,}원 | 수익률: {pnl_pct:.2f}%")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])

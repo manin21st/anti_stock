@@ -25,6 +25,7 @@ logger.addHandler(debug_handler)
 class MarketData:
     def __init__(self):
         self.bars: Dict[str, pd.DataFrame] = {} # symbol -> DataFrame (OHLCV)
+        self._daily_cache: Dict[str, Dict] = {} # symbol -> {'data': df, 'timestamp': time}
         self.subscribers: List[Callable] = []
         self.ws = None
         self.simulation_date = None
@@ -42,8 +43,6 @@ class MarketData:
         Get historical bars.
         timeframe: "1m", "3m", "5m", "1d"
         """
-        logger.info(f"DEBUG: get_bars called for {symbol}, timeframe={timeframe}, lookback={lookback}")
-        
         if self.simulation_date:
             # Simulation Mode
             # TODO: caching for performance
@@ -69,7 +68,16 @@ class MarketData:
             # Increase lookback multiplier to account for weekends/holidays (approx 1.5x trading days + buffer)
             start_dt = (datetime.now() - timedelta(days=int(lookback * 3))).strftime("%Y%m%d") 
             
-            logger.info(f"Fetching daily bars for {symbol}: {start_dt} ~ {end_dt} (lookback={lookback})")
+            # Check Cache (TTL: 60 seconds)
+            cache_key = f"{symbol}_1d_{lookback}"
+            cached = self._daily_cache.get(cache_key)
+            if cached:
+                # If cache is fresh (within 60s) AND date matches
+                if (time.time() - cached['timestamp'] < 60) and (cached['date'] == end_dt):
+                    # logger.debug(f"Using cached daily bars for {symbol}")
+                    return cached['data']
+
+            logger.debug(f"Fetching daily bars for {symbol}: {start_dt} ~ {end_dt} (lookback={lookback})")
             
             tr_id = "FHKST03010100" # Daily chart
             
@@ -98,7 +106,7 @@ class MarketData:
                 
                 if res.isOK():
                     chunk_df = pd.DataFrame(res.getBody().output2)
-                    logger.info(f"DEBUG: Fetched chunk {len(chunk_df)} rows. Range: {start_dt} ~ {current_end_dt}")
+                    # logger.debug(f"Fetched chunk {len(chunk_df)} rows. Range: {start_dt} ~ {current_end_dt}")
 
                     if chunk_df.empty:
                         logger.info("DEBUG: Chunk empty, breaking.")
@@ -123,7 +131,8 @@ class MarketData:
                     
                     if len(chunk_df) < 100:
                         # Less than limit returned, means no more data
-                        logger.info(f"DEBUG: Chunk size {len(chunk_df)} < 100. Continuing to fetch until empty or date limit.")
+                        pass
+                        # logger.debug(f"Chunk size {len(chunk_df)} < 100. Continuing to fetch until empty or date limit.")
                         # break # REMOVED: Premature break causing issues?
                         
                     # Prepare for next chunk
@@ -146,7 +155,15 @@ class MarketData:
             if all_df_list:
                 df = pd.concat(all_df_list).drop_duplicates(subset=['date'])
                 df = df.sort_values("date").reset_index(drop=True)
-                logger.info(f"Successfully fetched {len(df)} daily bars for {symbol} (requested {lookback})")
+                
+                # Update Cache with Timestamp
+                self._daily_cache[cache_key] = {
+                    'data': df.tail(lookback),
+                    'date': end_dt, # Store the date of the data
+                    'timestamp': time.time() # Store when we fetched it (TTL)
+                }
+
+                logger.debug(f"Successfully fetched {len(df)} daily bars for {symbol} (requested {lookback})")
                 return df.tail(lookback)
             else:
                 logger.warning(f"API returned no data for {symbol}. Attempting to load from local storage.")
@@ -158,27 +175,25 @@ class MarketData:
 
         elif timeframe in ["1m", "3m", "5m"]:
             # Minute bars (Intraday)
-            # Note: KIS API 'inquire-time-itemchartprice' only provides TODAY's data.
-            # For 5m, we might need to resample 1m data or use specific 30-min API if available, but usually it's 1m.
-            # KIS API for minute chart usually returns 1-minute data which we can resample.
+            # Fetch multiple pages (30 bars per page) to get sufficient history
+            # We need at least 60-90 minutes for MA20 on 3m chart (20 * 3 = 60 mins)
+            # 1 page = 30 mins (approx). So 3 pages = 90 mins.
             
-            tr_id = "FHKST03010200" # Time chart
-            current_time = datetime.now().strftime("%H%M%S")
+            all_dfs = []
+            target_time = datetime.now().strftime("%H%M%S")
             
-            params = {
-                "FID_COND_MRKT_DIV_CODE": "J",
-                "FID_INPUT_ISCD": symbol,
-                "FID_INPUT_HOUR_1": current_time,
-                "FID_PW_DATA_INCU_YN": "Y", # Include past data (today)
-                "FID_ETC_CLS_CODE": ""
-            }
-            
-            res = ka.fetch_minute_chart(symbol, current_time)
-            
-            if res.isOK():
-                df = pd.DataFrame(res.getBody().output2)
-                # Columns: stck_cntg_hour, stck_prpr, stck_oprc, stck_hgpr, stck_lwpr, cntg_vol, ...
-                df = df.rename(columns={
+            # Fetch up to 3 pages (90 mins history)
+            for _ in range(3):
+                res = ka.fetch_minute_chart(symbol, target_time)
+                if not res.isOK():
+                    break
+                    
+                df_page = pd.DataFrame(res.getBody().output2)
+                if df_page.empty:
+                    break
+                
+                # Normalize columns
+                df_page = df_page.rename(columns={
                     "stck_cntg_hour": "time",
                     "stck_oprc": "open",
                     "stck_hgpr": "high",
@@ -186,32 +201,49 @@ class MarketData:
                     "stck_prpr": "close",
                     "cntg_vol": "volume"
                 })
-                cols = ["open", "high", "low", "close", "volume"]
-                df[cols] = df[cols].apply(pd.to_numeric)
-                df = df.sort_values("time").reset_index(drop=True)
                 
-                # Resample if needed
-                if timeframe != "1m":
-                    # Need datetime index for resampling
-                    # Construct dummy date (today)
-                    today = datetime.now().strftime("%Y%m%d")
-                    df['datetime'] = pd.to_datetime(today + df['time'], format='%Y%m%d%H%M%S')
-                    df = df.set_index('datetime')
-                    
-                    rule = timeframe.replace('m', 'min')
-                    df_resampled = df.resample(rule).agg({
-                        'open': 'first',
-                        'high': 'max',
-                        'low': 'min',
-                        'close': 'last',
-                        'volume': 'sum'
-                    }).dropna()
-                    return df_resampled.tail(lookback)
+                all_dfs.append(df_page)
                 
-                return df.tail(lookback)
-            else:
-                logger.error(f"Failed to get minute bars for {symbol}: {res.getErrorMessage()}")
-                return pd.DataFrame()
+                # Update target_time for next page (oldest time in this page)
+                # The list is usually sorted by time desc or asc?
+                # output2 is usually DESC (recent first). So last item is oldest.
+                # Just in case, sort by time to find oldest.
+                df_page = df_page.sort_values("time") # Ascending
+                oldest_time = df_page.iloc[0]["time"]
+                
+                # If target_time didn't change (e.g. only 1 data point), break to prevent loop
+                if oldest_time >= target_time:
+                    break
+                target_time = oldest_time
+                
+                time.sleep(0.1) # Brief pause
+
+            if not all_dfs:
+                 return pd.DataFrame()
+
+            df = pd.concat(all_dfs).drop_duplicates(subset=['time'])
+            cols = ["open", "high", "low", "close", "volume"]
+            df[cols] = df[cols].apply(pd.to_numeric)
+            df = df.sort_values("time").reset_index(drop=True)
+            
+            # Resample if needed
+            if timeframe != "1m":
+                # Need datetime index for resampling
+                today = datetime.now().strftime("%Y%m%d")
+                df['datetime'] = pd.to_datetime(today + df['time'], format='%Y%m%d%H%M%S')
+                df = df.set_index('datetime')
+                
+                rule = timeframe.replace('m', 'min')
+                df_resampled = df.resample(rule).agg({
+                    'open': 'first',
+                    'high': 'max',
+                    'low': 'min',
+                    'close': 'last',
+                    'volume': 'sum'
+                }).dropna()
+                return df_resampled.tail(lookback)
+            
+            return df.tail(lookback)
         
         return pd.DataFrame()
 
@@ -234,7 +266,8 @@ class MarketData:
     def start_polling(self):
         """Start the polling loop in a background thread"""
         self.is_polling = True
-        self.polling_symbols = [] # Initialize list
+        if not hasattr(self, 'polling_symbols'):
+             self.polling_symbols = [] # Initialize only if not exists
         self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
         self.poll_thread.start()
         logger.info("Market Data Polling Started")

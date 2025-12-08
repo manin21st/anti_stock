@@ -29,7 +29,7 @@ class Engine:
         # Authenticate first
         env_type = self.system_config.get("env_type", "paper")
         svr = "vps" if env_type == "paper" else "prod"
-        logger.info(f"DEBUG: Authenticating for {env_type} ({svr})")
+        logger.info(f"Authenticating for {env_type} ({svr})")
         
         from core import kis_api as ka
         try:
@@ -90,10 +90,10 @@ class Engine:
     def run(self):
         """Main Engine Loop (Blocking)"""
         self.is_running = True
-        self.is_trading = False # Start in standby
+        self.is_trading = True # Start in active mode by default
         
         while self.is_running:
-            logger.info("DEBUG: Engine loop started")
+            logger.info("Engine loop started")
             
             # Re-authenticate if needed (e.g. on restart)
             # Note: Initial auth is done in __init__
@@ -111,7 +111,7 @@ class Engine:
                 self.strategies.clear()
                 
                 active_strategy_id = self.config.get("active_strategy")
-                logger.info(f"DEBUG: Active strategy ID: {active_strategy_id}")
+                logger.info(f"Active strategy ID: {active_strategy_id}")
                 
                 if active_strategy_id and active_strategy_id in self.strategy_classes:
                     strategy_class = self.strategy_classes[active_strategy_id]
@@ -131,20 +131,23 @@ class Engine:
                         market_data=self.market_data
                     )
                     self.strategies[active_strategy_id] = strategy
-                    logger.info(f"DEBUG: Initialized active strategy: {active_strategy_id}")
+                    logger.info(f"Initialized active strategy: {active_strategy_id}")
                 else:
-                    logger.warning(f"DEBUG: No active strategy selected or found: {active_strategy_id}")
+                    logger.warning(f"Strategy not found: {active_strategy_id}")
                 
                 # Sync initial portfolio state
                 # Sync initial portfolio state
                 balance = self.broker.get_balance()
-                logger.info(f"DEBUG: Broker Balance: {balance}")
+                # logger.debug(f"Broker Balance: {balance}")
                 if balance:
                     self.portfolio.sync_with_broker(balance)
                     self.portfolio.load_state()
-                    logger.info(f"DEBUG: Initial Portfolio: Cash={self.portfolio.cash}, Asset={self.portfolio.total_asset}")
+                    
+                    total_asset = int(self.portfolio.total_asset)
+                    cash = int(self.portfolio.cash)
+                    # logger.info(f"[포트폴리오 초기화] 총자산: {total_asset:,}원 | 예수금: {cash:,}원")
                 else:
-                    logger.error("DEBUG: Failed to fetch balance from Broker")
+                    logger.error("브로커 잔고 조회 실패")
                 
                 # time.sleep(1.0) # Prevent rate limit (Handled by RateLimiter)
 
@@ -162,9 +165,16 @@ class Engine:
 
                 # 3. Initial Universe Scan
                 self._update_universe()
+                
+                # Log Initial Universe
+                if hasattr(self.market_data, 'polling_symbols'):
+                     symbols = self.market_data.polling_symbols
+                     # Get names roughly (this is strict map, might be slow if many, but ok for init)
+                     # For display, just codes is fine or use scanner's cache if available.
+                     logger.info(f"[감시 종목 업데이트] 총 {len(symbols)}개: {', '.join(symbols[:10])}{' ...' if len(symbols)>10 else ''}")
 
             except Exception as e:
-                logger.error(f"DEBUG: Initialization failed: {e}")
+                logger.error(f"초기화 실패: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
             
@@ -184,10 +194,21 @@ class Engine:
                         # Optimization: Increase to 60s to avoid rate limits (EGW00201)
                         if time.time() - self.last_scan_time > 60: 
                             self._update_universe()
+                            # Log Updated Universe
+                            if hasattr(self.market_data, 'polling_symbols'):
+                                symbols = self.market_data.polling_symbols
+                                logger.info(f"[감시 종목 업데이트] 총 {len(symbols)}개: {', '.join(symbols[:10])}{' ...' if len(symbols)>10 else ''}")
                     
                     # Heartbeat
+                    # Heartbeat
                     if time.time() - last_heartbeat > 3:
-                        logger.info("Running... (Waiting for market data)")
+                        if int(time.time()) % 60 == 0:  # Log every minute
+                            # System Status Summary
+                            n_monitoring = len(self.market_data.polling_symbols) if hasattr(self.market_data, 'polling_symbols') else 0
+                            n_positions = len(self.portfolio.positions)
+                            total_asset = int(self.portfolio.total_asset)
+                            
+                            logger.info(f"[시스템 정상] 감시: {n_monitoring}종목 | 보유: {n_positions}종목 | 총자산: {total_asset:,}원")
                         last_heartbeat = time.time()
                     
                     # Periodic Portfolio Sync (Every 5 seconds)
@@ -298,7 +319,7 @@ class Engine:
     def register_strategy(self, strategy_class, strategy_id: str):
         """Register a strategy class"""
         self.strategy_classes[strategy_id] = strategy_class
-        logger.info(f"Registered strategy class: {strategy_id}")
+        # logger.info(f"Registered strategy class: {strategy_id}")
 
     def stop(self):
         self.is_running = False
@@ -317,16 +338,11 @@ class Engine:
 
     def on_market_data(self, data: Dict):
         """Handle real-time market data"""
-        # logger.info(f"DEBUG: Engine received data: {data}") # Too verbose for normal use
-        
-        # Probe log to confirm we are getting here
-        # logger.error(f"DEBUG: PROBE - Engine.on_market_data called for {data.get('symbol')}")
-        
-        if not self.is_trading:
-            return
-
         symbol = data.get("symbol")
         if not symbol:
+            return
+        
+        if not self.is_trading:
             return
 
         # logger.info(f"PROBE: Tick received for {symbol} | Price: {data.get('price')}")
