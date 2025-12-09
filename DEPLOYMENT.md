@@ -84,6 +84,26 @@ sudo systemctl start anti_stock
 sudo systemctl enable anti_stock
 ```
 
+### 3. 서비스 관리 및 로그 확인 (필수)
+서비스가 등록된 후에는 아래 명령어들로 상태를 확인하고 관리할 수 있습니다.
+
+```bash
+# 상태 확인 (Active: active (running) 인지 확인)
+sudo systemctl status anti_stock
+
+# 서비스 중지
+sudo systemctl stop anti_stock
+
+# 서비스 시작
+sudo systemctl start anti_stock
+
+# 서비스 재시작 (코드 업데이트 후 필수)
+sudo systemctl restart anti_stock
+
+# 실시간 로그 확인 (실행 중인 프로그램의 출력 보기)
+journalctl -u anti_stock -f
+```
+
 ## 8. 접속 확인
 브라우저에서 `http://<서버_IP_주소>:8000`으로 접속하여 로그인 페이지가 뜨는지 확인합니다.
 (방화벽 설정에서 8000번 포트가 열려 있어야 합니다.)
