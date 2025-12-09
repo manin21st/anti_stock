@@ -12,6 +12,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "open-trading-api", "examples_user"))
 
 import kis_auth as ka
+import requests
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -38,44 +40,127 @@ class RateLimiter:
         """
         Executes the function with Rate Limiting Lock held.
         Ensures that no other thread can execute an API call until the interval has passed.
+        Includes Adaptive Rate Limiting: Retries on EGW00201.
         """
-        with self.lock:
-            # 1. Enforce Interval
-            now = time.time()
-            elapsed = now - self.last_call_time
-            
-            if elapsed < self.min_interval:
-                sleep_time = self.min_interval - elapsed
-                # logger.debug(f"Rate Limit Sleep: {sleep_time:.3f}s")
-                time.sleep(sleep_time)
-            
-            # 2. Execute API Call
-            try:
-                result = func(*args, **kwargs)
-            finally:
-                # 3. Update Timestamp (after execution start, or before? 
-                # Updating here means interval starts AFTER call returns. 
-                # This is safer but slower. 
-                # If we want interval between REQUESTS, update before call.
-                # Let's update before call to maximize throughput while respecting rate limit.
-                pass
-            
-            self.last_call_time = time.time()
-            return result
+        max_retries = 3
+        
+        for attempt in range(max_retries + 1):
+            with self.lock:
+                # 1. Enforce Interval
+                now = time.time()
+                elapsed = now - self.last_call_time
+                
+                if elapsed < self.min_interval:
+                    sleep_time = self.min_interval - elapsed
+                    # logger.debug(f"Rate Limit Sleep: {sleep_time:.3f}s")
+                    time.sleep(sleep_time)
+                
+                # 2. Execute API Call
+                try:
+                    result = func(*args, **kwargs)
+                    
+                    # 3. Check for Rate Limit Error (EGW00201)
+                    is_rate_limit = False
+                    if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
+                        is_rate_limit = True
+                    elif hasattr(result, 'getErrorMessage'):
+                         # Fallback: Check if error message contains the code (EGW00201)
+                         # This handles APIRespError where error code might be HTTP status (e.g. 500)
+                         msg = result.getErrorMessage()
+                         if msg and "EGW00201" in msg:
+                             is_rate_limit = True
 
+                    if is_rate_limit:
+                        if attempt < max_retries:
+                            logger.warning(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off 0.5s... (Attempt {attempt+1}/{max_retries})")
+                            time.sleep(0.5)
+                            self.last_call_time = time.time()
+                            continue # Retry
+                        else:
+                            logger.error("[RateLimiter] Max retries exceeded for rate limit.")
+                    
+                    # 4. Check for Expired Token (EGW00123)
+                    is_expired_token = False
+                    if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00123":
+                        is_expired_token = True
+                    elif hasattr(result, 'getErrorMessage'):
+                        msg = result.getErrorMessage()
+                        if msg and "EGW00123" in msg:
+                            is_expired_token = True
+                            
+                    if is_expired_token:
+                        if attempt < max_retries:
+                            logger.warning(f"[RateLimiter] Token expired (EGW00123). Re-authenticating... (Attempt {attempt+1}/{max_retries})")
+                            # Force Auth logic: Delete token file to ensure fresh token
+                            try:
+                                if hasattr(ka, 'token_tmp') and os.path.exists(ka.token_tmp):
+                                    os.remove(ka.token_tmp)
+                                    logger.info(f"[RateLimiter] Deleted token file to force refresh: {ka.token_tmp}")
+                            except Exception as e:
+                                logger.warning(f"[RateLimiter] Failed to delete token file: {e}")
+
+                            # Force Auth with correct environment
+                            svr = "vps" if ka.isPaperTrading() else "prod"
+                            ka.auth(svr=svr) # This updates the token
+                            
+                            # Update timestamp
+                            self.last_call_time = time.time()
+                            continue # Retry
+                        else:
+                            logger.error("[RateLimiter] Max retries exceeded for token expiration.")
+                    
+                    # Update timestamp
+                    self.last_call_time = time.time()
+                    return result
+
+                except Exception as e:
+                    # In case of real exception, update time and raise
+                    self.last_call_time = time.time()
+                    raise e
+                    
 # Global Instance
 rate_limiter = RateLimiter()
 
-def auth(svr="prod", product=None, url=None):
-    """Wrapper for kis_auth.auth"""
+def auth(svr="prod", product=None, url=None, force=False):
+    """
+    Wrapper for kis_auth.auth
+    If force=True, deletes the token file to ensure a fresh token is requested.
+    """
     kwargs = {"svr": svr}
     if product is not None:
         kwargs["product"] = product
     if url is not None:
         kwargs["url"] = url
+    
+    if force:
+        # Force refresh by deleting the token file
+        try:
+            token_file = ka.token_tmp
+            if os.path.exists(token_file):
+                os.remove(token_file)
+                logger.info(f"[RateLimiter] Deleted token file to force refresh: {token_file}")
+            else:
+                logger.info(f"[RateLimiter] Token file not found (already deleted?): {token_file}")
+        except Exception as e:
+            logger.warning(f"Failed to delete token file: {e}")
         
     # Auth probably doesn't need strict rate limiting but good to be safe if it calls API
     ka.auth(**kwargs)
+    
+    # Update RateLimiter timestamp because auth() makes an API call
+    if rate_limiter:
+        rate_limiter.last_call_time = time.time()
+        logger.info(f"[RateLimiter] Auth completed. Timestamp updated to {rate_limiter.last_call_time}")
+
+def auth_ws(svr="prod", product=None):
+    """
+    Wrapper for kis_auth.auth_ws
+    """
+    kwargs = {"svr": svr}
+    if product is not None:
+        kwargs["product"] = product
+    ka.auth_ws(**kwargs)
+
 
 def is_paper_trading():
     return ka.isPaperTrading()
@@ -86,9 +171,11 @@ def get_tr_env():
 def get_env():
     return ka.getEnv()
 
+
 # Aliases for compatibility
 getTREnv = get_tr_env
 isPaperTrading = is_paper_trading
+KISWebSocket = ka.KISWebSocket
 
 def issue_request(api_url, ptr_id, tr_cont, params, appendHeaders=None, postFlag=False, hashFlag=True):
     """
@@ -160,3 +247,7 @@ def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
     Wrapper for inquire-balance
     """
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params)
+
+
+# (End of file, removed Prod Token and Stock Info functions)
+

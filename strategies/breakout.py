@@ -19,6 +19,8 @@ class PreviousHighBreakout(BaseStrategy):
         if len(bars) < 20:
             return
 
+        stock_name = self.market_data.get_stock_name(symbol)
+
         position = self.portfolio.get_position(symbol)
         close = bars.close.iloc[-1]
         volume_now = bars.volume.iloc[-1]
@@ -33,7 +35,7 @@ class PreviousHighBreakout(BaseStrategy):
             if gap_up and breakout and vol_ok:
                 qty = self.calc_position_size(symbol)
                 if self.risk.can_open_new_position(symbol, qty):
-                    self.logger.info(f"[{symbol}] 매수 진입 (전고점 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > 전고점: {int(prev_high):,}원")
+                    self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (전고점 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > 전고점: {int(prev_high):,}원")
                     self.broker.buy_market(symbol, qty, tag=self.config["id"])
             return
 
@@ -43,7 +45,7 @@ class PreviousHighBreakout(BaseStrategy):
         # Stop Loss: Below Prev High or Fixed %
         if close < prev_high or pnl_pct <= -self.config["stop_loss_pct"]:
             reason = "돌파 실패(전고점 하회)" if close < prev_high else "손절매 조건 도달"
-            self.logger.info(f"[{symbol}] 매도 실행 ({reason}) | 수익률: {pnl_pct:.2f}%")
+            self.logger.info(f"[{symbol} {stock_name}] 매도 실행 ({reason}) | 수익률: {pnl_pct:.2f}%")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
             return
 
@@ -51,6 +53,6 @@ class PreviousHighBreakout(BaseStrategy):
         if (not position.partial_taken) and pnl_pct >= self.config["take_profit1_pct"]:
             half = position.qty // 2
             if half > 0:
-                self.logger.info(f"[{symbol}] 1차 수익 실현 (Partial TP) | 수익률: {pnl_pct:.2f}% | 매도수량: {half}주")
+                self.logger.info(f"[{symbol} {stock_name}] 1차 수익 실현 (Partial TP) | 수익률: {pnl_pct:.2f}% | 매도수량: {half}주")
                 self.broker.sell_market(symbol, half, tag=self.config["id"])
                 position.partial_taken = True

@@ -34,6 +34,7 @@ class Engine:
         from core import kis_api as ka
         try:
             ka.auth(svr=svr)
+            ka.auth_ws(svr=svr) # Also get WebSocket approval key
         except Exception as e:
             logger.error(f"Authentication failed: {e}")
             # We might want to raise here, but let's continue and let components fail if they must
