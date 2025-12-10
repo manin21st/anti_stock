@@ -42,7 +42,7 @@ class Engine:
         self.market_data = MarketData()
         self.broker = Broker()
         self.portfolio = Portfolio()
-        self.risk_manager = RiskManager(self.portfolio)
+        self.risk_manager = RiskManager(self.portfolio, self.config)
         self.scanner = Scanner()
         self.strategies = {} # strategy_id -> Strategy Instance
         self.strategy_classes = {} # strategy_id -> Strategy Class
@@ -116,10 +116,12 @@ class Engine:
                 
                 if active_strategy_id and active_strategy_id in self.strategy_classes:
                     strategy_class = self.strategy_classes[active_strategy_id]
-                    strategy_config = self.config.get(active_strategy_id, {})
                     
-                    if "common" in self.config:
-                        strategy_config.update(self.config["common"])
+                    # Fix 7: Strategy Config Precedence
+                    # Common config as base
+                    strategy_config = self.config.get("common", {}).copy()
+                    # Override with Strategy specific config
+                    strategy_config.update(self.config.get(active_strategy_id, {}))
                     
                     # Ensure ID is set
                     strategy_config["id"] = active_strategy_id
@@ -189,18 +191,45 @@ class Engine:
             last_heartbeat = time.time()
             try:
                 while not self.restart_requested and self.is_running:
-                    # Periodic Scanner Update
+                    # Fix 2 & User Request: Strict Trading Hour Check
+                    if not self._is_trading_hour():
+                        if self.market_data.is_polling:
+                            logger.info("장 운영 시간이 종료되었습니다. 감시를 중단합니다. (KRX: 09:00~15:30)")
+                            self.market_data.stop_polling()
+                        
+                        # Log periodically while waiting
+                        if int(time.time()) % 300 == 0: # Every 5 mins
+                            logger.info("장 운영 시간이 아닙니다. 대기 중... (KRX: 09:00~15:30)")
+                        
+                        time.sleep(1)
+                        continue
+                    else:
+                        # Market IS Open
+                        # Ensure polling is running if trading is active
+                        if self.is_trading and not self.market_data.is_polling:
+                             # Only start if we have symbols?
+                             if hasattr(self.market_data, 'polling_symbols') and self.market_data.polling_symbols:
+                                 logger.info("장 운영 시간입니다. 감시를 재개합니다.")
+                                 self.market_data.start_polling()
+
+                    # Periodic Scanner Update (Only during trading hours)
                     if self.system_config.get("use_auto_scanner", False):
                         # User requested fast updates (e.g. 5-10s). 
                         # Optimization: Increase to 60s to avoid rate limits (EGW00201)
                         if time.time() - self.last_scan_time > 60: 
                             self._update_universe()
+                            # Scanner logic typically updates subscription list
+                            # If polling was stopped, we might need to restart it if symbols added?
+                            # _update_universe should handle subscription. 
+                            # If polling is not running but we are valid, start it.
+                            if self.is_trading and not self.market_data.is_polling:
+                                self.market_data.start_polling()
+                            
                             # Log Updated Universe
                             if hasattr(self.market_data, 'polling_symbols'):
                                 symbols = self.market_data.polling_symbols
                                 logger.info(f"[감시 종목 업데이트] 총 {len(symbols)}개: {', '.join(symbols[:10])}{' ...' if len(symbols)>10 else ''}")
                     
-                    # Heartbeat
                     # Heartbeat
                     if time.time() - last_heartbeat > 3:
                         if int(time.time()) % 60 == 0:  # Log every minute
@@ -214,6 +243,7 @@ class Engine:
                     
                     # Periodic Portfolio Sync (Every 5 seconds)
                     # This ensures manual trades (HTS) are reflected in real-time
+                    # Allowed even outside trading hours? Maybe, for checkups.
                     if time.time() - self.last_sync_time > 5:
                         try:
                             balance = self.broker.get_balance()
@@ -236,6 +266,38 @@ class Engine:
             
             if not self.is_running:
                 break
+
+    def _is_trading_hour(self) -> bool:
+        """Check if current time is within trading hours"""
+        # Allow bypass for simulation/backtest or dev mode?
+        if self.config.get("system", {}).get("env_type") == "dev":
+            return True
+            
+        market_type = self.system_config.get("market_type", "KRX")
+        now = datetime.now()
+        
+        if market_type == "KRX":
+            # Weekends
+            if now.weekday() >= 5: return False
+            
+            # 09:00 ~ 15:30
+            current_time = now.time()
+            # Need to import time class from datetime module if not available?
+            # datetime.now().time() returns datetime.time object
+            # Compare with limits
+            start = now.replace(hour=9, minute=0, second=0, microsecond=0).time()
+            end = now.replace(hour=15, minute=30, second=0, microsecond=0).time()
+            
+            return start <= current_time <= end
+        
+        elif market_type == "NXT":
+            # 08:00 ~ 20:00
+            current_time = now.time()
+            start = now.replace(hour=8, minute=0, second=0, microsecond=0).time()
+            end = now.replace(hour=20, minute=0, second=0, microsecond=0).time()
+            return start <= current_time <= end
+            
+        return True
 
     def _update_universe(self):
         """Update stock universe based on config or scanner"""
@@ -339,6 +401,9 @@ class Engine:
 
     def on_market_data(self, data: Dict):
         """Handle real-time market data"""
+        if not self._is_trading_hour():
+            return
+
         symbol = data.get("symbol")
         if not symbol:
             return

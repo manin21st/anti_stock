@@ -19,9 +19,11 @@ breakout:
   timeframe: 1m
   vol_k: 2
 common:
+  cash_ratio: 0.2
   default_risk_pct: 0.03
   max_positions: 10
   risk_pct: 0.03
+  trail_activation_pct: 3.0
 ma_trend:
   default_risk_pct: 0.03
   enabled: true
@@ -33,6 +35,7 @@ ma_trend:
   stop_loss_pct: 2
   take_profit1_pct: 3
   timeframe: 3m
+  trail_activation_pct: 3.0
   trail_stop_pct: 1.5
   vol_k: 1.5
 system:

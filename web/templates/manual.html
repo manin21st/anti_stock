@@ -209,6 +209,11 @@
             <p class="config-desc">동시에 보유할 수 있는 최대 종목 수입니다.</p>
             <p class="config-example">예시: 10 (최대 10개 종목 보유)</p>
         </div>
+        <div class="config-item">
+            <span class="config-name">cash_ratio</span>
+            <p class="config-desc">미수 방지를 위한 현금 비중입니다. (예: 0.2 = 자산의 20%는 현금 유지, 80%만 투자)</p>
+            <p class="config-example">예시: 0.2 (20%)</p>
+        </div>
 
         <h2>이동평균 추세 추종 (MA Trend)</h2>
         <p>일봉상 상승 추세인 종목에서 분봉상 골든크로스가 발생할 때 매수하는 정석적인 추세 추종 전략입니다.</p>
@@ -222,7 +227,8 @@
                     <li><strong>본전 스탑 (Breakeven Stop)</strong>: 1차 익절 후, 주가가 다시 매수 평균가(본전) 밑으로 떨어지면 남은 물량을 전량 매도하여 손실을
                         방지합니다.</li>
                     <li><strong>트레일링 스탑 (Trailing Stop)</strong>: 주가가 계속 상승하면 매도하지 않고 따라가다가, 고점 대비
-                        <code>trail_stop_pct</code> (예: 1.5%) 이상 하락할 때 전량 매도합니다.
+                        <code>trail_stop_pct</code> (예: 1.5%) 이상 하락할 때 전량 매도합니다. (단, 수익률이
+                        <code>trail_activation_pct</code> 이상일 때부터 작동)
                     </li>
                     <li><strong>손절 (Stop Loss)</strong>: 1차 익절 전, 수익률이 <code>-stop_loss_pct</code>에 도달하면 전량 매도합니다.</li>
                 </ol>
@@ -244,8 +250,13 @@
             <p class="config-example">예시: 2.0 (2%)</p>
         </div>
         <div class="config-item">
+            <span class="config-name">trail_activation_pct</span>
+            <p class="config-desc">트레일링 스탑 발동 기준 수익률입니다. 이 수익률에 도달해야 고점 대비 하락 감시가 시작됩니다.</p>
+            <p class="config-example">예시: 3.0 (3%)</p>
+        </div>
+        <div class="config-item">
             <span class="config-name">trail_stop_pct</span>
-            <p class="config-desc">트레일링 스탑 기준 비율입니다. 고점 대비 이만큼 하락하면 이익 실현/손절합니다.</p>
+            <p class="config-desc">트레일링 스탑 기준 비율입니다. 고점(발동 이후) 대비 이만큼 하락하면 이익 실현합니다.</p>
             <p class="config-example">예시: 1.5 (1.5%)</p>
         </div>
 
