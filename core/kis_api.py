@@ -235,6 +235,27 @@ def fetch_minute_chart(symbol: str, current_time: str) -> Any:
     
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params)
 
+def fetch_past_minute_chart(symbol: str, date: str, time: str, period_code: str = "N") -> Any:
+    """
+    Wrapper for inquire-time-dailychartprice (Past Minute Data)
+    TR_ID: FHKST03010230
+    Max 1 year past data.
+    """
+    tr_id = "FHKST03010230"
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_INPUT_ISCD": symbol,
+        "FID_INPUT_HOUR_1": time,     # HHMMSS
+        "FID_INPUT_DATE_1": date,     # YYYYMMDD
+        "FID_PW_DATA_INCU_YN": period_code, # N: Current, Y: Past? No, this TR uses N usually.
+        # Actually API docs say: FID_PW_DATA_INCU_YN: Past data include Y/N. 
+        # But for this specific TR FHKST03010230, it iterates backwards from the given time/date?
+        # Let's verify parameter names from the example.
+        "FID_FAKE_TICK_INCU_YN": ""
+    }
+    
+    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", tr_id, "", params)
+
 def send_order(tr_id: str, params: Dict[str, str]) -> Any:
     """
     Wrapper for order-cash

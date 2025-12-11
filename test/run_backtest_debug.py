@@ -28,9 +28,10 @@ def main():
         result = engine.run_backtest(
             strategy_id="ma_trend",
             symbol="005930",
-            start_date="20250601",
-            end_date="20251207",
-            initial_cash=100000000
+            start_date="20251209", # recent dates
+            end_date="20251211",
+            initial_cash=100000000,
+            strategy_config={"timeframe": "3m"}
         )
         
         with open("debug_result.txt", "w") as f:
