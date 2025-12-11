@@ -422,3 +422,190 @@ button:hover {
     white-space: pre-wrap;
     word-break: break-all;
 }
+
+/* Backtest Tab (Vertical Layout 20-20-60) */
+.backtest-container-vertical {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 140px);
+    /* Adjust based on header */
+    gap: 15px;
+}
+
+.config-section {
+    flex: 0 0 auto;
+    /* Allow shrink */
+    max-height: 140px;
+    /* Reduced fixed height */
+    overflow-y: hidden;
+    /* No scroll needed if compact */
+    display: flex;
+    flex-direction: column;
+    min-height: 80px;
+    /* Reduced min height */
+}
+
+.results-section {
+    flex: 0 0 auto;
+    /* Allow auto sizing based on content */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    min-height: 160px;
+    /* Increased to fit cards + header */
+}
+
+.logs-section {
+    flex: 1;
+    /* Remaining height */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Config Grid -> Horizontal Flex */
+.config-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: flex-end;
+    /* Align bottoms */
+    padding-bottom: 5px;
+}
+
+.config-grid .form-group {
+    flex: 0 1 auto;
+    /* Allow shrink/grow but default to auto */
+    width: auto;
+    /* Don't take full width */
+    min-width: 140px;
+    margin-right: 10px;
+    display: flex;
+    flex-direction: column;
+    /* Label above input */
+    justify-content: flex-end;
+    /* Align to bottom */
+}
+
+/* Ensure inputs don't overflow */
+.config-grid input,
+.config-grid select {
+    width: 100%;
+}
+
+/* Span-2 override/removal implicitly handled by flex */
+.span-2 {
+    flex: 2 1 auto;
+    min-width: 200px;
+}
+
+.form-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 10px;
+}
+
+
+
+/* Progress Bar */
+.progress-container {
+    width: 100%;
+    height: 24px;
+    background-color: #e2e8f0;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.progress-bar-bg {
+    width: 100%;
+    height: 100%;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    width: 0%;
+    transition: width 0.2s ease;
+}
+
+#bt-progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: bold;
+    color: #1e293b;
+    z-index: 1;
+}
+
+/* Compact Metrics */
+.metric-group.compact {
+    margin-bottom: 0;
+    gap: 10px;
+}
+
+.metric-group.compact .metric {
+    padding: 10px;
+    text-align: center;
+}
+
+.metric-group.compact .value {
+    font-size: 18px;
+}
+
+/* Data Table (Merged) */
+.table-container-scroll {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+}
+
+.data-table th {
+    background: #f1f5f9;
+    font-weight: 600;
+}
+
+.sticky-header th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.data-table td {
+    font-family: 'Consolas', monospace;
+    /* Monospace for numbers */
+}
+
+.border-left {
+    border-left: 2px solid #e2e8f0;
+}
+
+.text-right {
+    text-align: right;
+}
+
+/* Row Highlights */
+.row-buy {
+    background-color: rgba(16, 185, 129, 0.15) !important;
+    /* Light Green */
+}
+
+.row-sell {
+    background-color: rgba(239, 68, 68, 0.15) !important;
+    /* Light Red */
+}
+
+.trade-buy {
+    color: #059669;
+    font-weight: bold;
+}
+
+.trade-sell {
+    color: #dc2626;
+    font-weight: bold;
+}

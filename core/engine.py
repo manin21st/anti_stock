@@ -77,13 +77,59 @@ class Engine:
         self.portfolio.on_position_change.append(self.record_position_event)
 
     def update_system_config(self, new_config: Dict):
-        """Update system configuration"""
-        self.system_config.update(new_config)
-        # Update main config as well so it gets saved
+        """Update system configuration and save to appropriate files"""
+        # 1. Update In-Memory Config (Deep Merge)
+        self._merge_config(self.system_config, new_config)
+        
+        # Update main config wrapper
         if "system" not in self.config:
             self.config["system"] = {}
-        self.config["system"].update(new_config)
-        logger.info(f"System config updated: {self.system_config}")
+        self._merge_config(self.config["system"], new_config)
+        
+        # 2. Reload components
+        if hasattr(self, 'telegram'):
+            self.telegram.reload_config(self.system_config)
+            
+        # 3. Save to Files (Split Strategy vs Secrets)
+        # Load current secrets to preserve valid token/chat_id existing there
+        try:
+            secrets_path = "config/secrets.yaml"
+            with open(secrets_path, "r", encoding="utf-8") as f:
+                secrets_data = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            secrets_data = {}
+            
+        # Ensure 'system' -> 'telegram' structure in secrets
+        if "system" not in secrets_data:
+            secrets_data["system"] = {}
+        if "telegram" not in secrets_data["system"]:
+            secrets_data["system"]["telegram"] = {}
+            
+        # Extract telegram config from new_config/system_config to update secrets
+        # We use system_config because it contains the latest merged state (including UI updates)
+        current_telegram_config = self.system_config.get("telegram", {})
+        
+        # Update secrets_data with current telegram config
+        # We only strictly need to update what changed, but syncing the whole telegram block is safer
+        secrets_data["system"]["telegram"].update(current_telegram_config)
+        
+        # Save Secrets
+        with open(secrets_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(secrets_data, f, allow_unicode=True, default_flow_style=False)
+            
+        # Save Strategies (Exclude Telegram)
+        # Create a clean copy of config for strategies.yaml
+        import copy
+        strategies_data = copy.deepcopy(self.config)
+        
+        # Remove telegram from system in strategies_data
+        if "system" in strategies_data and "telegram" in strategies_data["system"]:
+            del strategies_data["system"]["telegram"]
+            
+        with open("config/strategies.yaml", "w", encoding="utf-8") as f:
+            yaml.safe_dump(strategies_data, f, allow_unicode=True, default_flow_style=False)
+            
+        logger.info(f"System config saved. Telegram config -> secrets.yaml, Others -> strategies.yaml")
 
     def restart(self):
         """Restart the engine with new settings"""
@@ -532,7 +578,7 @@ class Engine:
             logger.error(f"Failed to record position event: {e}")
 
 
-    def run_backtest(self, strategy_id: str, symbol: str, start_date: str, end_date: str, initial_cash: int = 100000000, strategy_config: Dict = None) -> Dict:
+    def run_backtest(self, strategy_id: str, symbol: str, start_date: str, end_date: str, initial_cash: int = 100000000, strategy_config: Dict = None, progress_callback=None) -> Dict:
         """
         Run backtest for a specific strategy and symbol.
         Returns a dictionary with result metrics and history.
@@ -553,6 +599,8 @@ class Engine:
         
         # Configure Simulation
         sim_broker.set_simulation_mode(True, initial_cash)
+        sim_portfolio.cash = float(initial_cash)
+        sim_portfolio.total_asset = float(initial_cash)
         
         # Determine Timeframe early
         temp_cfg = self.config.get(strategy_id, {}).copy()
@@ -620,7 +668,11 @@ class Engine:
             dates.sort()
             data_map = df.set_index('date').to_dict('index')
             
-            for date in dates:
+            total_days = len(dates)
+            for i, date in enumerate(dates):
+                if progress_callback:
+                    progress_callback("progress", int((i / total_days) * 100))
+
                 # Daily Loop Logic (Existing)
                 sim_market.set_simulation_date(date)
                 day_data = data_map[date]
@@ -645,8 +697,8 @@ class Engine:
             df = df.set_index('datetime').sort_index()
             
             # Resample
-            # timeframe "3m" -> "3T"
-            rule = tf.replace("m", "T")
+            # timeframe "3m" -> "3min" (Pandas future warning fix)
+            rule = tf.replace("m", "min")
             
             resampled = df.resample(rule).agg({
                 'date': 'first', # Keep date string
@@ -661,7 +713,11 @@ class Engine:
             # Loop
             current_date_str = None
             
-            for dt, row in resampled.iterrows():
+            total_bars = len(resampled)
+            for i, (dt, row) in enumerate(resampled.iterrows()):
+                if progress_callback and i % 10 == 0: # Throttle updates
+                    progress_callback("progress", int((i / total_bars) * 100))
+
                 date_str = row['date']
                 
                 # Update Day context if changed
@@ -759,6 +815,8 @@ class Engine:
         def on_sim_order(info):
             info['timestamp'] = f"{date} {bar.get('time', '')}"
             history.append(info)
+            if progress_callback:
+                 progress_callback("trade_event", info)
         broker.on_order_sent = [on_sim_order]
 
         broker.process_simulation_orders(current_prices)

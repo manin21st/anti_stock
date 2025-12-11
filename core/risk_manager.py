@@ -16,29 +16,16 @@ class RiskManager:
             logger.warning(f"Risk Check Failed: Max positions reached ({len(self.portfolio.positions)})")
             return False
         
-        # 2. Financial Check (Fix 1: D+2 Deposit & Cash Ratio)
+        # 2. Financial Check (Fix 1: D+2 Deposit)
         # Estimated Cost (Trading Fee + Tax buffer ~ 0.25% for safety)
         estimated_cost = qty * price * 1.0025
         
         # D+2 Deposit Check
-        # We must ensure that after this purchase, D+2 deposit remains positive
-        # And also respect Cash Ratio
-        
-        cash_ratio = self.config.get("common", {}).get("cash_ratio", 0.2)
-        total_asset = self.portfolio.total_asset
-        
-        # Required Cash to maintain ratio
-        required_cash = total_asset * cash_ratio
-        
-        # Available Cash for Betting = (D+2 Deposit) - Required Cash
-        # But we should use the smaller of D+2 or Cash? Usually D+2 is the constraint for settlement.
-        available_deposit = self.portfolio.deposit_d2
-        
-        # Effective Buying Power
-        buying_power = available_deposit - required_cash
+        # We use D+2 deposit as the buying power limit
+        buying_power = self.portfolio.deposit_d2
         
         if buying_power < estimated_cost:
-            logger.warning(f"[매수 거부] {symbol} | 필요금액: {int(estimated_cost):,}원 | 가용 D+2: {int(available_deposit):,}원 | 한도(현금비중 고려): {int(buying_power):,}원")
+            logger.warning(f"[매수 거부] {symbol} | 필요금액: {int(estimated_cost):,}원 | 가용 D+2: {int(buying_power):,}원")
             return False
             
         return True

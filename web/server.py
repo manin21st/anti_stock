@@ -164,15 +164,8 @@ async def get_system_config():
 async def update_system_config(request: Request):
     data = await request.json()
     if engine_instance:
-        engine_instance.system_config.update(data)
-        # Save to file (assuming system_config is part of strategies.yaml or separate)
-        # For now, we just update in memory and maybe save to strategies.yaml under 'system' key
-        if "system" not in engine_instance.config:
-            engine_instance.config["system"] = {}
-        engine_instance.config["system"].update(data)
-        
-        with open("config/strategies.yaml", "w", encoding="utf-8") as f:
-            yaml.dump(engine_instance.config, f)
+        # Delegate update and saving to Engine to handle config splitting (strategies vs secrets)
+        engine_instance.update_system_config(data)
         return {"status": "ok"}
     return {"status": "error", "message": "Engine not initialized"}
 
@@ -357,27 +350,117 @@ async def download_data(request: Request):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.post("/api/backtest/run")
-async def run_backtest_api(request: Request):
-    if not engine_instance:
-         return {"status": "error", "message": "Engine not initialized"}
-
+@app.post("/api/backtest/data")
+async def get_backtest_data(request: Request):
     data = await request.json()
-    strategy_id = data.get("strategy_id")
     symbol = data.get("symbol")
     start = data.get("start")
     end = data.get("end")
-    initial_cash = int(data.get("initial_cash", 100000000))
     
     try:
-        result = engine_instance.run_backtest(strategy_id, symbol, start, end, initial_cash)
-        if "error" in result:
-             return {"status": "error", "message": result["error"]}
-        return {"status": "ok", "result": result}
+        loader = DataLoader()
+        
+        # Determine timeframe from strategy config if provided
+        strategy_id = data.get("strategy_id")
+        timeframe = "D" # default
+        
+        if strategy_id:
+            try:
+                import yaml
+                config_path = os.path.join(os.getcwd(), "config", "strategies.yaml")
+                if os.path.exists(config_path):
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        config = yaml.safe_load(f)
+                        if config and strategy_id in config:
+                            timeframe = config[strategy_id].get("timeframe", "D")
+            except Exception as e:
+                logging.warning(f"Failed to load strategy config: {e}")
+
+        # Load with a bit of buffer for accurate MAs if possible? 
+        # But UI usually requests specific range. calculate MA on visible range is fine for now.
+        # Or load calculation buffer? DataLoader.load_data filters by date.
+        # Standard practice: Load extra, calc MA, slice.
+        # But DataLoader doesn't support "load extra" easily without knowing dates.
+        # We will just calc on what we have. First 20 rows might have invalid MAs.
+        df = loader.load_data(symbol, start, end, timeframe=timeframe)
+        
+        if not df.empty:
+            # Calculate MAs
+            df['ma5'] = df['close'].rolling(window=5).mean().fillna(0)
+            df['ma20'] = df['close'].rolling(window=20).mean().fillna(0)
+            
+            # Convert to records (handle NaNs? fillna(0) done)
+            # Replace NaN/Info with None for JSON standard compliance if needed, but to_dict handles it.
+            # Handle Timestamp objects if any (to_dist 'records' keeps them?)
+            # Usually need to convert index/date to string if it's not.
+            # DataLoader usually returns 'date' column as string or datetime?
+            # We need to ensure it's JSON serializable.
+            # Assuming loader returns standardized dataframe.
+            
+            # Drop NaN rows at the start if necessary or keep them as 0
+            df = df.fillna(0)
+            
+            records = df.to_dict('records')
+            return {"status": "ok", "data": records}
+        
+        return {"status": "error", "message": "No data found"}
+
     except Exception as e:
-        logger.error(f"Backtest API Failed: {e}")
+        logging.error(f"Data Fetch Error: {e}")
         import traceback
-        with open("debug_stack.txt", "w", encoding="utf-8") as f:
-            f.write(str(e) + "\n" + traceback.format_exc())
+        logging.error(traceback.format_exc())
+        return {"status": "error", "message": str(e)}
+
+@app.websocket("/ws/backtest")
+async def backtest_websocket(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        # 1. Receive Configuration
+        data = await websocket.receive_json()
+        
+        strategy_id = data.get("strategy_id")
+        symbol = data.get("symbol")
+        start = data.get("start")
+        end = data.get("end")
+        initial_cash = int(data.get("initial_cash", 100000000))
+        
+        if not engine_instance:
+             await websocket.send_json({"type": "error", "message": "Engine not initialized"})
+             return
+
+        # Callback for progress and events
+        def progress_callback(event_type, payload):
+            # Run in main loop
+            asyncio.run_coroutine_threadsafe(
+                websocket.send_json({"type": event_type, "data": payload}), 
+                server_loop
+            )
+
+        # 2. Run Backtest (Blocking, so run in Executor)
+        # engine_instance.run_backtest is synchronous
+        loop = asyncio.get_running_loop()
+        
+        result = await loop.run_in_executor(
+            None, 
+            lambda: engine_instance.run_backtest(
+                strategy_id, symbol, start, end, initial_cash, 
+                progress_callback=progress_callback
+            )
+        )
+
+        # 3. Send Final Result
+        if "error" in result:
+             await websocket.send_json({"type": "error", "message": result["error"]})
+        else:
+             await websocket.send_json({"type": "result", "result": result})
+             
+    except WebSocketDisconnect:
+        logger.info("Backtest WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Backtest WS Error: {e}")
+        import traceback
         logger.error(traceback.format_exc())
-        return {"status": "error", "message": repr(e)}
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass

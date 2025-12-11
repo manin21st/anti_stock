@@ -1,99 +1,100 @@
 <div id="tab-backtest" class="tab-content">
-    <div class="backtest-container" style="display: flex; gap: 20px; height: 100%;">
-        <!-- Left: Configuration -->
-        <section class="card config-card" style="flex: 1; min-width: 300px;">
-            <h2>백테스트 설정</h2>
-            <form id="backtest-form">
+    <div class="backtest-container-vertical">
+        <!-- Top: Configuration (20%) -->
+        <section class="card config-section">
+            <div class="section-header">
+                <h2>1. 백테스트 설정</h2>
+            </div>
+            <form id="backtest-form" class="config-grid">
                 <div class="form-group">
                     <label>종목 코드</label>
                     <input type="text" id="bt-symbol" value="005930" placeholder="예: 005930">
                 </div>
                 <div class="form-group">
-                    <label>기간 설정</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="date" id="bt-start-date">
-                        <span style="align-self: center;">~</span>
-                        <input type="date" id="bt-end-date">
-                    </div>
+                    <label>시작일</label>
+                    <input type="date" id="bt-start-date">
+                </div>
+                <div class="form-group">
+                    <label>종료일</label>
+                    <input type="date" id="bt-end-date">
                 </div>
                 <div class="form-group">
                     <label>초기 자본금</label>
                     <input type="number" id="bt-initial-cash" value="100000000" step="1000000">
                 </div>
-                <div class="form-group">
+                <div class="form-group span-2">
                     <label>전략 선택</label>
                     <select id="bt-strategy-select">
                         <option value="" disabled selected>전략을 선택하세요</option>
                     </select>
                 </div>
-
-                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #444;">
-                    <button type="button" id="btn-check-data" class="btn-secondary"
-                        style="width: 100%; margin-bottom: 10px;">
-                        데이터 확인 및 다운로드
-                    </button>
-                    <div id="data-status"
-                        style="font-size: 12px; color: #aaa; margin-bottom: 15px; text-align: center;"></div>
-
-                    <button type="submit" id="btn-run-backtest" class="btn-primary large-btn" disabled>
-                        백테스트 실행
-                    </button>
+                <div class="form-actions">
+                    <button type="button" id="btn-check-data" class="btn-secondary">데이터 조회</button>
+                    <button type="submit" id="btn-run-backtest" class="btn-primary" disabled>백테스트 실행</button>
                 </div>
             </form>
         </section>
 
-        <!-- Right: Results -->
-        <section class="card results-card" style="flex: 2; display: flex; flex-direction: column;">
-            <h2>백테스트 결과</h2>
-            <div id="bt-results-placeholder"
-                style="flex: 1; display: flex; align-items: center; justify-content: center; color: #666;">
-                <p>설정을 완료하고 실행 버튼을 눌러주세요.</p>
+        <!-- Middle: Results & Progress (20%) -->
+        <section class="card results-section">
+            <div class="section-header">
+                <h2>2. 실행 결과</h2>
+                <div id="bt-status" class="status-text">대기 중</div>
             </div>
 
-            <div id="bt-results-content" style="display: none; height: 100%; flex-direction: column;">
-                <!-- KPI Cards -->
-                <div class="metric-group">
-                    <div class="metric">
-                        <span class="label">총 수익률</span>
-                        <span class="value" id="bt-total-return">0.00%</span>
-                    </div>
-                    <div class="metric">
-                        <span class="label">최종 자산</span>
-                        <span class="value" id="bt-final-asset">0</span>
-                    </div>
-                    <div class="metric">
-                        <span class="label">MDD</span>
-                        <span class="value" id="bt-mdd">0.00%</span>
-                    </div>
-                    <div class="metric">
-                        <span class="label">매매 횟수</span>
-                        <span class="value" id="bt-trade-count">0</span>
-                    </div>
+            <div class="progress-container">
+                <div class="progress-bar-bg">
+                    <div id="bt-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
                 </div>
+                <span id="bt-progress-text">0%</span>
+            </div>
 
-                <!-- Action Button -->
-                <div style="margin: 20px 0; text-align: right;">
-                    <button id="btn-view-chart" class="btn-secondary">차트에서 상세 보기</button>
+            <div class="metric-group compact">
+                <div class="metric">
+                    <span class="label">총 수익률</span>
+                    <span class="value" id="bt-total-return">0.00%</span>
                 </div>
+                <div class="metric">
+                    <span class="label">최종 자산</span>
+                    <span class="value" id="bt-final-asset">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">MDD</span>
+                    <span class="value" id="bt-mdd">0.00%</span>
+                </div>
+                <div class="metric">
+                    <span class="label">매매 횟수</span>
+                    <span class="value" id="bt-trade-count">0</span>
+                </div>
+            </div>
+        </section>
 
-                <!-- Trade List (Simple) -->
-                <h3>최근 매매 로그</h3>
-                <div class="table-container" style="flex: 1; overflow-y: auto;">
-                    <table id="bt-trade-table">
-                        <thead>
-                            <tr>
-                                <th>일자</th>
-                                <th>유형</th>
-                                <th>종목</th>
-                                <th>수량</th>
-                                <th>가격</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Rows -->
-                        </tbody>
-                    </table>
-                </div>
+        <!-- Bottom: Data & Logs (60%) -->
+        <section class="card logs-section">
+            <div class="section-header">
+                <h2>3. 데이터 및 매매 로그</h2>
+                <button id="btn-view-chart" class="btn-secondary small-btn" style="display:none;">차트 보기</button>
+            </div>
+            <div class="table-container-scroll">
+                <table id="bt-trade-table" class="data-table">
+                    <thead class="sticky-header">
+                        <tr>
+                            <!-- Base Data -->
+                            <th>일시</th>
+                            <th class="text-right">종가</th>
+                            <th class="text-right">이평(5)</th>
+                            <th class="text-right">이평(20)</th>
+                            <th class="text-right">거래량</th>
+                            <!-- Trade Info (Filled during execution) -->
+                            <th class="border-left">매매유형</th>
+                            <th class="text-right">수량</th>
+                            <th class="text-right">체결가</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Rows will be populated here -->
+                    </tbody>
+                </table>
             </div>
         </section>
     </div>
