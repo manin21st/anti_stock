@@ -15,6 +15,7 @@ from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
 from core.scanner import Scanner
 from core.visualization import TradeEvent
+from core.telegram import TelegramBot
 from datetime import datetime
 import uuid
 # strategies will be imported dynamically or explicitly
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 class Engine:
     def __init__(self, config_path: str = "config/strategies.yaml"):
         self.config = self._load_config(config_path)
+        
+        # Load secrets and merge
+        secrets = self._load_config("config/secrets.yaml")
+        if secrets:
+            self._merge_config(self.config, secrets)
+            logger.info("Loaded secrets from config/secrets.yaml")
+            
         self.system_config = self.config.get("system", {"env_type": "paper", "market_type": "KRX"})
         
         # Authenticate first
@@ -43,7 +51,11 @@ class Engine:
         self.broker = Broker()
         self.portfolio = Portfolio()
         self.risk_manager = RiskManager(self.portfolio, self.config)
+        self.risk_manager = RiskManager(self.portfolio, self.config)
         self.scanner = Scanner()
+        self.telegram = TelegramBot(self.system_config)
+        self.telegram.send_system_alert("🚀 <b>System Started</b>\nAnti-Stock Engine Initialized.")
+        
         self.strategies = {} # strategy_id -> Strategy Instance
         self.strategy_classes = {} # strategy_id -> Strategy Class
         
@@ -379,6 +391,14 @@ class Engine:
             logger.error(f"Failed to load config: {e}")
             return {}
 
+    def _merge_config(self, base: Dict, update: Dict):
+        """Recursively merge update dict into base dict"""
+        for k, v in update.items():
+            if isinstance(v, dict) and k in base and isinstance(base[k], dict):
+                self._merge_config(base[k], v)
+            else:
+                base[k] = v
+
     def register_strategy(self, strategy_class, strategy_id: str):
         """Register a strategy class"""
         self.strategy_classes[strategy_id] = strategy_class
@@ -461,6 +481,15 @@ class Engine:
             )
             self.trade_history.append(event)
             logger.info(f"Recorded Order Event: {event.event_type} {event.symbol}")
+            
+            # Telegram Alert
+            self.telegram.send_trade_event(
+                event_type="ORDER_SUBMITTED",
+                symbol=order_info["symbol"],
+                price=float(order_info["price"]),
+                qty=int(order_info["qty"]),
+                side=order_info["side"]
+            )
         except Exception as e:
             logger.error(f"Failed to record order event: {e}")
 
@@ -489,6 +518,15 @@ class Engine:
             )
             self.trade_history.append(event)
             logger.info(f"Recorded Position Event: {event.event_type} {event.symbol}")
+
+            # Telegram Alert
+            self.telegram.send_trade_event(
+                event_type=event_type,
+                symbol=change_info["symbol"],
+                price=float(change_info["price"]),
+                qty=int(change_info["qty"]),
+                side=side
+            )
         except Exception as e:
             logger.error(f"Failed to record position event: {e}")
 

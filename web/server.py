@@ -42,6 +42,10 @@ def generate_otp():
     print("\n" + "="*40)
     print(f" [LOGIN OTP] 인증코드: {AUTH_OTP}")
     print("="*40 + "\n")
+    
+    if engine_instance and hasattr(engine_instance, 'telegram'):
+        engine_instance.telegram.send_otp(AUTH_OTP)
+        
     return AUTH_OTP
 
 # Logger setup to capture logs for streaming

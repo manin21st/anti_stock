@@ -76,7 +76,7 @@ class TradeVisualizationService:
                     # Expected: { time: '2019-04-11', open: 80.01, high: 96.63, low: 76.6, close: 88.65 }
                     # or { time: 1554940800, ... } (seconds)
                     
-                    for _, row in df.iterrows():
+                    for dt_idx, row in df.iterrows():
                         # Handle time format
                         # Daily: YYYYMMDD -> YYYY-MM-DD string
                         # Minute: HHMMSS -> We need full datetime for chart
@@ -86,8 +86,11 @@ class TradeVisualizationService:
                             d = str(row['date'])
                             chart_time = f"{d[:4]}-{d[4:6]}-{d[6:]}"
                         else:
-                            # Minute bars have 'time' column (HHMMSS) or 'datetime' index if resampled
-                            if 'datetime' in row:
+                            # If index is datetime (resampled 3m, 5m data)
+                            if isinstance(dt_idx, datetime):
+                                chart_time = dt_idx.timestamp()
+                            # Minute bars (1m) have 'time' column (HHMMSS) or 'datetime' index if resampled
+                            elif 'datetime' in row:
                                 chart_time = row['datetime'].timestamp() # Seconds
                             elif 'time' in row:
                                 # Assume today
@@ -99,11 +102,11 @@ class TradeVisualizationService:
                         if chart_time:
                             candles.append({
                                 "time": chart_time,
-                                "open": row['open'],
-                                "high": row['high'],
-                                "low": row['low'],
-                                "close": row['close'],
-                                "volume": row['volume']
+                                "open": float(row['open']),
+                                "high": float(row['high']),
+                                "low": float(row['low']),
+                                "close": float(row['close']),
+                                "volume": int(row['volume'])
                             })
                     
                     # Calculate RSI
@@ -116,19 +119,21 @@ class TradeVisualizationService:
                     # Add RSI data to response
                     # We need to match the time with candles
                     rsi_data = []
-                    for _, row in df.iterrows():
+                    for dt_idx, row in df.iterrows():
                         chart_time = None
                         # ... (reuse time logic or just iterate zipped)
                         # To be safe and simple, let's just re-use the time logic or map it.
                         # Since we iterate df again, it's fine.
                         
-                        # Copy-paste time logic for brevity or refactor? 
-                        # Refactoring is better but I'll duplicate for safety in this patch.
                         if md_timeframe == "1d":
                             d = str(row['date'])
                             chart_time = f"{d[:4]}-{d[4:6]}-{d[6:]}"
                         else:
-                            if 'datetime' in row:
+                             # If index is datetime (resampled 3m, 5m data)
+                            if isinstance(dt_idx, datetime):
+                                chart_time = dt_idx.timestamp()
+                            # Minute bars have 'time' column (HHMMSS) or 'datetime' index if resampled
+                            elif 'datetime' in row:
                                 chart_time = row['datetime'].timestamp()
                             elif 'time' in row:
                                 t = str(row['time'])
@@ -139,7 +144,7 @@ class TradeVisualizationService:
                         if chart_time and not pd.isna(row['rsi']):
                             rsi_data.append({
                                 "time": chart_time,
-                                "value": row['rsi']
+                                "value": float(row['rsi'])
                             })
 
                     # Calculate Moving Averages
@@ -149,14 +154,17 @@ class TradeVisualizationService:
                         df[f'ma_{period}'] = df['close'].rolling(window=period).mean()
                         
                         series_data = []
-                        for _, row in df.iterrows():
+                        for dt_idx, row in df.iterrows():
                             # Reuse time logic (simplified for brevity, ideally refactor time extraction)
                             chart_time = None
                             if md_timeframe == "1d":
                                 d = str(row['date'])
                                 chart_time = f"{d[:4]}-{d[4:6]}-{d[6:]}"
                             else:
-                                if 'datetime' in row:
+                                 # If index is datetime (resampled 3m, 5m data)
+                                if isinstance(dt_idx, datetime):
+                                    chart_time = dt_idx.timestamp()
+                                elif 'datetime' in row:
                                     chart_time = row['datetime'].timestamp()
                                 elif 'time' in row:
                                     t = str(row['time'])
@@ -167,7 +175,7 @@ class TradeVisualizationService:
                             if chart_time and not pd.isna(row[f'ma_{period}']):
                                 series_data.append({
                                     "time": chart_time,
-                                    "value": row[f'ma_{period}']
+                                    "value": float(row[f'ma_{period}'])
                                 })
                         ma_data[f'ma_{period}'] = series_data
 

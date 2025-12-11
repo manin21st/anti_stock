@@ -13,6 +13,7 @@ data/
 
 # Local State
 portfolio_state.json
+config/secrets.yaml
 .env
 
 # IDE

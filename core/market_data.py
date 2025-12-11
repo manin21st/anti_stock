@@ -258,7 +258,7 @@ class MarketData:
                     return df.tail(lookback)
                 return pd.DataFrame()
 
-        elif timeframe in ["1m", "3m", "5m"]:
+        elif timeframe in ["1m", "3m", "5m", "10m", "15m", "30m", "60m"]:
             # Minute bars (Intraday)
             all_dfs = []
             
@@ -266,11 +266,29 @@ class MarketData:
             # If we request data at night (e.g. 23:00) in VPS, it might return ghost bars (future time with 0 vol).
             # We must clamp the request time to 15:30:00 to get valid historical data.
             now_str = datetime.now().strftime("%H%M%S")
-            target_time = min(now_str, "153000")
             
-            for _ in range(3):
+            # Fix: If currently night/pre-market (e.g. 00:00 ~ 08:30), 
+            # we should fetch from Market Close (15:30) of the previous valid day.
+            # KIS API 'inquire-time-itemchartprice' usually gives the latest available intraday data 
+            # if we request 153000, even if it's technically 'tomorrow' morning.
+            if now_str < "083000":
+                target_time = "153000"
+            else:
+                target_time = min(now_str, "153000")
+            
+            # Fix 8: Robust Pagination for Large Lookback
+            # KIS API typically returns 30 bars per page for minute data.
+            # We need to loop until we have enough data or hit a limit.
+            
+            collected_count = 0
+            # Safety limit: 100 pages * 30 = 3000 bars max to prevent infinite loops
+            max_pages = 100 
+            page_count = 0
+            
+            while collected_count < lookback and page_count < max_pages:
                 res = ka.fetch_minute_chart(symbol, target_time)
                 if not res.isOK():
+                    logger.warning(f"Failed to fetch minute chart for {symbol} at {target_time}: {res.getErrorMessage()}")
                     break
                     
                 df_page = pd.DataFrame(res.getBody().output2)
@@ -286,14 +304,49 @@ class MarketData:
                     "cntg_vol": "volume"
                 })
                 
+                # Check if we got valid data
+                if len(df_page) == 0:
+                    break
+                    
                 all_dfs.append(df_page)
+                collected_count += len(df_page)
+                page_count += 1
                 
+                # Prepare for next page (older data)
+                df_page = df_page.sort_values("time") # Ascending in page to find oldest? 
+                # API usually gives descending or we sort it?
+                # output2 is typically time descending (newest first). 
+                # So last item in list (or first if we didn't sort) is the oldest.
+                # Let's check logic: cached logic sorted by time ascending.
+                # df_page.iloc[0]["time"] would be the oldest if sorted ascending.
+                
+                # Prepare for next page (older data)
                 df_page = df_page.sort_values("time")
                 oldest_time = df_page.iloc[0]["time"]
                 
-                if oldest_time >= target_time:
+                # Decrement time by 1 minute to avoid overlap/stall
+                # Format: HHMMSS
+                try:
+                    dt = datetime.strptime(oldest_time, "%H%M%S")
+                    dt = dt - timedelta(minutes=1)
+                    next_target = dt.strftime("%H%M%S")
+                except ValueError:
+                    # Fallback if time parsing fails
                     break
-                target_time = oldest_time
+                
+                if next_target >= target_time:
+                     # Should not happen with minus 1 min, unless cross day boundary (e.g. 000000 -> 235900)
+                     # Since we are Intraday, if we go back past 090000, we stop?
+                     break
+                
+                target_time = next_target
+                
+                # Check for Market Open (09:00:00)
+                # If target < 090000, we can stop for domestic stock
+                if target_time < "090000":
+                    break
+                    
+                # Rate Limit
                 time.sleep(0.1)
 
             if not all_dfs:
