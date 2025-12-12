@@ -15,7 +15,7 @@ from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
 from core.scanner import Scanner
 from core.visualization import TradeEvent
-from core.telegram import TelegramBot
+from utils.telegram import TelegramBot
 from datetime import datetime
 import uuid
 import pandas as pd

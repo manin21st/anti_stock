@@ -22,7 +22,11 @@ stream_handler.setFormatter(formatter)
 root_logger.addHandler(stream_handler)
 
 # File Handler
-file_handler = logging.FileHandler("anti_stock.log", encoding='utf-8')
+log_dir = "logs"
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+file_handler = logging.FileHandler(os.path.join(log_dir, "anti_stock.log"), encoding='utf-8')
 file_handler.setFormatter(formatter)
 root_logger.addHandler(file_handler)
 

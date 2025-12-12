@@ -33,8 +33,8 @@ ma_trend:
   risk_pct: 0.03
   stop_loss_pct: 2
   take_profit1_pct: 3
-  timeframe: 3m
-  trail_activation_pct: 3.0
+  timeframe: 1m
+  trail_activation_pct: 3
   trail_stop_pct: 1.5
   vol_k: 1.5
 system:

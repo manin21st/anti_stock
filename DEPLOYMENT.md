@@ -112,7 +112,7 @@ journalctl -u anti_stock -f
 최초 실행 시 생성된 OTP를 확인하려면 로그를 봐야 합니다.
 ```bash
 # 실시간 로그 확인
-tail -f anti_stock.log
+tail -f logs/anti_stock.log
 # 또는
 cat server.log
 ```

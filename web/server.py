@@ -212,7 +212,7 @@ async def get_status():
 @app.get("/api/logs/download")
 async def download_logs():
     from fastapi.responses import FileResponse
-    log_file = "anti_stock.log"
+    log_file = os.path.join("logs", "anti_stock.log")
     if os.path.exists(log_file):
         return FileResponse(log_file, media_type='text/plain', filename="anti_stock.log")
     return {"status": "error", "message": "Log file not found"}

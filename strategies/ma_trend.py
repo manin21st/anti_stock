@@ -3,6 +3,12 @@ import pandas as pd
 import time
 
 class MovingAverageTrendStrategy(BaseStrategy):
+    def log_monitor(self, msg):
+        if not getattr(self.market_data, 'simulation_date', None):
+             self.logger.info(msg)
+        else:
+             self.logger.debug(msg)
+
     def on_bar(self, symbol, bar):
         # bar: Series or dict with OHLCV
         
@@ -79,11 +85,11 @@ class MovingAverageTrendStrategy(BaseStrategy):
         current_daily_close = daily.close.iloc[-1]
         
         if current_daily_close < ma20_daily_now:
-             self.logger.debug(f"[감시 제외] {symbol} {stock_name} | 사유: 가격 < 20이평 (역배열)")
+             self.log_monitor(f"[감시 제외] {symbol} {stock_name} | 사유: 하락 추세 (현재 {int(current_daily_close):,} < MA20 {int(ma20_daily_now):,})")
              return
         
         if ma20_daily_now < ma20_daily_prev:
-             self.logger.debug(f"[감시 제외] {symbol} {stock_name} | 사유: 20이평 하락 추세")
+             self.log_monitor(f"[감시 제외] {symbol} {stock_name} | 사유: 20이평 하락 추세 (MA20 {int(ma20_daily_now):,} < 전일 {int(ma20_daily_prev):,})")
              return
 
         # Trend is UP -> Check Intraday Data
@@ -107,7 +113,7 @@ class MovingAverageTrendStrategy(BaseStrategy):
              ma_stat = "(대기)" if ma5_now <= ma20_now else "(충족)"
              vol_stat = "(부족)" if vol_ratio < vol_k else "(충족)"
              
-             self.logger.debug(f"[감시 중] {symbol} {stock_name} | 현재가: {int(bars.close.iloc[-1]):,} | 이평돌파: {ma_stat} | 거래량: {vol_ratio:.1f}배 {vol_stat}")
+             self.log_monitor(f"[감시 중] {symbol} {stock_name} | 현재가: {int(bars.close.iloc[-1]):,} | 이평돌파: {ma_stat} | 거래량: {vol_ratio:.1f}배 {vol_stat}")
 
         # Golden Cross Logic
         ma5_prev = bars.close.iloc[-6:-1].mean()

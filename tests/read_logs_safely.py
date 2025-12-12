@@ -21,5 +21,5 @@ def read_tail(filepath, n=100):
     except Exception as e:
         print(f"Error reading file: {e}")
 
-read_tail("c:\\DigitalTwin\\anti_stock\\api_debug.log", n=300)
-read_tail("c:\\DigitalTwin\\anti_stock\\anti_stock.log", n=300)
+read_tail("c:\\DigitalTwin\\anti_stock\\logs\\api_debug.log", n=300)
+read_tail("c:\\DigitalTwin\\anti_stock\\logs\\anti_stock.log", n=300)
