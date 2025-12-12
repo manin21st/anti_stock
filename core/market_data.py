@@ -19,6 +19,9 @@ from utils.data_loader import DataLoader
 logger = logging.getLogger(__name__)
 
 # Debug logging to file
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
 debug_handler = logging.FileHandler(os.path.join("logs", "api_debug.log"))
 debug_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
