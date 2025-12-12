@@ -3,7 +3,10 @@ import threading
 import logging
 import sys
 import os
+import random
 from typing import Dict, Optional, Any
+import requests
+import json
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,8 +15,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "open-trading-api", "examples_user"))
 
 import kis_auth as ka
-import requests
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +31,24 @@ class RateLimiter:
         return cls._instance
 
     def _initialize(self):
-        # Target: 2 requests per second (Safe mode for Paper Trading)
-        # Interval: 1.0 / 2 = 0.5 seconds
-        self.min_interval = 0.5
+        # Configurable TPS Limit (Default: 2.0 for single machine standard performance)
+        # To run on multiple machines, set TPS_LIMIT=1.0 (for 2 machines) or 0.5 (for 4 machines)
+        try:
+            self.tps_limit = float(os.environ.get("TPS_LIMIT", 2.0))
+        except ValueError:
+            self.tps_limit = 2.0
+            
+        self.min_interval = 1.0 / max(self.tps_limit, 0.1)  # Prevent division by zero
         self.last_call_time = 0.0
         self.lock = threading.Lock()
+        
+        logger.info(f"[RateLimiter] Initialized with TPS_LIMIT={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
 
     def execute(self, func, *args, **kwargs):
         """
         Executes the function with Rate Limiting Lock held.
         Ensures that no other thread can execute an API call until the interval has passed.
-        Includes Adaptive Rate Limiting: Retries on EGW00201.
+        Includes Adaptive Rate Limiting: Retries on EGW00201 with Jitter.
         """
         max_retries = 3
         
@@ -72,8 +80,14 @@ class RateLimiter:
 
                     if is_rate_limit:
                         if attempt < max_retries:
-                            logger.warning(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off 0.5s... (Attempt {attempt+1}/{max_retries})")
-                            time.sleep(0.5)
+                            # Smart Backoff with Jitter: Base 0.5s + Random(0.0 ~ 0.5s)
+                            # Prevents synchronized retries in distributed environment
+                            jitter = random.uniform(0.0, 0.5)
+                            backoff_time = 0.5 + jitter
+                            # Downgraded to DEBUG to keep logs clean
+                            logger.debug(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s (Jitter)... (Attempt {attempt+1}/{max_retries})")
+                            
+                            time.sleep(backoff_time)
                             self.last_call_time = time.time()
                             continue # Retry
                         else:
@@ -90,12 +104,13 @@ class RateLimiter:
                             
                     if is_expired_token:
                         if attempt < max_retries:
-                            logger.warning(f"[RateLimiter] Token expired (EGW00123). Re-authenticating... (Attempt {attempt+1}/{max_retries})")
+                            # Downgraded to DEBUG
+                            logger.debug(f"[RateLimiter] Token expired (EGW00123). Re-authenticating... (Attempt {attempt+1}/{max_retries})")
                             # Force Auth logic: Delete token file to ensure fresh token
                             try:
                                 if hasattr(ka, 'token_tmp') and os.path.exists(ka.token_tmp):
                                     os.remove(ka.token_tmp)
-                                    logger.info(f"[RateLimiter] Deleted token file to force refresh: {ka.token_tmp}")
+                                    logger.debug(f"[RateLimiter] Deleted token file to force refresh: {ka.token_tmp}")
                             except Exception as e:
                                 logger.warning(f"[RateLimiter] Failed to delete token file: {e}")
 

@@ -1,7 +1,9 @@
 <div id="tab-backtest" class="tab-content">
-    <div class="backtest-container-vertical">
-        <!-- Top: Configuration (20%) -->
-        <section class="card config-section">
+    <section class="card full-height" style="display: flex; flex-direction: column; padding: 20px; gap: 0;">
+
+        <!-- 1. Config Section -->
+        <div class="config-section"
+            style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border);">
             <div class="section-header">
                 <h2>1. 백테스트 설정</h2>
             </div>
@@ -33,10 +35,11 @@
                     <button type="submit" id="btn-run-backtest" class="btn-primary" disabled>백테스트 실행</button>
                 </div>
             </form>
-        </section>
+        </div>
 
-        <!-- Middle: Results & Progress (20%) -->
-        <section class="card results-section">
+        <!-- 2. Results Section -->
+        <div class="results-section"
+            style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border);">
             <div class="section-header">
                 <h2>2. 실행 결과</h2>
                 <div id="bt-status" class="status-text">대기 중</div>
@@ -67,15 +70,15 @@
                     <span class="value" id="bt-trade-count">0</span>
                 </div>
             </div>
-        </section>
+        </div>
 
-        <!-- Bottom: Data & Logs (60%) -->
-        <section class="card logs-section">
+        <!-- 3. Logs Section -->
+        <div class="logs-section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
             <div class="section-header">
                 <h2>3. 데이터 및 매매 로그</h2>
                 <button id="btn-view-chart" class="btn-secondary small-btn" style="display:none;">차트 보기</button>
             </div>
-            <div class="table-container-scroll">
+            <div class="table-container-scroll" style="flex: 1; overflow-y: auto;">
                 <table id="bt-trade-table" class="data-table">
                     <thead class="sticky-header">
                         <tr>
@@ -96,6 +99,6 @@
                     </tbody>
                 </table>
             </div>
-        </section>
-    </div>
+        </div>
+    </section>
 </div>
