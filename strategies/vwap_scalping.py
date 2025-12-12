@@ -36,10 +36,10 @@ class VWAPScalping(BaseStrategy):
             return
 
         # Exit
-        pnl_pct = (close - position.avg_price) / position.avg_price * 100
+        pnl_ratio = (close - position.avg_price) / position.avg_price
         
-        # Stop Loss (Below VWAP) or Take Profit
-        if close < vwap_now or pnl_pct >= self.config["take_profit_pct"]:
+        # Stop Loss (Below VWAP) or Take Profit (Config: 0.015)
+        if close < vwap_now or pnl_ratio >= self.config["take_profit_pct"]:
             reason = "VWAP 이탈" if close < vwap_now else "목표 수익 달성"
-            self.logger.info(f"[{symbol} {stock_name}] 매도 실행 ({reason}) | 수익률: {pnl_pct:.2f}% | 현재가: {int(close):,}원")
+            self.logger.info(f"[{symbol} {stock_name}] 매도 실행 ({reason}) | 수익률: {pnl_ratio*100:.2f}% | 현재가: {int(close):,}원")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])

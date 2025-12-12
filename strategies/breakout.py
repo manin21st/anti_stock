@@ -28,7 +28,8 @@ class PreviousHighBreakout(BaseStrategy):
 
         # Entry
         if position is None:
-            gap_up = (today_open - prev_close) / prev_close * 100 >= self.config.get("gap_pct", 2.0)
+            # Config: 0.02 (2%)
+            gap_up = (today_open - prev_close) / prev_close >= self.config.get("gap_pct", 0.02)
             breakout = (bars.high.iloc[-1] > prev_high) and (close > prev_high)
             vol_ok = volume_now > avg_vol20 * self.config.get("vol_k", 2.0)
 
@@ -40,19 +41,19 @@ class PreviousHighBreakout(BaseStrategy):
             return
 
         # Exit
-        pnl_pct = (close - position.avg_price) / position.avg_price * 100
+        pnl_ratio = (close - position.avg_price) / position.avg_price
 
-        # Stop Loss: Below Prev High or Fixed %
-        if close < prev_high or pnl_pct <= -self.config["stop_loss_pct"]:
+        # Stop Loss: Below Prev High or Fixed % (Config: 0.02)
+        if close < prev_high or pnl_ratio <= -self.config["stop_loss_pct"]:
             reason = "돌파 실패(전고점 하회)" if close < prev_high else "손절매 조건 도달"
-            self.logger.info(f"[{symbol} {stock_name}] 매도 실행 ({reason}) | 수익률: {pnl_pct:.2f}%")
+            self.logger.info(f"[{symbol} {stock_name}] 매도 실행 ({reason}) | 수익률: {pnl_ratio*100:.2f}%")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
             return
 
-        # Take Profit
-        if (not position.partial_taken) and pnl_pct >= self.config["take_profit1_pct"]:
+        # Take Profit (Config: 0.03)
+        if (not position.partial_taken) and pnl_ratio >= self.config["take_profit1_pct"]:
             half = position.qty // 2
             if half > 0:
-                self.logger.info(f"[{symbol} {stock_name}] 1차 수익 실현 (Partial TP) | 수익률: {pnl_pct:.2f}% | 매도수량: {half}주")
+                self.logger.info(f"[{symbol} {stock_name}] 1차 수익 실현 (Partial TP) | 수익률: {pnl_ratio*100:.2f}% | 매도수량: {half}주")
                 self.broker.sell_market(symbol, half, tag=self.config["id"])
                 position.partial_taken = True

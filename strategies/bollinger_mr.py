@@ -32,15 +32,15 @@ class BollingerMeanReversion(BaseStrategy):
             return
 
         # Exit
-        pnl_pct = (close - position.avg_price) / position.avg_price * 100
+        pnl_ratio = (close - position.avg_price) / position.avg_price
 
-        # Stop Loss
-        if pnl_pct <= -self.config["stop_loss_pct"]:
-            self.logger.info(f"[{symbol} {stock_name}] 손절매 (Stop Loss) | 수익률: {pnl_pct:.2f}% (조건: -{self.config['stop_loss_pct']}%)")
+        # Stop Loss (Config: 0.015)
+        if pnl_ratio <= -self.config["stop_loss_pct"]:
+            self.logger.info(f"[{symbol} {stock_name}] 손절매 (Stop Loss) | 수익률: {pnl_ratio*100:.2f}% (조건: -{self.config['stop_loss_pct']*100}%)")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
             return
 
         # Mean Reversion Target (MA20)
         if close >= ma20:
-            self.logger.info(f"[{symbol} {stock_name}] 수익 실현 (평균회귀 도달) | 현재가: {int(close):,}원 >= MA20: {int(ma20):,}원 | 수익률: {pnl_pct:.2f}%")
+            self.logger.info(f"[{symbol} {stock_name}] 수익 실현 (평균회귀 도달) | 현재가: {int(close):,}원 >= MA20: {int(ma20):,}원 | 수익률: {pnl_ratio*100:.2f}%")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])

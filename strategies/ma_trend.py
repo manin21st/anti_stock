@@ -24,9 +24,9 @@ class MovingAverageTrendStrategy(BaseStrategy):
 
             avg_price = position.avg_price
             if avg_price <= 0:
-                pnl_pct = 0.0
+                pnl_ratio = 0.0
             else:
-                pnl_pct = (current_price - avg_price) / avg_price * 100
+                pnl_ratio = (current_price - avg_price) / avg_price
             
             # High Watermark Update (Fix 4: Persistence)
             if current_price > position.max_price:
@@ -34,35 +34,42 @@ class MovingAverageTrendStrategy(BaseStrategy):
                 self.portfolio.save_state() # Save new high
 
             # 1. Stop Loss (Safety First)
-            if pnl_pct <= -self.config["stop_loss_pct"]:
-                self.logger.info(f"[손절매] {symbol} {stock_name} | 현재가: {int(current_price):,} | 수익률: {pnl_pct:.2f}% (제한: -{self.config['stop_loss_pct']}%)")
+            # Config: 0.02 (2%)
+            if pnl_ratio <= -self.config["stop_loss_pct"]:
+                self.logger.info(f"[손절매] {symbol} {stock_name} | 현재가: {int(current_price):,} | 수익률: {pnl_ratio*100:.2f}% (제한: -{self.config['stop_loss_pct']*100}%)")
                 self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
                 return
 
             # 2. Take Profit (Partial)
-            if (not position.partial_taken) and pnl_pct >= self.config["take_profit1_pct"]:
+            # Config: 0.03 (3%)
+            if (not position.partial_taken) and pnl_ratio >= self.config["take_profit1_pct"]:
                 half = position.qty // 2
                 if half > 0:
-                    self.logger.info(f"[익절] {symbol} {stock_name} | 현재가: {int(current_price):,} | 수익률: {pnl_pct:.2f}% (1차 목표달성)")
+                    self.logger.info(f"[익절] {symbol} {stock_name} | 현재가: {int(current_price):,} | 수익률: {pnl_ratio*100:.2f}% (1차 목표달성)")
                     self.broker.sell_market(symbol, half, tag=self.config["id"])
                     position.partial_taken = True
                     self.portfolio.save_state()
             
             # 3. Trailing Stop (Fix 4: Activation Logic)
-            trail_activation_pct = self.config.get("trail_activation_pct", 3.0)
-            activation_price = avg_price * (1 + trail_activation_pct / 100.0)
+            # Config: 0.03 (3%)
+            trail_activation_ratio = self.config.get("trail_activation_pct", 0.03)
+            # activation_price = avg_price * (1 + 0.03)
+            activation_price = avg_price * (1 + trail_activation_ratio)
             
             if position.max_price >= activation_price:
-                drawdown = (current_price - position.max_price) / position.max_price * 100
+                # Drawdown is also ratio: (9800 - 10000) / 10000 = -0.02
+                drawdown = (current_price - position.max_price) / position.max_price
+                
+                # Config: 0.015 (1.5%)
                 if drawdown <= -self.config["trail_stop_pct"]:
-                     self.logger.info(f"[트레일링 스탑] {symbol} {stock_name} | 현재가: {int(current_price):,} | 고점 대비 하락: {drawdown:.2f}% (고점: {int(position.max_price):,})")
+                     self.logger.info(f"[트레일링 스탑] {symbol} {stock_name} | 현재가: {int(current_price):,} | 고점 대비 하락: {drawdown*100:.2f}% (고점: {int(position.max_price):,})")
                      self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
                      return
 
             # 4. Add-on Logic (Target Weight Split Buying)
             # Check if we should buy more to reach target weight
             total_equity = self.portfolio.get_account_value()
-            target_pct = self.config.get("risk_pct", 0.03) # Default 3%
+            target_pct = self.config.get("target_weight", 0.10) # Goal: 10%
             target_val = total_equity * target_pct
             
             current_val = current_price * position.qty
