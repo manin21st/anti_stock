@@ -22,6 +22,7 @@ common:
   default_risk_pct: 0.03
   max_positions: 10
   risk_pct: 0.03
+  target_weight: 0.1
   trail_activation_pct: 3.0
 ma_trend:
   default_risk_pct: 0.03

@@ -12,7 +12,9 @@ class RiskManager:
     def can_open_new_position(self, symbol: str, qty: int, price: float) -> bool:
         """Check if new position can be opened safely"""
         # 1. Available Slot Check
-        if len(self.portfolio.positions) >= self.max_positions:
+        # Fix: Allow adding to existing position (Add-on) even if limit reached
+        is_existing = symbol in self.portfolio.positions
+        if not is_existing and len(self.portfolio.positions) >= self.max_positions:
             logger.warning(f"Risk Check Failed: Max positions reached ({len(self.portfolio.positions)})")
             return False
         

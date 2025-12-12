@@ -4,6 +4,7 @@ import logging
 import sys
 import os
 import random
+import contextlib
 from typing import Dict, Optional, Any
 import requests
 import json
@@ -65,7 +66,11 @@ class RateLimiter:
                 
                 # 2. Execute API Call
                 try:
-                    result = func(*args, **kwargs)
+                    # Suppress external library prints (kis_auth.py)
+                    # This prevents "Error Code : 500" from forcibly printing to console
+                    with open(os.devnull, 'w') as devnull:
+                        with contextlib.redirect_stdout(devnull):
+                            result = func(*args, **kwargs)
                     
                     # 3. Check for Rate Limit Error (EGW00201)
                     is_rate_limit = False
