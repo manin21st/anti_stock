@@ -22,13 +22,13 @@ class BollingerMeanReversion(BaseStrategy):
         position = self.portfolio.get_position(symbol)
 
         # Entry
-        if position is None:
-            # Price below lower band by 1%
-            if close < lower * 0.99:
-                qty = self.calc_position_size(symbol, risk_pct=self.config.get("risk_pct", 0.03))
-                if self.risk.can_open_new_position(symbol, qty):
-                    self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (볼린저 하단 반등) | 수량: {qty}주 | 현재가: {int(close):,}원 < 하단: {int(lower):,}원")
-                    self.broker.buy_market(symbol, qty, tag=self.config["id"])
+        # Entry Logic (Combined New + Add-on)
+        # Price below lower band by 1%
+        if close < lower * 0.99:
+            qty = self.calculate_buy_quantity(symbol, close)
+            if qty > 0 and self.risk.can_open_new_position(symbol, qty, close):
+                 self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (볼린저 하단 반등) | 수량: {qty}주 | 현재가: {int(close):,}원 < 하단: {int(lower):,}원")
+                 self.broker.buy_market(symbol, qty, tag=self.config["id"])
             return
 
         # Exit

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>백테스트 처리 과정 - 안티-스톡 매뉴얼</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            securityLevel: 'loose',
+            themeVariables: {
+                fontFamily: 'Inter',
+                fontSize: '14px'
+            }
+        });
+    </script>
+    <style>
+        :root {
+            --bg-color: #f4f6f8;
+            --card-bg: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --accent: #3b82f6;
+            --border: #e2e8f0;
+            --code-bg: #f1f5f9;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            margin-top: 30px;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            margin-top: 25px;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+
+        ul,
+        ol {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        code {
+            background-color: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+            color: #d63384;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            margin-bottom: 15px;
+        }
+
+        th,
+        td {
+            border: 1px solid var(--border);
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+        }
+
+        .nav-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .nav-link:hover {
+            text-decoration: underline;
+        }
+
+        .step-box {
+            background-color: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background-color: #ffffff;
+            padding: 20px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <a onclick="window.close()" class="nav-link">← 메인 화면으로 돌아가기 (닫기)</a>
+
+        <h1>이동평균 추세 추종 전략 백테스트 처리 과정</h1>
+        <p>이 문서는 <code>MovingAverageTrendStrategy</code>를 사용하여 백테스트를 진행할 때, 시스템 내부적으로 실행되는 처리 과정을 라이브러리 및 함수 호출 레벨에서 상세히
+            설명합니다.</p>
+
+        <h2>1. 주요 컴포넌트 및 역할</h2>
+        <p>백테스트는 실제 트레이딩 환경과 격리된 <strong>가상 환경(Simulation Scope)</strong>에서 실행됩니다.</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>컴포넌트</th>
+                    <th>클래스 (Class)</th>
+                    <th>역할</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>엔진</strong></td>
+                    <td><code>core.engine.Engine</code></td>
+                    <td>백테스트 전체 수명 주기 관리 및 실행 루프 제어</td>
+                </tr>
+                <tr>
+                    <td><strong>전략</strong></td>
+                    <td><code>strategies.ma_trend</code></td>
+                    <td>매매 로직 수행 (매수/매도 시그널 생성)</td>
+                </tr>
+                <tr>
+                    <td><strong>가상 브로커</strong></td>
+                    <td><code>core.broker.Broker</code></td>
+                    <td>가상 주문 접수, 체결 처리, 잔고 관리 (Sim Mode)</td>
+                </tr>
+                <tr>
+                    <td><strong>가상 포트폴리오</strong></td>
+                    <td><code>core.portfolio.Portfolio</code></td>
+                    <td>보유 종목 및 자산 가치 추적</td>
+                </tr>
+                <tr>
+                    <td><strong>데이터 로더</strong></td>
+                    <td><code>utils.data_loader</code></td>
+                    <td>과거 차트 데이터 로드 (<code>pandas</code> DataFrame)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>2. 실행 흐름 (Execution Flow)</h2>
+        <p>백테스트는 크게 <strong>초기화 → 데이터 준비 → 시뮬레이션 루프 → 결산</strong> 단계로 진행됩니다.</p>
+
+        <div class="step-box">
+            <h3>단계 1: 환경 초기화 및 데이터 준비</h3>
+            <p>함수: <code>Engine.run_backtest(strategy_id, symbol, start_date, end_date, ...)</code></p>
+            <ol>
+                <li><strong>독립 인스턴스 생성</strong>: 실제 매매에 영향을 주지 않도록 가상 객체들을 생성합니다.
+                    <pre>
+sim_market = MarketData(is_simulation=True)
+sim_broker = Broker() # set_simulation_mode(True)
+sim_portfolio = Portfolio()</pre>
+                </li>
+                <li><strong>데이터 로드</strong>: <code>DataLoader</code>를 통해 과거 데이터를 메모리(<code>pandas.DataFrame</code>)로
+                    불러옵니다. 일봉(1d) 및 분봉 데이터를 로드하여 지표 계산을 위한 충분한 기간을 확보합니다.</li>
+            </ol>
+        </div>
+
+        <div class="step-box">
+            <h3>단계 2: 시뮬레이션 루프 (Simulation Loop)</h3>
+            <p>함수: <code>Engine._run_backtest_step(...)</code></p>
+            <p>불러온 데이터의 시간 순서대로 반복문(Loop)을 실행합니다.</p>
+
+            <h4>반복 처리 (Loop Logic):</h4>
+            <ol>
+                <li><strong>환경 시간 동기화</strong>:
+                    <code>sim_market.set_simulation_date(current_time)</code>을 호출하여 전략이 미래 데이터를 보지 못하게 차단합니다.
+                </li>
+                <li><strong>주문 체결 처리 (Broker Execution)</strong>:
+                    <p><strong>중요</strong>: 전략 실행 <strong>전(Pre)</strong>에, 이전 턴에서 접수된 미체결 주문을 처리합니다.</p>
+                    <ul>
+                        <li><code>sim_broker.process_simulation_orders(current_prices)</code></li>
+                        <li>백테스트에서는 일반적으로 <strong>시가(Open)</strong> 또는 <strong>현재가(Close)</strong>를 기준으로 체결을 가정합니다.</li>
+                    </ul>
+                </li>
+                <li><strong>전략 실행 (Strategy Execution)</strong>:
+                    <ul>
+                        <li><code>strategy.on_bar(symbol, bar)</code> 호출</li>
+                        <li><strong>기술적 분석</strong>: 이동평균선(MA5, MA20) 계산, 골든크로스/데드크로스 판단</li>
+                        <li><strong>매매 판단</strong>:
+                            <ul>
+                                <li><strong>매도(청산)</strong>: 손절매, 익절 조건 확인 → <code>broker.sell_market()</code></li>
+                                <li><strong>매수(진입)</strong>: 골든크로스 발생 시 → <code>strategy.calculate_buy_quantity()</code>
+                                    호출</li>
+                                <li>(자금 관리: 리스크 비율 및 목표 비중을 고려하여 수량 계산 후 <code>broker.buy_market()</code>)</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <div class="step-box">
+            <h3>단계 3: 결과 집계 및 리포트</h3>
+            <p>함수: <code>run_backtest</code> (Return)</p>
+            <ol>
+                <li><strong>자산 재평가</strong>: <code>sim_portfolio.total_asset</code>을 최종 갱신합니다.</li>
+                <li><strong>성과 지표 계산</strong>:
+                    <ul>
+                        <li><strong>총 수익률 (Total Return)</strong>: (최종자산 - 초기자산) / 초기자산 * 100</li>
+                        <li><strong>MDD (최대 낙폭)</strong>: 자산 곡선(Equity Curve)에서 고점 대비 최대 하락폭 계산</li>
+                        <li><strong>승률 (Win Rate)</strong>: 매매 내역(history) 분석</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <h2>3. 함수 호출 다이어그램 (Sequence)</h2>
+        <div class="mermaid">
+            sequenceDiagram
+            participant Eng as Engine
+            participant Brk as Broker (Sim)
+            participant Stg as Strategy (MA Trend)
+            participant Base as BaseStrategy
+
+            Eng->>Eng: Initialize Sim Environment
+            Eng->>Eng: Load Data (Sim Environment)
+
+            loop Every Bar (Time Sequential)
+            Eng->>Brk: process_simulation_orders(Open Price)
+            Note right of Brk: 이전 턴 주문 체결 처리
+
+            Eng->>Stg: on_bar(Current Bar)
+
+            rect rgb(240, 248, 255)
+            Note right of Stg: [전략 로직 수행]
+            Stg->>Stg: Calculate Indicators (MA5, MA20)
+
+            alt Exit Condition (StopLoss/TP)
+            Stg->>Brk: sell_market()
+            else Entry Condition (Golden Cross)
+            Stg->>Base: calculate_buy_quantity()
+            Base-->>Stg: Buy Qty (Risk Limit)
+            Stg->>Brk: buy_market()
+            Note right of Brk: 주문 버퍼링 (Pending)
+            end
+            end
+            end
+
+            Eng->>Eng: Calculate Metrics (Return, MDD)
+            Eng-->>User: Return Result Dict
+        </div>
+
+        <h2>4. 핵심 특징</h2>
+        <ul>
+            <li><strong>Look-ahead Bias 방지</strong>: 시뮬레이션 모드에서는 현재 시점 이후의 데이터를 조회할 수 없도록 제한합니다.</li>
+            <li><strong>정교한 자금 관리</strong>: 리팩토링된 <code>BaseStrategy</code> 로직을 통해, 백테스트에서도 실제 매매와 동일하게 <strong>비중 조절
+                    (Target Weight Splitting)</strong>이 시뮬레이션됩니다.</li>
+            <li><strong>독립성</strong>: 실제 계좌나 API와 완전히 분리되어 안전하게 전략을 검증할 수 있습니다.</li>
+        </ul>
+    </div>
+</body>
+
+</html>

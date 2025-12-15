@@ -231,6 +231,10 @@ async def get_chart_data(symbol: str, timeframe: str = "1m", lookback: int = 300
 async def get_manual(request: Request):
     return templates.TemplateResponse("manual.html", {"request": request})
 
+@app.get("/manual/backtest_process", response_class=HTMLResponse)
+async def get_backtest_process(request: Request):
+    return templates.TemplateResponse("backtest_process.html", {"request": request})
+
 @app.post("/api/control")
 async def control_engine(action: dict):
     # action: { "command": "start" | "stop" | "restart" }

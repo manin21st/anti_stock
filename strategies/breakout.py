@@ -27,18 +27,20 @@ class PreviousHighBreakout(BaseStrategy):
         avg_vol20 = bars.volume.iloc[-20:].mean()
 
         # Entry
-        if position is None:
-            # Config: 0.02 (2%)
-            gap_up = (today_open - prev_close) / prev_close >= self.config.get("gap_pct", 0.02)
-            breakout = (bars.high.iloc[-1] > prev_high) and (close > prev_high)
-            vol_ok = volume_now > avg_vol20 * self.config.get("vol_k", 2.0)
+        # Entry Logic (Combined New + Add-on)
+        # Config: 0.02 (2%)
+        gap_up = (today_open - prev_close) / prev_close >= self.config.get("gap_pct", 0.02)
+        breakout = (bars.high.iloc[-1] > prev_high) and (close > prev_high)
+        vol_ok = volume_now > avg_vol20 * self.config.get("vol_k", 2.0)
 
-            if gap_up and breakout and vol_ok:
-                qty = self.calc_position_size(symbol)
-                if self.risk.can_open_new_position(symbol, qty):
-                    self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (전고점 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > 전고점: {int(prev_high):,}원")
-                    self.broker.buy_market(symbol, qty, tag=self.config["id"])
-            return
+        if gap_up and breakout and vol_ok:
+            qty = self.calculate_buy_quantity(symbol, close)
+            if qty > 0 and self.risk.can_open_new_position(symbol, qty, close):
+                self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (전고점 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > 전고점: {int(prev_high):,}원")
+                self.broker.buy_market(symbol, qty, tag=self.config["id"])
+        
+        if position is None:
+             return
 
         # Exit
         pnl_ratio = (close - position.avg_price) / position.avg_price

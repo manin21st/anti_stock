@@ -25,14 +25,16 @@ class VWAPScalping(BaseStrategy):
         position = self.portfolio.get_position(symbol)
 
         # Entry
+        # Entry Logic (Combined New + Add-on)
+        # Cross up VWAP
+        crossed_up = (prev_close < vwap_series.iloc[-2]) and (close > vwap_now)
+        if crossed_up:
+            qty = self.calculate_buy_quantity(symbol, close)
+            if qty > 0 and self.risk.can_open_new_position(symbol, qty, close):
+                self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (VWAP 상향 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > VWAP: {int(vwap_now):,}원")
+                self.broker.buy_market(symbol, qty, tag=self.config["id"])
+        
         if position is None:
-            # Cross up VWAP
-            crossed_up = (prev_close < vwap_series.iloc[-2]) and (close > vwap_now)
-            if crossed_up:
-                qty = self.calc_position_size(symbol, risk_pct=self.config.get("risk_pct", 0.01))
-                if self.risk.can_open_new_position(symbol, qty):
-                    self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (VWAP 상향 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > VWAP: {int(vwap_now):,}원")
-                    self.broker.buy_market(symbol, qty, tag=self.config["id"])
             return
 
         # Exit

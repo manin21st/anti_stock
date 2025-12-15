@@ -110,6 +110,10 @@ class Portfolio:
                 if qty != pos.qty:
                     diff = qty - pos.qty
                     change_type = "BUY_FILLED" if diff > 0 else "SELL_FILLED"
+                    
+                    if qty == 0 and diff < 0:
+                        change_type = "POSITION_CLOSED"
+
                     self._notify_change({
                         "type": change_type,
                         "symbol": symbol,
@@ -122,29 +126,31 @@ class Portfolio:
                 pos.qty = qty
                 pos.avg_price = avg_price
                 pos.current_price = current_price
-                # Preserve existing in-memory state if valid, otherwise use saved
-                # Actually, trust saved state over default if we are re-syncing?
-                # If in-memory is already set (e.g. during run), keep it.
-                # But sync_with_broker is usually called at startup or periodically.
-                # If called periodically, we don't want to reset in-memory flags if save failed.
-                # But here we are fixing the STARTUP overwrite.
-                # At startup, self.positions is empty.
+                
+                if pos.qty <= 0:
+                    # If sync returns 0 qty, treat as closed immediately?
+                    # But notify_change above already sent "SELL_FILLED".
+                    # Let's clean it up so we don't get "POSITION_CLOSED" on next sync when it disappears from list.
+                    # Or should we send "POSITION_CLOSED" here instead of "SELL_FILLED" if qty is 0?
+                    del self.positions[symbol]
+                    # print(f"DEBUG: Removed {symbol} due to 0 qty in sync")
+                
                 pass 
             else:
-                # New position (or startup)
-                self.positions[symbol] = Position(
-                    symbol=symbol, 
-                    name=name, 
-                    qty=qty, 
-                    avg_price=avg_price, 
-                    current_price=current_price, 
-                    tag=saved_tag, 
-                    partial_taken=saved_partial,
-                    max_price=saved_max
-                )
-                if saved_partial:
-                    pass
-                    # print(f"DEBUG: Restored {symbol} state: Partial={saved_partial}, Max={saved_max}")
+                if qty > 0:
+                     self.positions[symbol] = Position(
+                         symbol=symbol, 
+                         name=name, 
+                         qty=qty, 
+                         avg_price=avg_price, 
+                         current_price=current_price, 
+                         tag=saved_tag, 
+                         partial_taken=saved_partial,
+                         max_price=saved_max
+                     )
+                else:
+                     # Ignore 0 qty positions if they don't exist
+                     pass
         
         # Remove positions that are no longer in broker
         for sym in list(self.positions.keys()):

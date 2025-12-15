@@ -33,6 +33,69 @@ class BaseStrategy(ABC):
         """Called when order status changes"""
         pass
 
+    def calculate_buy_quantity(self, symbol: str, current_price: float) -> int:
+        """
+        Calculate buy quantity based on Risk Management & Target Weight logic.
+        Centralizes logic for both New Entry and Add-on (Split Buying).
+        """
+        if current_price <= 0:
+            return 0
+
+        # 1. Basic Risk Management (Step Size)
+        # Calculates strictly based on risk_pct (e.g. 3% of total equity)
+        risk_step_qty = self.calc_position_size(symbol, risk_pct=self.config.get("risk_pct"))
+        
+        # 2. Target Weight Logic
+        # Check if we have a target weight limit (default usually 0.1 / 10%)
+        # If target_weight is not set or 0, we rely solely on risk_pct (Unlimited Add-on? No, usually safer to limit)
+        target_weight = self.config.get("target_weight", 0.0) 
+        
+        if target_weight <= 0:
+            # If no target weight specified, just return the risk based step quantity
+            # But usually strategies should have a max allocation. Check max_allocation?
+            # For now, return step qty.
+            return risk_step_qty
+
+        # Calculate Deficit
+        total_equity = self.portfolio.get_account_value()
+        target_val = total_equity * target_weight
+        
+        current_qty = 0
+        position = self.portfolio.get_position(symbol)
+        if position:
+            current_qty = position.qty
+            
+        current_val = current_qty * current_price
+        deficit_val = target_val - current_val
+        
+        if deficit_val <= 0:
+            # Already met or exceeded target
+            return 0
+            
+        # Convert deficit value to quantity
+        deficit_qty = int(deficit_val // current_price)
+        
+        # 3. Final Quantity Determination
+        # We want to buy 'risk_step', but NOT exceed 'deficit'.
+        # And obviously trigger logic only if meaningful amount (e.g. > 0)
+        
+        buy_qty = min(risk_step_qty, deficit_qty)
+        
+        # Logging Context
+        if buy_qty > 0:
+            # Only log if we are actually planning to buy?
+            # Caller will log "Buy Order Sent", but here we can log the decision context if needed.
+            # But keeping logs clean, maybe return tuple? (qty, reason).
+            # For now, let caller handle main logs, but debug here is fine.
+            
+            # Additional User Requirement:
+            # "Add-on Monitor" log was confusing. 
+            # We will log concise info here if it's an Add-on scenario
+            if current_qty > 0:
+                self.logger.info(f"[비중 조절] {symbol} | 목표부족: {deficit_val:,.0f}원({deficit_qty}주) | 매수진행: {buy_qty}주")
+        
+        return buy_qty
+
     def calc_position_size(self, symbol, risk_pct=None):
         """Calculate position size based on risk percentage"""
         account_value = self.portfolio.get_account_value()
@@ -46,7 +109,7 @@ class BaseStrategy(ABC):
             return 0
             
         qty = int(alloc // price)
-        return max(qty, 1) # Minimum 1 share
+        return max(qty, 0) # Allow 0 if price is too high or alloc too small
 
     def check_rate_limit(self, symbol: str, interval_seconds: int = 5) -> bool:
         """
