@@ -52,17 +52,25 @@ async function updateStatus() {
                 statusEl.style.backgroundColor = "#f59e0b"; // Orange/Yellow for standby
             }
 
-            if (btnStart) btnStart.disabled = true;
+            if (btnStart) {
+                btnStart.textContent = "재시작"; // Running -> Restart
+                btnStart.classList.add("btn-success");
+                btnStart.classList.remove("btn-primary");
+                btnStart.disabled = false;
+            }
             if (btnStop) btnStop.disabled = false;
-            // Restart is always enabled
-            if (btnRestart) btnRestart.disabled = false;
         } else {
             statusEl.textContent = "중지됨";
             statusEl.className = "status-stopped";
             statusEl.style.backgroundColor = ""; // Reset style
-            if (btnStart) btnStart.disabled = false;
+
+            if (btnStart) {
+                btnStart.textContent = "시작"; // Stopped -> Start
+                btnStart.classList.add("btn-primary");
+                btnStart.classList.remove("btn-success");
+                btnStart.disabled = false;
+            }
             if (btnStop) btnStop.disabled = true;
-            if (btnRestart) btnRestart.disabled = false;
         }
 
         // Active Strategy Display
@@ -185,9 +193,44 @@ function renderConfigForm(strategyKey) {
         div.className = "config-field";
         div.innerHTML = `
             <label>${key}</label>
-            <input type="text" name="${strategyKey}.${key}" value="${value}">
+            <input type="text" name="${strategyKey}.${key}" value="${value}" 
+                   onblur="saveStrategyConfigField(this)" onchange="saveStrategyConfigField(this)">
         `;
         form.appendChild(div);
+    }
+}
+
+// Strategy Auto-Save Helper
+async function saveStrategyConfigField(input) {
+    const strategyName = document.getElementById("strategy-select").value;
+    if (!strategyName) return;
+
+    const parts = input.name.split(".");
+    if (parts.length !== 2) return;
+
+    const key = parts[1];
+    let val = isNaN(Number(input.value)) ? input.value : Number(input.value);
+
+    // Patch save - we retrieve current config to make sure we don't overwrite with partial data
+    // actually API accepts partial update via merge, but let's stick to full object update if needed
+    // The existing API /config merges the input. So we can send just { strategy: { key: value } }
+
+    // Construct the payload as expected by the backend logic in server.py
+    // The server expects "StrategyName": { ...config... } or "active_strategy": ...
+    // Let's create a fragment
+    const fragment = {};
+    fragment[strategyName] = {};
+    fragment[strategyName][key] = val;
+
+    try {
+        await fetch(`${API_BASE}/config`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(fragment)
+        });
+        console.log(`Auto-saved strategy config: ${key}=${val}`);
+    } catch (e) {
+        console.error("Auto-save failed:", e);
     }
 }
 
@@ -277,8 +320,27 @@ async function loadSystemConfig() {
         }
     };
 
-    document.getElementById("enable_trade_alert").addEventListener("change", saveTelegramSettings);
-    document.getElementById("enable_system_alert").addEventListener("change", saveTelegramSettings);
+    // Auto-Save Listeners for System Configs
+    const autoSaveSystem = async () => {
+        await saveSystemConfig();
+        console.log("System config auto-saved.");
+    };
+
+    // Radio Buttons: Change triggers save
+    const radios = document.querySelectorAll('input[name="env_type"], input[name="market_type"], input[name="scanner_mode"]');
+    radios.forEach(r => r.addEventListener("change", autoSaveSystem));
+
+    // Checkboxes: Change triggers save
+    autoScannerCheckbox.addEventListener("change", async () => {
+        toggleScannerUI();
+        await autoSaveSystem();
+    });
+
+    // Text Inputs: Blur triggers save
+    universeInput.addEventListener("blur", autoSaveSystem);
+
+    document.getElementById("enable_trade_alert").addEventListener("change", autoSaveSystem);
+    document.getElementById("enable_system_alert").addEventListener("change", autoSaveSystem);
 }
 
 async function sendControl(command) {
@@ -321,71 +383,64 @@ async function saveSystemConfig() {
 }
 
 // Event Listeners
-document.getElementById("save-config").addEventListener("click", async () => {
+// Helper to save everything before start/restart
+async function saveAllAndGetReady() {
+    // 1. Save System Config
+    await saveSystemConfig();
+
+    // 2. Save Current Strategy Config just in case (though auto-saved)
     const strategySelect = document.getElementById("strategy-select");
     const selectedStrategy = strategySelect.value;
+    if (selectedStrategy) {
+        // Collect current form values
+        const form = document.getElementById("config-form");
+        const inputs = form.querySelectorAll("input");
+        const fragment = {};
+        fragment[selectedStrategy] = {};
 
-    if (!selectedStrategy) {
-        alert("전략을 선택해주세요.");
-        return;
-    }
+        // Also set active strategy
+        fragment["active_strategy"] = selectedStrategy;
 
-    const form = document.getElementById("config-form");
-    const inputs = form.querySelectorAll("input");
-    const newConfigFragment = {};
-
-    // Set active strategy
-    newConfigFragment["active_strategy"] = selectedStrategy;
-
-    inputs.forEach(input => {
-        const parts = input.name.split(".");
-        if (parts.length === 2) {
-            if (!newConfigFragment[parts[0]]) newConfigFragment[parts[0]] = {};
-
-            let val;
-            if (input.type === "checkbox") {
-                val = input.checked;
-            } else {
-                val = isNaN(Number(input.value)) ? input.value : Number(input.value);
+        inputs.forEach(input => {
+            const parts = input.name.split(".");
+            if (parts.length === 2 && parts[0] === selectedStrategy) {
+                let val = isNaN(Number(input.value)) ? input.value : Number(input.value);
+                fragment[selectedStrategy][parts[1]] = val;
             }
-            newConfigFragment[parts[0]][parts[1]] = val;
-        }
-    });
+        });
 
-    try {
-        const res = await fetch(`${API_BASE}/config`, {
+        await fetch(`${API_BASE}/config`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(newConfigFragment)
+            body: JSON.stringify(fragment)
         });
-        if (res.ok) {
-            alert("전략 설정이 저장되었습니다!");
-            await loadConfig();
-        } else {
-            const err = await res.json();
-            alert(`설정 저장 실패: ${err.message || "알 수 없는 오류"}`);
-        }
-    } catch (e) {
-        alert(`통신 오류: ${e.message}`);
     }
-});
+}
 
-document.getElementById("btn-start").onclick = () => {
-    console.log("Start button clicked");
-    sendControl("start");
+document.getElementById("btn-start").onclick = async () => {
+    const btn = document.getElementById("btn-start");
+    const mode = btn.textContent; // "시작" or "재시작"
+
+    console.log(`${mode} button clicked`);
+
+    // Force Save All
+    await saveAllAndGetReady();
+
+    if (mode === "재시작") {
+        if (confirm("시스템을 재시작하시겠습니까?")) {
+            await sendControl("restart");
+            alert("재시작 요청을 보냈습니다.");
+        }
+    } else {
+        await sendControl("start");
+    }
 };
+
 document.getElementById("btn-stop").onclick = () => {
     console.log("Stop button clicked");
     sendControl("stop");
 };
-document.getElementById("btn-restart").onclick = async () => {
-    console.log("Restart button clicked");
-    if (confirm("설정을 저장하고 시스템을 재시작하시겠습니까?")) {
-        await saveSystemConfig();
-        await sendControl("restart");
-        alert("재시작 요청을 보냈습니다. 잠시 후 상태가 변경됩니다.");
-    }
-};
+// Removed btn-restart listener as the button is gone
 
 // Logs WebSocket
 const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -508,7 +563,7 @@ function initBacktest() {
                 const jsonData = await resData.json();
 
                 if (jsonData.status === "ok") {
-                    renderDataTable(jsonData.data);
+                    renderDataTable(jsonData.data, strategy_id);
                     updateStatusText("데이터 준비 완료", "#10b981");
                     btnRun.disabled = false;
                 } else {
@@ -530,6 +585,61 @@ function initBacktest() {
         });
     }
 
+    // Excel Download Button
+    const btnExcel = document.getElementById("btn-download-excel");
+    if (btnExcel) {
+        btnExcel.addEventListener("click", async (e) => {
+            e.preventDefault(); // Prevent default link behavior
+            const symbol = document.getElementById("bt-symbol").value;
+            const start = document.getElementById("bt-start-date").value.replace(/-/g, "");
+            const end = document.getElementById("bt-end-date").value.replace(/-/g, "");
+            const strategy_id = document.getElementById("bt-strategy-select").value;
+            const initial_cash = document.getElementById("bt-initial-cash").value;
+
+            if (confirm("엑셀 다운로드를 시작하시겠습니까? (백테스트가 재실행되므로 시간이 걸릴 수 있습니다.)")) {
+                updateStatusText("엑셀 생성 중...", "#f59e0b");
+                try {
+                    const response = await fetch(`${API_BASE}/backtest/export`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ symbol, start, end, strategy_id, initial_cash })
+                    });
+
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        // Content-Disposition header handles filename usually, but we can try to guess or use what server sent
+                        // Using a generic name or extracting from header requires parsing
+                        const header = response.headers.get('Content-Disposition');
+                        let filename = `backtest_${symbol}_${strategy_id}.xlsx`;
+                        if (header && header.indexOf('filename=') !== -1) {
+                            // Simple parse
+                            const parts = header.split('filename=');
+                            let f = parts[1].replace(/"/g, '');
+                            if (f) filename = f;
+                        }
+
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                        updateStatusText("다운로드 완료", "#10b981");
+                    } else {
+                        const err = await response.json();
+                        throw new Error(err.message || "Download failed");
+                    }
+                } catch (e) {
+                    console.error("Download Error", e);
+                    updateStatusText(`다운로드 실패: ${e.message}`, "#ef4444");
+                    alert("다운로드 중 오류가 발생했습니다.");
+                }
+            }
+        });
+    }
+
     function updateStatusText(text, color) {
         if (statusDiv) {
             statusDiv.textContent = text;
@@ -538,26 +648,44 @@ function initBacktest() {
     }
 }
 
-function renderDataTable(data) {
+function renderDataTable(data, strategyId) {
     const tbody = document.querySelector("#bt-trade-table tbody");
     tbody.innerHTML = "";
 
+    // Toggle MA Trend Column
+    const maTrendCols = document.querySelectorAll(".col-ma-trend");
+    if (strategyId === 'ma_trend') {
+        maTrendCols.forEach(el => el.style.display = "");
+    } else {
+        maTrendCols.forEach(el => el.style.display = "none");
+    }
+
     data.forEach(row => {
         const tr = document.createElement("tr");
-        tr.setAttribute("data-date", row.date); // For updating later
+        // Unique Key for Intraday
+        const uniqueKey = row.time ? `${row.date} ${row.time}` : row.date;
+        tr.setAttribute("data-date", uniqueKey);
 
         // Format numbers
-        const close = row.close.toLocaleString();
+        const close = Number(row.close).toLocaleString();
         const ma5 = row.ma5 ? Math.round(row.ma5).toLocaleString() : "-";
         const ma20 = row.ma20 ? Math.round(row.ma20).toLocaleString() : "-";
-        const vol = row.volume.toLocaleString();
+        const vol = Number(row.volume).toLocaleString();
+
+        // MA Trend Specific
+        let maTrendCell = "";
+        if (strategyId === 'ma_trend') {
+            const vma20 = row.vol_ma20 ? Math.round(row.vol_ma20).toLocaleString() : "-";
+            maTrendCell = `<td class="text-right">${vma20}</td>`;
+        }
 
         tr.innerHTML = `
-            <td>${row.date}${row.time ? ' ' + row.time : ''}</td>
+            <td>${uniqueKey}</td>
             <td class="text-right">${close}</td>
             <td class="text-right">${ma5}</td>
             <td class="text-right">${ma20}</td>
             <td class="text-right">${vol}</td>
+            ${maTrendCell}
             <!-- Trade Columns (Empty initially) -->
             <td class="border-left type-cell"></td>
             <td class="text-right qty-cell"></td>
@@ -577,8 +705,10 @@ function runBacktestWebSocket() {
     if (statusDiv) statusDiv.textContent = "백테스트 실행 중...";
 
     // Reset Metrics
-    document.getElementById("bt-total-return").textContent = "0.00%";
-    document.getElementById("bt-final-asset").textContent = "0";
+    // Reset Metrics
+    updateRealtimeMetrics({
+        qty: 0, avg_price: 0, buy_amt: 0, eval_amt: 0, eval_pnl: 0, return_rate: 0, trade_count: 0
+    });
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${location.host}/ws/backtest`);
@@ -601,9 +731,13 @@ function runBacktestWebSocket() {
         const msg = JSON.parse(event.data);
 
         if (msg.type === "progress") {
-            const pct = msg.data;
-            if (progressBar) progressBar.style.width = `${pct}%`;
-            if (progressText) progressText.textContent = `${pct}%`;
+            const payload = msg.data;
+            // Payload is dict { percent, qty, avg_price, ... }
+            if (progressBar) progressBar.style.width = `${payload.percent}%`;
+            if (progressText) progressText.textContent = `${payload.percent}%`;
+
+            // Update Real-time Metrics
+            updateRealtimeMetrics(payload);
         }
         else if (msg.type === "trade_event") {
             updateTableRow(msg.data);
@@ -633,21 +767,9 @@ function runBacktestWebSocket() {
 }
 
 function updateTableRow(trade) {
-    // trade: { timestamp: "YYYYMMDD HHMMSS", side: "BUY", price: ..., qty: ... }
-    // Extract date key from timestamp. If intraday, timestamp might be "20230101 090000"
-    // Our table rows are indexed by date "YYYYMMDD".
-    // If trade has time, we match key by just Date part?
-    // Wait, checkBacktestData populates table with Daily rows if Daily TF?
-    // If Intraday, checkBacktestData should fetch Intraday bars.
-    // My DataLoader implementation serves records. If downloading Daily, we get daily rows.
-    // If downloading Intraday, we get intraday rows (with time).
-    // So row key should match trade timestamp resolution.
-
-    // We assume trade.timestamp starts with the key in data-date of row.
-    // Or simpler: Date is unique key.
-
-    // Let's handle YYYYMMDD format.
-    const dateKey = trade.timestamp.split(" ")[0]; // Take YYYYMMDD
+    // trade.timestamp is "YYYYMMDD HHMMSS" or "YYYYMMDD "
+    // Match with data-date
+    const dateKey = trade.timestamp.trim();
 
     // Find row
     const tr = document.querySelector(`tr[data-date="${dateKey}"]`);
@@ -663,7 +785,7 @@ function updateTableRow(trade) {
         qtyCell.textContent = trade.qty;
         priceCell.textContent = Math.round(trade.price).toLocaleString();
 
-        // Highlights
+        // Highlights (Text Color)
         if (trade.side === "BUY") {
             tr.classList.add("row-buy");
         } else {
@@ -675,12 +797,37 @@ function updateTableRow(trade) {
     }
 }
 
-function renderMetrics(m) {
-    document.getElementById("bt-total-return").textContent = `${m.total_return}%`;
-    const returnEl = document.getElementById("bt-total-return");
-    returnEl.className = m.total_return >= 0 ? "value pnl-positive" : "value pnl-negative";
+function updateRealtimeMetrics(d) {
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
 
-    document.getElementById("bt-final-asset").textContent = formatCurrency(m.total_asset);
-    document.getElementById("bt-mdd").textContent = `${m.mdd}%`;
-    document.getElementById("bt-trade-count").textContent = m.trade_count;
+    setVal("bt-qty", d.qty);
+    setVal("bt-avg", Math.round(d.avg_price).toLocaleString());
+    setVal("bt-buy-amt", Math.round(d.buy_amt).toLocaleString());
+    setVal("bt-eval-amt", Math.round(d.eval_amt).toLocaleString());
+    setVal("bt-eval-pnl", Math.round(d.eval_pnl).toLocaleString());
+
+    // PnL Color
+    const pnlEl = document.getElementById("bt-eval-pnl");
+    if (pnlEl) {
+        pnlEl.className = "value " + (d.eval_pnl > 0 ? "pnl-positive" : (d.eval_pnl < 0 ? "pnl-negative" : ""));
+    }
+
+    // Return Rate
+    const rateEl = document.getElementById("bt-return-rate");
+    if (rateEl) {
+        rateEl.textContent = `${d.return_rate.toFixed(2)}%`;
+        rateEl.className = "value " + (d.return_rate >= 0 ? "pnl-positive" : "pnl-negative");
+    }
+
+    setVal("bt-trade-count", d.trade_count);
+}
+// Removed renderMetrics as we use updateRealtimeMetrics
+function renderMetrics(m) {
+    // Final update with result metrics if needed?
+    // Usually progress callback sends the last state anyway.
+    // result.metrics has total_return, etc.
+    // We can just rely on the last progress update.
 }

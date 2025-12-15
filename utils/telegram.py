@@ -95,25 +95,49 @@ class TelegramBot:
     def send_system_alert(self, message: str):
         """Send system alert if enabled"""
         if self.enabled and self.enable_system:
-            self._send(f"🖥 <b>[SYSTEM ALERT]</b>\n{message}")
+            self._send(f"🖥 <b>[시스템 알림]</b> {message}")
 
     def send_otp(self, otp: str):
         """Send Login OTP"""
         if self.enabled and self.enable_system:
-            msg = f"🔐 <b>[LOGIN OTP]</b>\nCode: <code>{otp}</code>\n\nUse this code to log in."
+            msg = f"🔐 <b>[로그인 인증]</b> 코드: <code>{otp}</code> (입력하여 로그인하세요)"
             self._send(msg)
 
-    def send_trade_event(self, event_type: str, symbol: str, price: float, qty: int, side: str):
-        """Send Trade Alert"""
+    def send_trade_event(self, event_type: str, symbol: str, price: float, qty: int, side: str, stock_name: str = None):
+        """Send Trade Alert (Korean, Concise, Name-based)"""
         if not self.enabled or not self.enable_trade:
             return
 
         emoji = "🔴" if side == "BUY" else "🔵"
+        action = "매수" if side == "BUY" else "매도"
+        
+        # event_type translation map
+        type_map = {
+            "ORDER_SUBMITTED": "주문",
+            "ORDER_FILLED": "체결",
+            "POSITION_CLOSED": "청산", # or 매도체결
+            "BUY": "매수",
+            "SELL": "매도"
+        }
+        
+        # Refine action description
+        # e.g. "SELL POSITION_CLOSED" -> "매도 청산" -> Just "청산" or "매도완료"
+        # If event_type containts "FILLED" or "CLOSED", it's a done deal.
+        # If "SUBMITTED", it's an order placement.
+        
+        if "SUBMITTED" in event_type:
+            desc = f"{action}주문"
+        elif "FILLED" in event_type:
+            desc = f"{action}체결"
+        elif "CLOSED" in event_type:
+            desc = "청산완료"
+        else:
+            desc = f"{action}"
+
+        display_name = stock_name if stock_name else symbol
+        
+        # Format: 🔴 매수체결: 삼성전자 (10주, 50,000원)
         msg = (
-            f"{emoji} <b>{side} {event_type}</b>\n"
-            f"Symbol: <code>{symbol}</code>\n"
-            f"Price: {price:,.0f} KRW\n"
-            f"Qty: {qty}\n"
-            f"Amt: {price * qty:,.0f} KRW"
+            f"{emoji} <b>{desc}</b>: {display_name} ({qty}주, {price:,.0f}원)"
         )
         self._send(msg)

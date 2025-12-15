@@ -45,8 +45,9 @@ class DataLoader:
             if end_date:
                 df = df[df['date'] <= end_date]
             
-            # Sort just in case
-            df = df.sort_values('date').reset_index(drop=True)
+            # Sort by date and time (if available) to ensure chronological order
+            sort_cols = ['date', 'time'] if 'time' in df.columns else ['date']
+            df = df.sort_values(sort_cols).reset_index(drop=True)
             return df
         except Exception as e:
             logger.error(f"Failed to load data for {symbol}: {e}")

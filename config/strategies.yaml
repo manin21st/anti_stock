@@ -38,6 +38,11 @@ system:
   env_type: paper
   market_type: KRX
   scanner_mode: volume
+  telegram:
+    bot_token: 7175981417:AAF58bvA9QvQ_Kpz3pd0PDbH5D79hgenSh8
+    chat_id: '7692999971'
+    enable_system_alert: true
+    enable_trade_alert: true
   universe:
   - 005930
   - '000660'

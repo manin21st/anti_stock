@@ -358,6 +358,20 @@ button:hover {
     color: white;
 }
 
+.btn-success {
+    background: var(--success);
+    color: white;
+}
+
+/* Ensure link buttons have rounded corners */
+a.btn-primary,
+a.btn-secondary,
+a.btn-danger,
+a.btn-warning,
+a.btn-success {
+    border-radius: 6px;
+}
+
 .small-btn {
     padding: 6px 12px;
     font-size: 13px;
@@ -590,14 +604,19 @@ button:hover {
 }
 
 /* Row Highlights */
+/* Row Highlights (Text Color) */
 .row-buy {
-    background-color: rgba(16, 185, 129, 0.15) !important;
-    /* Light Green */
+    background-color: transparent !important;
+    color: #ef4444;
+    /* Red */
+    font-weight: bold;
 }
 
 .row-sell {
-    background-color: rgba(239, 68, 68, 0.15) !important;
-    /* Light Red */
+    background-color: transparent !important;
+    color: #3b82f6;
+    /* Blue */
+    font-weight: bold;
 }
 
 .trade-buy {
@@ -608,4 +627,36 @@ button:hover {
 .trade-sell {
     color: #dc2626;
     font-weight: bold;
+}
+
+/* Backtest specific header style override */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.section-header h2 {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+}
+
+/* Compact Backtest Table */
+#bt-trade-table th,
+#bt-trade-table td {
+    padding: 6px;
+}
+
+.row-buy {
+    color: #ef4444;
+    /* Red */
+    font-weight: 600;
+}
+
+.row-sell {
+    color: #3b82f6;
+    /* Blue */
+    font-weight: 600;
 }

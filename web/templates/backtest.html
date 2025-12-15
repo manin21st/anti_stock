@@ -52,21 +52,33 @@
                 <span id="bt-progress-text">0%</span>
             </div>
 
-            <div class="metric-group compact">
+            <div class="metric-group compact" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px;">
                 <div class="metric">
-                    <span class="label">총 수익률</span>
-                    <span class="value" id="bt-total-return">0.00%</span>
+                    <span class="label">수량</span>
+                    <span class="value" id="bt-qty">0</span>
                 </div>
                 <div class="metric">
-                    <span class="label">최종 자산</span>
-                    <span class="value" id="bt-final-asset">0</span>
+                    <span class="label">매입평균</span>
+                    <span class="value" id="bt-avg">0</span>
                 </div>
                 <div class="metric">
-                    <span class="label">MDD</span>
-                    <span class="value" id="bt-mdd">0.00%</span>
+                    <span class="label">매입금액</span>
+                    <span class="value" id="bt-buy-amt">0</span>
                 </div>
                 <div class="metric">
-                    <span class="label">매매 횟수</span>
+                    <span class="label">평가금액</span>
+                    <span class="value" id="bt-eval-amt">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">평가손익</span>
+                    <span class="value" id="bt-eval-pnl">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">수익률</span>
+                    <span class="value" id="bt-return-rate">0.00%</span>
+                </div>
+                <div class="metric">
+                    <span class="label">매매횟수</span>
                     <span class="value" id="bt-trade-count">0</span>
                 </div>
             </div>
@@ -76,7 +88,11 @@
         <div class="logs-section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
             <div class="section-header">
                 <h2>3. 데이터 및 매매 로그</h2>
-                <button id="btn-view-chart" class="btn-secondary small-btn" style="display:none;">차트 보기</button>
+                <div style="display: flex; gap: 5px;">
+                    <a id="btn-download-excel" href="#" class="btn-secondary small-btn"
+                        style="text-decoration: none;">엑셀 다운로드</a>
+                    <button id="btn-view-chart" class="btn-secondary small-btn" style="display:none;">차트 보기</button>
+                </div>
             </div>
             <div class="table-container-scroll" style="flex: 1; overflow-y: auto;">
                 <table id="bt-trade-table" class="data-table">
@@ -88,6 +104,7 @@
                             <th class="text-right">이평(5)</th>
                             <th class="text-right">이평(20)</th>
                             <th class="text-right">거래량</th>
+                            <th class="text-right col-ma-trend" style="display:none;">평균거래량(20)</th>
                             <!-- Trade Info (Filled during execution) -->
                             <th class="border-left">매매유형</th>
                             <th class="text-right">수량</th>

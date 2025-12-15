@@ -350,6 +350,120 @@ async def download_data(request: Request):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.post("/api/backtest/export")
+async def export_backtest_data(request: Request):
+    try:
+        body = await request.json()
+        symbol = body.get("symbol")
+        start_date = body.get("start")
+        end_date = body.get("end")
+        strategy_id = body.get("strategy_id")
+        initial_cash = int(body.get("initial_cash", 100000000))
+        
+        # 1. Load Data & Calculate Indicators
+        data_loader = DataLoader()
+        
+        st_conf = {}
+        if engine_instance:
+             st_conf = engine_instance.config.get(strategy_id, {})
+        
+        tf = st_conf.get("timeframe", "D")
+        
+        try:
+             import datetime
+             from datetime import timedelta
+             buffer_days = 60 if tf == "D" else 5
+             s_dt = datetime.datetime.strptime(start_date, "%Y%m%d")
+             buffer_date = (s_dt - timedelta(days=buffer_days)).strftime("%Y%m%d")
+        except:
+             buffer_date = start_date
+             
+        # Try loading local data first to avoid API rate limits
+        df = data_loader.load_data(symbol, buffer_date, end_date, timeframe=tf)
+        
+        # Only download if local data is missing
+        if df.empty:
+            logger.info(f"Local data missing for export, attempting download: {symbol}")
+            df = data_loader.download_data(symbol, buffer_date, end_date, timeframe=tf)
+        
+        if df.empty:
+            return {"status": "error", "message": "No data found"}
+
+        # Calculate Indicators
+        df['ma5'] = df['close'].rolling(window=5).mean().fillna(0)
+        df['ma20'] = df['close'].rolling(window=20).mean().fillna(0)
+        df['vol_ma20'] = df['volume'].rolling(window=20).mean().fillna(0)
+        df = df.fillna(0)
+
+        # 2. Run Backtest
+        if engine_instance:
+            result = engine_instance.run_backtest(strategy_id, symbol, start_date, end_date, initial_cash)
+        else:
+            return {"status": "error", "message": "Engine not initialized"}
+
+        if "error" in result:
+             return {"status": "error", "message": result["error"]}
+             
+        history = result.get("history", [])
+        
+        # 3. Merge History into DataFrame
+        df['action'] = ""
+        df['trade_qty'] = 0
+        df['trade_price'] = 0
+        
+        # Map history to dict keyed by timestamp
+        for trade in history:
+            ts = trade['timestamp']
+            parts = ts.split(" ")
+            DATE = parts[0]
+            TIME = parts[1] if len(parts) > 1 else None
+            
+            # Simple matching for Daily
+            mask = (df['date'] == DATE)
+            if TIME and 'time' in df.columns:
+                 # Intraday match: ensure time column exists and matches
+                 mask = mask & (df['time'] == TIME)
+            
+            if mask.any():
+                idx = df[mask].index[0]
+                existing_action = df.at[idx, 'action']
+                new_action = trade['side']
+                if existing_action:
+                    df.at[idx, 'action'] = f"{existing_action},{new_action}"
+                else:
+                    df.at[idx, 'action'] = new_action
+                    
+                df.at[idx, 'trade_qty'] = trade['qty']
+                df.at[idx, 'trade_price'] = trade['price']
+
+        # 4. Generate Excel
+        import io
+        import pandas as pd
+        from fastapi.responses import StreamingResponse
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Backtest_Data', index=False)
+            
+            metrics = result.get("metrics", {})
+            m_df = pd.DataFrame([metrics])
+            m_df.to_excel(writer, sheet_name='Metrics', index=False)
+            
+        output.seek(0)
+        
+        filename = f"backtest_{symbol}_{strategy_id}_{start_date}_{end_date}.xlsx"
+        headers = {
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        }
+        
+        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    except Exception as e:
+        logger.error(f"Export Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/backtest/data")
 async def get_backtest_data(request: Request):
     data = await request.json()
@@ -388,6 +502,7 @@ async def get_backtest_data(request: Request):
             # Calculate MAs
             df['ma5'] = df['close'].rolling(window=5).mean().fillna(0)
             df['ma20'] = df['close'].rolling(window=20).mean().fillna(0)
+            df['vol_ma20'] = df['volume'].rolling(window=20).mean().fillna(0)
             
             # Convert to records (handle NaNs? fillna(0) done)
             # Replace NaN/Info with None for JSON standard compliance if needed, but to_dict handles it.

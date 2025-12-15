@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>안티-스톡 트레이딩 봇</title>
-    <link rel="stylesheet" href="/static/style.css?v=4">
+    <link rel="stylesheet" href="/static/style.css?v=9">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -220,9 +220,9 @@
                                 <textarea id="universe-input" rows="3" placeholder="예: 005930, 000660"></textarea>
                             </div>
                             <div class="option-group">
-                                <label class="group-label">알림 설정</label>
-                                <label><input type="checkbox" id="enable_trade_alert"> 매매 알림 (Telegram)</label>
-                                <label><input type="checkbox" id="enable_system_alert"> 시스템 알림 (Telegram)</label>
+                                <label class="group-label">알림 설정 (Telegram)</label>
+                                <label><input type="checkbox" id="enable_trade_alert"> 매매 알림</label>
+                                <label><input type="checkbox" id="enable_system_alert"> 시스템 알림</label>
                             </div>
                         </div>
                     </section>
@@ -239,16 +239,11 @@
                         <form id="config-form">
                             <!-- Config fields will be generated here -->
                         </form>
-                        <div class="form-actions">
-                            <button id="save-config" class="btn-secondary">설정 저장</button>
-                        </div>
+
                     </section>
                 </div>
 
-                <div class="restart-section">
-                    <p class="restart-note">* 설정을 변경한 후에는 반드시 아래 버튼을 눌러 적용해주세요.</p>
-                    <button id="btn-restart" class="btn-warning large-btn">설정 적용 및 재시작</button>
-                </div>
+
             </div>
 
             <!-- Tab 5: Logs -->
@@ -267,7 +262,8 @@
             </div>
         </main>
     </div>
-    <script src="/static/app.js?v=8"></script>
+    </div>
+    <script src="/static/app.js?v=11"></script>
     <script src="/static/chart.js?v=24"></script>
 </body>
 

@@ -29,7 +29,7 @@ debug_handler.setFormatter(formatter)
 logger.addHandler(debug_handler)
 
 class MarketData:
-    def __init__(self):
+    def __init__(self, is_simulation: bool = False):
         self.bars: Dict[str, pd.DataFrame] = {} # symbol -> DataFrame (OHLCV)
         self._daily_cache: Dict[str, Dict] = {} # symbol -> {'data': df, 'timestamp': time}
         self._name_cache: Dict[str, str] = {} # symbol -> name
@@ -37,7 +37,10 @@ class MarketData:
         self.ws = None
         self.simulation_date = None
         self.data_loader = DataLoader()
-        self._initialize_api()
+        
+        # Skip API/WS initialization in simulation mode
+        if not is_simulation:
+            self._initialize_api()
         
         # Initialize Stock Master Data (Async to not block startup too long?)
         # Better to block briefly or do it in background. 
@@ -154,15 +157,25 @@ class MarketData:
         if self.simulation_date:
             # Simulation Mode
             # TODO: caching for performance
-            df = self.data_loader.load_data(symbol)
+            df = self.data_loader.load_data(symbol, timeframe=timeframe)
             if df.empty:
                 return pd.DataFrame()
             
             # Filter up to simulation_date
-            df = df[df['date'] <= self.simulation_date]
+            if len(self.simulation_date) > 8 and 'time' in df.columns:
+                # Intraday Simulation (YYYYMMDDHHMMSS)
+                sim_dt = int(self.simulation_date) # YYYYMMDDHHMMSS
+                # Create integer datetime for comparison (faster than pd.to_datetime)
+                df['dt_int'] = (df['date'].astype(str) + df['time'].astype(str)).astype(int)
+                df = df[df['dt_int'] <= sim_dt].drop(columns=['dt_int'])
+            else:
+                # Daily Simulation or fallback
+                # If simulation_date is just YYYYMMDD, we include ALL data for that date (Daily)
+                # But if dataframe is intraday, we might want to include all intraday for that date?
+                # Usually set_simulation_date is set to CURRENT date.
+                df = df[df['date'] <= self.simulation_date[:8]]
             
-            # If minute timeframe requested but we only have daily...
-            # For now, just return daily if timeframe='1d' or 'D', else... we might return empty or daily?
+            return df.tail(lookback)
             # Let's assume if they ask for minute in backtest, we might not support it yet unless we have minute data.
             # But the user asked for simple backtest first.
             

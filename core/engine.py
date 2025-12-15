@@ -530,12 +530,14 @@ class Engine:
             logger.info(f"Recorded Order Event: {event.event_type} {event.symbol}")
             
             # Telegram Alert
+            stock_name = self.market_data.get_stock_name(order_info["symbol"])
             self.telegram.send_trade_event(
                 event_type="ORDER_SUBMITTED",
                 symbol=order_info["symbol"],
                 price=float(order_info["price"]),
                 qty=int(order_info["qty"]),
-                side=order_info["side"]
+                side=order_info["side"],
+                stock_name=stock_name
             )
         except Exception as e:
             logger.error(f"Failed to record order event: {e}")
@@ -567,12 +569,14 @@ class Engine:
             logger.info(f"Recorded Position Event: {event.event_type} {event.symbol}")
 
             # Telegram Alert
+            stock_name = self.market_data.get_stock_name(change_info["symbol"])
             self.telegram.send_trade_event(
                 event_type=event_type,
                 symbol=change_info["symbol"],
                 price=float(change_info["price"]),
                 qty=int(change_info["qty"]),
-                side=side
+                side=side,
+                stock_name=stock_name
             )
         except Exception as e:
             logger.error(f"Failed to record position event: {e}")
@@ -592,7 +596,7 @@ class Engine:
         from core.risk_manager import RiskManager
         from utils.data_loader import DataLoader
         
-        sim_market = MarketData()
+        sim_market = MarketData(is_simulation=True)
         sim_broker = Broker()
         sim_portfolio = Portfolio()
         sim_risk = RiskManager(sim_portfolio)
@@ -632,10 +636,10 @@ class Engine:
             except:
                 buffer_date = start_date
 
-        logger.info(f"Downloading data with warmup buffer: {buffer_date} ~ {end_date} (TF: {tf})")
-        df = data_loader.download_data(symbol, buffer_date, end_date, timeframe=tf)
+        logger.info(f"Loading data from local storage: {buffer_date} ~ {end_date} (TF: {tf})")
+        df = data_loader.load_data(symbol, buffer_date, end_date, timeframe=tf)
         if df.empty:
-            return {"error": "No data found for the specified period."}
+            return {"error": "No data found. Please run download first."}
             
         # 2. Initialize Strategy
         if strategy_id not in self.strategy_classes:
@@ -670,16 +674,41 @@ class Engine:
             
             total_days = len(dates)
             for i, date in enumerate(dates):
-                if progress_callback:
-                    progress_callback("progress", int((i / total_days) * 100))
-
                 # Daily Loop Logic (Existing)
                 sim_market.set_simulation_date(date)
                 day_data = data_map[date]
                 current_prices = {symbol: day_data['open']} 
+
+                if progress_callback:
+                    # Calculate Real-time Status
+                    current_price = day_data['close']
+                    pos = sim_portfolio.get_position(symbol)
+                    qty = int(pos.qty) if pos else 0
+                    avg_price = float(pos.avg_price) if pos else 0.0
+                    buy_amt = qty * avg_price
+                    eval_amt = qty * current_price
+                    eval_pnl = eval_amt - buy_amt
+                    
+                    # Estimate Total Asset (Cash + Stock Val)
+                    # sim_portfolio.total_asset might be stale if not updated, so calc manually
+                    cur_total_asset = sim_portfolio.cash + eval_amt
+                    total_return = (cur_total_asset - float(initial_cash)) / float(initial_cash) * 100
+                    
+                    status = {
+                        "percent": int((i / total_days) * 100),
+                        "qty": qty,
+                        "avg_price": avg_price,
+                        "buy_amt": buy_amt,
+                        "current_price": current_price,
+                        "eval_amt": eval_amt,
+                        "eval_pnl": eval_pnl,
+                        "return_rate": total_return,
+                        "trade_count": len(history)
+                    }
+                    progress_callback("progress", status) 
                 
                 # ... (Order Processing & Strategy Run similar to before)
-                self._run_backtest_step(sim_broker, sim_portfolio, strategy, symbol, day_data, date, history, is_intraday=False)
+                self._run_backtest_step(sim_broker, sim_portfolio, strategy, symbol, day_data, date, history, is_intraday=False, progress_callback=progress_callback)
                 
                 # Daily Stats
                 daily_stats.append(self._calculate_daily_stat(date, sim_portfolio))
@@ -716,19 +745,41 @@ class Engine:
             total_bars = len(resampled)
             for i, (dt, row) in enumerate(resampled.iterrows()):
                 if progress_callback and i % 10 == 0: # Throttle updates
-                    progress_callback("progress", int((i / total_bars) * 100))
+                    # Intraday Status
+                    current_price = row['close']
+                    pos = sim_portfolio.get_position(symbol)
+                    qty = int(pos.qty) if pos else 0
+                    avg_price = float(pos.avg_price) if pos else 0.0
+                    buy_amt = qty * avg_price
+                    eval_amt = qty * current_price
+                    eval_pnl = eval_amt - buy_amt
+                    
+                    cur_total_asset = sim_portfolio.cash + eval_amt
+                    total_return = (cur_total_asset - float(initial_cash)) / float(initial_cash) * 100
+                    
+                    status = {
+                        "percent": int((i / total_bars) * 100),
+                        "qty": qty,
+                        "avg_price": avg_price,
+                        "buy_amt": buy_amt,
+                        "current_price": current_price,
+                        "eval_amt": eval_amt,
+                        "eval_pnl": eval_pnl,
+                        "return_rate": total_return,
+                        "trade_count": len(history)
+                    }
+                    progress_callback("progress", status)
 
                 date_str = row['date']
+                time_str = row['time']
                 
-                # Update Day context if changed
+                # Update Simulation Time Context (Date + Time for Intraday)
+                # This ensures MarketData.get_bars returns data strictly up to this minute
+                sim_market.set_simulation_date(f"{date_str}{time_str}")
+                
+                # Update daily stats logic if date changed (optional/complex)
                 if date_str != current_date_str:
-                    sim_market.set_simulation_date(date_str)
                     current_date_str = date_str
-                    # Record daily stats at end of previous day?
-                    # Simplified: Record at the end of loop if date changes, 
-                    # but logic is complex inside loop. 
-                    # Let's just record stats every step? No, too much.
-                    # Record daily stats when date changes.
                     if daily_stats:
                         # Update the last entry of previous day with final close?
                         pass
@@ -737,7 +788,7 @@ class Engine:
                 bar['time'] = row['time'] # Ensure time string exists
                 
                 # Execute Step
-                self._run_backtest_step(sim_broker, sim_portfolio, strategy, symbol, bar, date_str, history, is_intraday=True)
+                self._run_backtest_step(sim_broker, sim_portfolio, strategy, symbol, bar, date_str, history, is_intraday=True, progress_callback=progress_callback)
                 
             # Final Stats Calculation needed? 
             # We can generate daily stats from history/equity curve if needed.
@@ -790,7 +841,7 @@ class Engine:
             "pnl_daily": 0 
         }
 
-    def _run_backtest_step(self, broker, portfolio, strategy, symbol, bar, date, history, is_intraday):
+    def _run_backtest_step(self, broker, portfolio, strategy, symbol, bar, date, history, is_intraday, progress_callback=None):
         # 1. Update Broker Prices (Simulation)
         # Use Open price for execution if not intraday? 
         # For intraday, we are at the end of the bar (close). 
