@@ -258,7 +258,7 @@ class Engine:
                         
                         # Log periodically while waiting
                         if int(time.time()) % 300 == 0: # Every 5 mins
-                            logger.info("장 운영 시간이 아닙니다. 대기 중... (KRX: 09:00~15:30)")
+                            logger.debug("장 운영 시간이 아닙니다. 대기 중... (KRX: 09:00~15:30)")
                         
                         time.sleep(1)
                         continue

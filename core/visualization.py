@@ -3,11 +3,15 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import logging
 import pandas as pd
+import os
 
 logger = logging.getLogger(__name__)
 
 # Debug logging to file
-debug_handler = logging.FileHandler("api_debug.log")
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+debug_handler = logging.FileHandler(os.path.join("logs", "api_debug.log"))
 debug_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 debug_handler.setFormatter(formatter)

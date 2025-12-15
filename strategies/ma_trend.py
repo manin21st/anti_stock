@@ -62,7 +62,12 @@ class MovingAverageTrendStrategy(BaseStrategy):
                 
                 # Config: 0.015 (1.5%)
                 if drawdown <= -self.config["trail_stop_pct"]:
-                     self.logger.info(f"[트레일링 스탑] {symbol} {stock_name} | 현재가: {int(current_price):,} | 고점 대비 하락: {drawdown*100:.2f}% (고점: {int(position.max_price):,})")
+                     # Safety check: Ensure we are still in profit (or at least breakeven)
+                     if current_price < avg_price:
+                         # Fell below avg_price, allow Stop Loss to handle it or hold
+                         return
+
+                     self.logger.info(f"[트레일링 스탑] {symbol} {stock_name} | 현재가: {int(current_price):,} | 매수가: {int(avg_price):,} | 고점: {int(position.max_price):,} ({drawdown*100:.2f}%) | 발동가: {int(activation_price):,}")
                      self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
                      return
 
