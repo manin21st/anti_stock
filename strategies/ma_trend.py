@@ -105,37 +105,92 @@ class MovingAverageTrendStrategy(BaseStrategy):
         if bars is None or len(bars) < 20:
              return
 
+        ma_short = self.config.get("ma_short", 5)
+        ma_long = self.config.get("ma_long", 20)
+
         # Detailed Monitoring
-        ma5_now = bars.close.iloc[-5:].mean()
-        ma20_now = bars.close.iloc[-20:].mean()
-        # ma5_prev = bars.close.iloc[-6:-1].mean()
-        # ma20_prev = bars.close.iloc[-21:-1].mean()
+        ma_short_now = bars.close.iloc[-ma_short:].mean()
+        ma_long_now = bars.close.iloc[-ma_long:].mean()
         
         volume_now = bars.volume.iloc[-1]
         avg_vol20 = bars.volume.iloc[-20:].mean()
         
+        whipsaw_threshold = self.config.get("whipsaw_threshold", 0.0)
+        cross_lookback = self.config.get("cross_lookback", 1)
         vol_k = self.config.get("vol_k", 1.5)
-        
+
         # Periodic Info Log (Fix 5: Format)
         if avg_vol20 > 0:
              vol_ratio = (volume_now / avg_vol20)
-             ma_stat = "(대기)" if ma5_now <= ma20_now else "(충족)"
+             ma_stat = "(대기)" if ma_short_now <= ma_long_now else "(충족)"
              vol_stat = "(부족)" if vol_ratio < vol_k else "(충족)"
              
              self.log_monitor(f"[감시 중] {symbol} {stock_name} | 현재가: {int(bars.close.iloc[-1]):,} | 이평돌파: {ma_stat} | 거래량: {vol_ratio:.1f}배 {vol_stat}")
 
-        # Golden Cross Logic
-        ma5_prev = bars.close.iloc[-6:-1].mean()
-        ma20_prev = bars.close.iloc[-21:-1].mean()
+        # --- Enhanced Entry Logic (Persistent Cross & Whipsaw Filter) ---
         
-        golden_cross = (ma5_prev <= ma20_prev) and (ma5_now > ma20_now)
+        # 1. Check for Golden Cross within 'cross_lookback' bars
+        # recent_cross_occurred = False
+        # We need at least lookback + 1 range to detect cross
+        
+        recent_cross_occurred = False
+        
+        # Look back 'cross_lookback' bars (including current)
+        # For each bar i from -lookback to -1:
+        # Check if MA5 crosses MA20 at that bar
+        # Note: We need historical MAs. We can calculate them on the fly or iterate.
+        # Efficient way: Iterate locally
+        
+        lookback_limit = min(cross_lookback, len(bars) - ma_long - 1)
+        if lookback_limit < 1: lookback_limit = 1
+        
+        # Check cross in recent N bars
+        for i in range(lookback_limit):
+            # 0 is current (-1), 1 is prev (-2), etc.
+            idx_curr = -1 - i
+            idx_prev = -2 - i
+            
+            # Calculate simple MA at that point (approximation or slicing)
+            # Slicing is safer
+            slice_end = idx_curr + 1 if idx_curr + 1 < 0 else None
+            
+            # MA Short
+            s_series = bars.close.iloc[:slice_end] if slice_end else bars.close
+            
+            if len(s_series) < ma_long + 1: continue
+            
+            m_s_now = s_series.iloc[-ma_short:].mean()
+            m_l_now = s_series.iloc[-ma_long:].mean()
+            
+            m_s_prev = s_series.iloc[-(ma_short+1):-1].mean()
+            m_l_prev = s_series.iloc[-(ma_long+1):-1].mean()
+            
+            if m_s_prev <= m_l_prev and m_s_now > m_l_now:
+                recent_cross_occurred = True
+                break
+        
+        # 2. Current Status Check (Must still be in uptrend)
+        in_uptrend = ma_short_now > ma_long_now
+        
+        # 3. Whipsaw Filter (Strength Check)
+        # Price must be > MA Long * (1 + threshold)
+        strong_breakout = bars.close.iloc[-1] >= ma_long_now * (1 + whipsaw_threshold)
+        
+        # 4. Volume Check
         vol_ok = volume_now > avg_vol20 * vol_k
-        if golden_cross and vol_ok:
+        
+        if recent_cross_occurred and in_uptrend and vol_ok:
+            if not strong_breakout:
+                 self.logger.info(f"[휩쏘 필터] {symbol} {stock_name} | 이격도 부족 (현재 {((bars.close.iloc[-1]/ma_long_now)-1)*100:.2f}% < {whipsaw_threshold*100}%) | 진입 보류")
+                 return
+
             # 1. Calculate Buy Quantity (Risk + Target Weight)
             buy_qty = self.calculate_buy_quantity(symbol, current_price)
             
             if buy_qty > 0:
                 # 2. Risk Check & Execution
                 if self.risk.can_open_new_position(symbol, buy_qty, current_price):
-                    self.logger.info(f"[매수 진입] {symbol} {stock_name} | 골든크로스 | 수량: {buy_qty}주")
+                    self.logger.info(f"[매수 진입] {symbol} {stock_name} | 골든크로스(확정) | 수량: {buy_qty}주")
                     self.broker.buy_market(symbol, buy_qty, tag=self.config["id"])
+            else:
+                self.logger.warning(f"[매수 실패] {symbol} {stock_name} | 수량 계산 0 (진입 불가) | 현재가: {int(current_price):,}원 | 원인: 자금/비중 부족 혹은 주가 과도")

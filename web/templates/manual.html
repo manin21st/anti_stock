@@ -233,6 +233,16 @@
             <p class="config-desc">트레일링 스탑이 발동되는 수익률입니다.</p>
             <p class="config-example">예시: 0.03 (3%)</p>
         </div>
+        <div class="config-item">
+            <span class="config-name">whipsaw_threshold</span>
+            <p class="config-desc">휩쏘 방지 임계값입니다. 장기 이동평균선 대비 주가가 최소 이 비율만큼 높아야 진입합니다. (거짓 신호 필터링)</p>
+            <p class="config-example">예시: 0.002 (0.2%)</p>
+        </div>
+        <div class="config-item">
+            <span class="config-name">cross_lookback</span>
+            <p class="config-desc">골든크로스 유효 기간입니다. 크로스가 발생한 후 지정된 봉(Candle) 개수 동안은 거래량이 뒤늦게 터져도 매수 진입을 허용합니다.</p>
+            <p class="config-example">예시: 3 (3봉 이내 유효)</p>
+        </div>
 
         <h2>이동평균 추세 추종 (MA Trend)</h2>
         <p>일봉상 상승 추세인 종목에서 분봉상 골든크로스가 발생할 때 매수하는 정석적인 추세 추종 전략입니다.</p>
@@ -270,6 +280,16 @@
             <p class="config-example">예시: 1.5 (1.5배 이상)</p>
         </div>
         <div class="config-item">
+            <span class="config-name">ma_short</span>
+            <p class="config-desc">단기 이동평균선 기간입니다.</p>
+            <p class="config-example">예시: 5 (5일선)</p>
+        </div>
+        <div class="config-item">
+            <span class="config-name">ma_long</span>
+            <p class="config-desc">장기 이동평균선 기간입니다.</p>
+            <p class="config-example">예시: 20 (20일선)</p>
+        </div>
+        <div class="config-item">
             <span class="config-name">stop_loss_pct</span>
             <p class="config-desc">손절매 기준 수익률입니다.</p>
             <p class="config-example">예시: 0.02 (2%)</p>
@@ -291,64 +311,94 @@
         <ul>
             <li><strong>진입</strong>: 현재가가 볼린저 밴드 하단(Lower Band)의 99% 수준보다 낮아질 때 (밴드 이탈).</li>
             <li><strong>청산</strong>: 중심선(20이평) 위로 올라오면 익절, 또는 손절(-stop_loss_pct) 발생 시.</li>
-        </ul>
-        <div class="config-item">
-            <span class="config-name">risk_pct</span>
-            <p class="config-desc">진입 시 자산 대비 리스크 비율입니다.</p>
-            <p class="config-example">예시: 0.03 (3%)</p>
-        </div>
-        <div class="config-item">
-            <span class="config-name">stop_loss_pct</span>
-            <p class="config-desc">손절매 기준 수익률입니다.</p>
-            <p class="config-example">예시: 0.015 (1.5%)</p>
-        </div>
+            <div class="config-item">
+                <span class="config-name">timeframe</span>
+                <p class="config-desc">차트의 시간 단위입니다.</p>
+                <p class="config-example">예시: 15m (15분봉)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">period</span>
+                <p class="config-desc">볼린저 밴드의 기준 이동평균선 기간입니다.</p>
+                <p class="config-example">예시: 20</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">std_dev</span>
+                <p class="config-desc">볼린저 밴드 표준편차 승수입니다.</p>
+                <p class="config-example">예시: 2</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">risk_pct</span>
+                <p class="config-desc">진입 시 자산 대비 리스크 비율입니다.</p>
+                <p class="config-example">예시: 0.03 (3%)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">timeframe</span>
+                <p class="config-desc">차트의 시간 단위입니다.</p>
+                <p class="config-example">예시: 1m (1분봉)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">stop_loss_pct</span>
+                <p class="config-desc">손절매 기준 수익률입니다.</p>
+                <p class="config-example">예시: 0.015 (1.5%)</p>
+            </div>
 
-        <h2>전고점 돌파 (Breakout)</h2>
-        <p>전일 고점을 강하게 돌파하는 종목을 매수하여 단기 상승 추세를 추종하는 전략입니다.</p>
-        <h3>매매 로직</h3>
-        <ul>
-            <li><strong>진입</strong>: 시가 갭 상승, 전일 고점 돌파, 거래량 급증(평균의 vol_k배) 3박자가 맞을 때.</li>
-            <li><strong>청산</strong>: 전일 고점 아래로 다시 하락하거나 손절(-stop_loss_pct) 시 즉시 매도. 목표 수익(take_profit1_pct) 도달 시 절반 익절.
-            </li>
-        </ul>
-        <div class="config-item">
-            <span class="config-name">gap_pct</span>
-            <p class="config-desc">시가 갭 상승 최소 비율입니다.</p>
-            <p class="config-example">예시: 2.0 (2% 이상)</p>
-        </div>
-        <div class="config-item">
-            <span class="config-name">vol_k</span>
-            <p class="config-desc">거래량 급증 기준입니다.</p>
-            <p class="config-example">예시: 2.0 (2배 이상)</p>
-        </div>
-        <div class="config-item">
-            <span class="config-name">stop_loss_pct</span>
-            <p class="config-desc">손절매 기준 수익률입니다.</p>
-            <p class="config-example">예시: 2.0 (2%)</p>
-        </div>
-        <div class="config-item">
-            <span class="config-name">take_profit1_pct</span>
-            <p class="config-desc">1차 익절(절반 매도) 기준 수익률입니다.</p>
-            <p class="config-example">예시: 3.0 (3%)</p>
-        </div>
+            <h2>전고점 돌파 (Breakout)</h2>
+            <p>전일 고점을 강하게 돌파하는 종목을 매수하여 단기 상승 추세를 추종하는 전략입니다.</p>
+            <h3>매매 로직</h3>
+            <ul>
+                <li><strong>진입</strong>: 시가 갭 상승, 전일 고점 돌파, 거래량 급증(평균의 vol_k배) 3박자가 맞을 때.</li>
+                <li><strong>청산</strong>: 전일 고점 아래로 다시 하락하거나 손절(-stop_loss_pct) 시 즉시 매도. 목표 수익(take_profit1_pct) 도달 시 절반
+                    익절.
+                </li>
+            </ul>
+            <div class="config-item">
+                <span class="config-name">timeframe</span>
+                <p class="config-desc">차트의 시간 단위입니다.</p>
+                <p class="config-example">예시: 1m (1분봉)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">gap_pct</span>
+                <p class="config-desc">시가 갭 상승 최소 비율입니다.</p>
+                <p class="config-example">예시: 2.0 (2% 이상)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">vol_k</span>
+                <p class="config-desc">거래량 급증 기준입니다.</p>
+                <p class="config-example">예시: 2.0 (2배 이상)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">stop_loss_pct</span>
+                <p class="config-desc">손절매 기준 수익률입니다.</p>
+                <p class="config-example">예시: 2.0 (2%)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">take_profit1_pct</span>
+                <p class="config-desc">1차 익절(절반 매도) 기준 수익률입니다.</p>
+                <p class="config-example">예시: 3.0 (3%)</p>
+            </div>
 
-        <h2>VWAP 스캘핑 (VWAP Scalping)</h2>
-        <p>거래량 가중 평균 가격(VWAP)을 지지선/저항선으로 활용하여, 주가가 VWAP를 상향 돌파할 때 매수하는 단타 전략입니다.</p>
-        <h3>매매 로직</h3>
-        <ul>
-            <li><strong>진입</strong>: 주가가 VWAP 선을 아래에서 위로 뚫고 올라갈 때 (Cross Up).</li>
-            <li><strong>청산</strong>: 주가가 다시 VWAP 아래로 떨어지면 즉시 매도(손절/이탈), 또는 목표 수익(take_profit_pct) 도달 시 익절.</li>
-        </ul>
-        <div class="config-item">
-            <span class="config-name">risk_pct</span>
-            <p class="config-desc">스캘핑 전략 전용 리스크 비율입니다.</p>
-            <p class="config-example">예시: 0.01 (1%)</p>
-        </div>
-        <div class="config-item">
-            <span class="config-name">take_profit_pct</span>
-            <p class="config-desc">목표 수익률입니다.</p>
-            <p class="config-example">예시: 1.5 (1.5%)</p>
-        </div>
+            <h2>VWAP 스캘핑 (VWAP Scalping)</h2>
+            <p>거래량 가중 평균 가격(VWAP)을 지지선/저항선으로 활용하여, 주가가 VWAP를 상향 돌파할 때 매수하는 단타 전략입니다.</p>
+            <h3>매매 로직</h3>
+            <ul>
+                <li><strong>진입</strong>: 주가가 VWAP 선을 아래에서 위로 뚫고 올라갈 때 (Cross Up).</li>
+                <li><strong>청산</strong>: 주가가 다시 VWAP 아래로 떨어지면 즉시 매도(손절/이탈), 또는 목표 수익(take_profit_pct) 도달 시 익절.</li>
+            </ul>
+            <div class="config-item">
+                <span class="config-name">timeframe</span>
+                <p class="config-desc">차트의 시간 단위입니다.</p>
+                <p class="config-example">예시: 1m (1분봉)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">risk_pct</span>
+                <p class="config-desc">스캘핑 전략 전용 리스크 비율입니다.</p>
+                <p class="config-example">예시: 0.01 (1%)</p>
+            </div>
+            <div class="config-item">
+                <span class="config-name">take_profit_pct</span>
+                <p class="config-desc">목표 수익률입니다.</p>
+                <p class="config-example">예시: 1.5 (1.5%)</p>
+            </div>
     </div>
 </body>
 

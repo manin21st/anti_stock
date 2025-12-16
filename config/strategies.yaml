@@ -21,6 +21,8 @@ common:
   risk_pct: 0.03
   target_weight: 0.1
   trail_activation_pct: 0.03
+  whipsaw_threshold: 0.002 # 0.2% Price gap above MA required
+  cross_lookback: 3 # Valid for 3 bars after cross
 ma_trend:
   enabled: true
   id: ma_trend

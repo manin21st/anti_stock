@@ -309,6 +309,17 @@ class Engine:
                             if balance:
                                 self.portfolio.sync_with_broker(balance)
                                 # logger.debug("Portfolio synced with broker")
+
+                                # FIX: Correct prices during off-hours or whenever polling is inactive
+                                # Broker balance inquiry often returns 'evaluated price' which differs from real close price
+                                if not self.market_data.is_polling:
+                                    for symbol in list(self.portfolio.positions.keys()):
+                                        try:
+                                            price = self.market_data.get_last_price(symbol)
+                                            if price > 0:
+                                                self.portfolio.update_market_price(symbol, price)
+                                        except Exception as e:
+                                            logger.warning(f"Failed to manual fetch price for {symbol}: {e}")
                             self.last_sync_time = time.time()
                         except Exception as e:
                             logger.error(f"Failed to sync portfolio: {e}")
@@ -477,6 +488,9 @@ class Engine:
         
         if not self.is_trading:
             return
+
+        # Update Portfolio with Real-time Price
+        self.portfolio.update_market_price(symbol, data.get("price", 0.0))
 
         # logger.info(f"PROBE: Tick received for {symbol} | Price: {data.get('price')}")
         for strategy in self.strategies.values():

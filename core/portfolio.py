@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 import json
 import os
+import time
 
 @dataclass
 class Position:
@@ -13,6 +14,7 @@ class Position:
     tag: str = "" # Strategy ID
     partial_taken: bool = False # For partial profit taking
     max_price: float = 0.0 # For trailing stop
+    last_update: float = 0.0 # Timestamp of last price update
 
 class Portfolio:
     def __init__(self):
@@ -49,6 +51,7 @@ class Portfolio:
             pos = self.positions[symbol]
             pos.current_price = price
             pos.max_price = max(pos.max_price, price)
+            pos.last_update = time.time()
 
     def get_position(self, symbol: str) -> Optional[Position]:
         return self.positions.get(symbol)
@@ -125,7 +128,11 @@ class Portfolio:
                 pos.name = name
                 pos.qty = qty
                 pos.avg_price = avg_price
-                pos.current_price = current_price
+                
+                # Only update price if we haven't received real-time updates recently (e.g. 10s)
+                # This prevents overwriting accurate real-time price with potentially evaluated price from broker sync
+                if time.time() - pos.last_update > 10:
+                    pos.current_price = current_price
                 
                 if pos.qty <= 0:
                     # If sync returns 0 qty, treat as closed immediately?
