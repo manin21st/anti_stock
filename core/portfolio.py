@@ -60,7 +60,7 @@ class Portfolio:
         # This should be synced with Broker's balance
         return self.total_asset
     
-    def sync_with_broker(self, broker_balance: Dict):
+    def sync_with_broker(self, broker_balance: Dict, notify: bool = True):
         """Sync internal state with actual broker balance"""
         if not broker_balance:
             return
@@ -120,20 +120,21 @@ class Portfolio:
                     if qty == 0 and diff < 0:
                         change_type = "POSITION_CLOSED"
 
-                    self._notify_change({
-                        "type": change_type,
-                        "symbol": symbol,
-                        "qty": abs(diff),
-                        "price": avg_price if diff > 0 else current_price, # Approx price
-                        "tag": saved_tag,
-                        # [NEW] Enhanced Data
-                        "exec_qty": abs(diff),
-                        "exec_price": avg_price if diff > 0 else current_price,
-                        "new_qty": qty,
-                        "new_avg_price": avg_price,
-                        "old_avg_price": old_avg_price,
-                        "total_asset": self.total_asset
-                    })
+                    if notify:
+                        self._notify_change({
+                            "type": change_type,
+                            "symbol": symbol,
+                            "qty": abs(diff),
+                            "price": avg_price if diff > 0 else current_price, # Approx price
+                            "tag": saved_tag,
+                            # [NEW] Enhanced Data
+                            "exec_qty": abs(diff),
+                            "exec_price": avg_price if diff > 0 else current_price,
+                            "new_qty": qty,
+                            "new_avg_price": avg_price,
+                            "old_avg_price": old_avg_price,
+                            "total_asset": self.total_asset
+                        })
 
                 pos.name = name
                 pos.qty = qty
@@ -167,20 +168,21 @@ class Portfolio:
                          max_price=saved_max
                      )
                      
-                     self._notify_change({
-                        "type": "BUY_FILLED",
-                        "symbol": symbol,
-                        "qty": qty,
-                        "price": avg_price,
-                        "tag": saved_tag,
-                        # [NEW] Enhanced Data
-                        "exec_qty": qty,
-                        "exec_price": avg_price,
-                        "new_qty": qty,
-                        "new_avg_price": avg_price,
-                        "old_avg_price": 0.0,
-                        "total_asset": self.total_asset
-                     })
+                     if notify:
+                         self._notify_change({
+                            "type": "BUY_FILLED",
+                            "symbol": symbol,
+                            "qty": qty,
+                            "price": avg_price,
+                            "tag": saved_tag,
+                            # [NEW] Enhanced Data
+                            "exec_qty": qty,
+                            "exec_price": avg_price,
+                            "new_qty": qty,
+                            "new_avg_price": avg_price,
+                            "old_avg_price": 0.0,
+                            "total_asset": self.total_asset
+                         })
                 else:
                      # Ignore 0 qty positions if they don't exist
                      pass
@@ -191,20 +193,21 @@ class Portfolio:
                 # Position Closed
                 old_pos = self.positions[sym]
                 # Notify
-                self._notify_change({
-                    "type": "POSITION_CLOSED",
-                    "symbol": sym,
-                    "qty": old_pos.qty, # Closed qty
-                    "price": old_pos.current_price, # Approx exit price
-                    "tag": old_pos.tag,
-                    # [NEW] Enhanced Data
-                    "exec_qty": old_pos.qty,
-                    "exec_price": old_pos.current_price,
-                    "new_qty": 0,
-                    "new_avg_price": 0.0,
-                    "old_avg_price": old_pos.avg_price,
-                    "total_asset": self.total_asset
-                })
+                if notify:
+                    self._notify_change({
+                        "type": "POSITION_CLOSED",
+                        "symbol": sym,
+                        "qty": old_pos.qty, # Closed qty
+                        "price": old_pos.current_price, # Approx exit price
+                        "tag": old_pos.tag,
+                        # [NEW] Enhanced Data
+                        "exec_qty": old_pos.qty,
+                        "exec_price": old_pos.current_price,
+                        "new_qty": 0,
+                        "new_avg_price": 0.0,
+                        "old_avg_price": old_pos.avg_price,
+                        "total_asset": self.total_asset
+                    })
                 del self.positions[sym]
         
         self.save_state()

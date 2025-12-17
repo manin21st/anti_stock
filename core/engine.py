@@ -203,7 +203,7 @@ class Engine:
                 balance = self.broker.get_balance()
                 # logger.debug(f"Broker Balance: {balance}")
                 if balance:
-                    self.portfolio.sync_with_broker(balance)
+                    self.portfolio.sync_with_broker(balance, notify=False)
                     self.portfolio.load_state()
                     
                     total_asset = int(self.portfolio.total_asset)
