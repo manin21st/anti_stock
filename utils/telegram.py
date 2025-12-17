@@ -103,41 +103,59 @@ class TelegramBot:
             msg = f"🔐 <b>[로그인 인증]</b> 코드: <code>{otp}</code> (입력하여 로그인하세요)"
             self._send(msg)
 
-    def send_trade_event(self, event_type: str, symbol: str, price: float, qty: int, side: str, stock_name: str = None):
-        """Send Trade Alert (Korean, Concise, Name-based)"""
+    def send_trade_event(self, event_type: str, symbol: str, price: float, qty: int, side: str, stock_name: str = None, position_info: Dict = None):
+        """Send Trade Alert with Enhanced Data"""
         if not self.enabled or not self.enable_trade:
             return
 
-        emoji = "🔴" if side == "BUY" else "🔵"
-        action = "매수" if side == "BUY" else "매도"
-        
-        # event_type translation map
-        type_map = {
-            "ORDER_SUBMITTED": "주문",
-            "ORDER_FILLED": "체결",
-            "POSITION_CLOSED": "청산", # or 매도체결
-            "BUY": "매수",
-            "SELL": "매도"
-        }
-        
-        # Refine action description
-        # e.g. "SELL POSITION_CLOSED" -> "매도 청산" -> Just "청산" or "매도완료"
-        # If event_type containts "FILLED" or "CLOSED", it's a done deal.
-        # If "SUBMITTED", it's an order placement.
-        
-        if "SUBMITTED" in event_type:
-            desc = f"{action}주문"
-        elif "FILLED" in event_type:
-            desc = f"{action}체결"
-        elif "CLOSED" in event_type:
-            desc = "청산완료"
-        else:
-            desc = f"{action}"
-
         display_name = stock_name if stock_name else symbol
         
-        # Format: 🔴 매수체결: 삼성전자 (10주, 50,000원)
-        msg = (
-            f"{emoji} <b>{desc}</b>: {display_name} ({qty}주, {price:,.0f}원)"
-        )
+        # Prepare Data
+        exec_price = price
+        exec_qty = qty
+        exec_amt = exec_price * exec_qty
+        
+        # Defaults if position_info not provided
+        new_qty = 0
+        new_avg = 0.0
+        new_amt = 0
+        tag = ""
+        total_asset = 0
+        
+        if position_info:
+            new_qty = int(position_info.get("new_qty", 0))
+            new_avg = float(position_info.get("new_avg_price", 0.0))
+            new_amt = int(new_qty * new_avg)
+            tag = position_info.get("tag", "")
+            total_asset = int(position_info.get("total_asset", 0))
+            old_avg = float(position_info.get("old_avg_price", 0.0))
+
+        # Format Message
+        emoji = "🔴" if side == "BUY" else "🔵"
+        title = "[매수체결]" if side == "BUY" else "[매도체결]"
+        
+        lines = [f"{emoji} <b>{title}</b> {display_name} ({symbol})"]
+        lines.append(f"체결: {int(exec_price):,}원 | 수량: {exec_qty}주 | 금액: {int(exec_amt):,}원")
+        
+        if side == "BUY":
+            lines.append(f"보유: {int(new_avg):,}원 | 수량: {new_qty}주 | 금액: {int(new_amt):,}원")
+            if tag:
+                lines.append(f"전략: {tag}")
+        else:
+            # SELL or CLOSED
+            # PnL Calculation
+            pnl_val = 0
+            pnl_pct = 0.0
+            
+            # If old_avg is available, use it. Otherwise approximate with current price? No, huge error risk.
+            if position_info and old_avg > 0:
+                pnl_val = int((exec_price - old_avg) * exec_qty)
+                pnl_pct = (exec_price - old_avg) / old_avg * 100
+                
+            pnl_sign = "+" if pnl_val >= 0 else ""
+            
+            lines.append(f"보유: {int(new_avg):,}원 | 수량: {new_qty}주 | 금액: {int(new_amt):,}원")
+            lines.append(f"실현손익: {pnl_sign}{pnl_val:,}원 ({pnl_sign}{pnl_pct:.2f}%) 잔고: {total_asset:,}원 (추정)")
+            
+        msg = "\n".join(lines)
         self._send(msg)

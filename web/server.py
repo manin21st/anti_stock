@@ -11,6 +11,7 @@ import sys
 import yaml
 import random
 import string
+from datetime import datetime
 from utils.data_loader import DataLoader
 
 # Add project root to path
@@ -529,6 +530,115 @@ async def get_backtest_data(request: Request):
         import traceback
         logging.error(traceback.format_exc())
         return {"status": "error", "message": str(e)}
+
+@app.get("/api/journal/trades")
+async def get_journal_trades(start: str = None, end: str = None, symbol: str = None):
+    """
+    Get trade history from Engine
+    """
+    if engine_instance:
+        try:
+            trades = engine_instance.trade_history
+            
+            # Convert to list of dicts suitable for JSON
+            data = []
+            
+            # Date Filtering (start, end are YYYYMMDD or YYYY-MM-DD)
+            # Normalize to datetime for comparison
+            s_dt = None
+            e_dt = None
+            if start:
+                start = start.replace("-", "")
+                try: s_dt = datetime.strptime(start, "%Y%m%d")
+                except: pass
+            if end:
+                end = end.replace("-", "")
+                try: 
+                    # End date is inclusive, so set to end of day if we compare timestamps
+                    e_dt_base = datetime.strptime(end, "%Y%m%d")
+                    e_dt = e_dt_base.replace(hour=23, minute=59, second=59)
+                except: pass
+                
+            for t in trades:
+                # 1. Filter by Symbol
+                if symbol and t.symbol != symbol:
+                    continue
+                
+                # 2. Filter by Date
+                if s_dt and t.timestamp < s_dt:
+                    continue
+                if e_dt and t.timestamp > e_dt:
+                    continue
+                
+                item = t.__dict__.copy()
+                
+                # Format Timestamp for display
+                if isinstance(t.timestamp, datetime):
+                    item['timestamp'] = t.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    item['timestamp'] = str(t.timestamp)
+                    
+                data.append(item)
+            
+            # Sort descending (latest first)
+            data.sort(key=lambda x: x['timestamp'], reverse=True)
+            
+            # Calculate summary metrics on the filtered set
+            total_pnl = 0
+            win_count = 0
+            loss_count = 0
+            total_count = len(data)
+            
+            # Only count closed trades (SELL) for PnL stats? Or assume PnL is tracked in Sell events?
+            # TradeEvent doesn't explicitly store PnL unless we put it in meta or calculate it.
+            # In engine.py record_position_event, we didn't explicitly add PnL to TradeEvent (it's in change_info but not mapped to a top-level field).
+            # We should check if 'position_info' in meta has 'pnl' or 'realized_pnl'.
+            # Looking at portfolio.py, SELL event has 'realized_pnl' in change_info.
+            
+            for item in data:
+                if item['event_type'] in ["SELL_FILLED", "POSITION_CLOSED", "ORDER_FILLED_SYNC"]:
+                    # Try to extract PnL
+                    # If it's a sync event, we might not have pnl unless we calculate it or API gives it.
+                    # KIS API daily ccld doesn't give PnL directly for each execution easily (it gives price/qty).
+                    # PnL is usually in 'inquire-balance' or 'inquire-ccld-pnl'.
+                    # For now, let's try to extract from 'meta' if available (from real-time tracking)
+                    
+                    # Real-time event has 'position_info' in notification, but TradeEvent meta usually catches partials.
+                    # Current implementation Engine.record_position_event meta is empty dict!
+                    # Wait, meta={} in line 580 of engine.py. Failed opportunity.
+                    # We should fix Engine to store change_info in meta.
+                    pass 
+            
+                # For now just return raw list, UI can try to calculate or show what we have.
+                # We will improve Engine to store PnL in meta in a follow-up or right now.
+                # Let's fix Engine persistence first to include metadata. 
+                # See next step. For now return list.
+
+            return {"status": "ok", "data": data}
+            
+        except Exception as e:
+            logger.error(f"Journal Error: {e}")
+            return {"status": "error", "message": str(e)}
+            
+    return {"status": "error", "message": "Engine not initialized"}
+
+@app.post("/api/journal/sync")
+async def sync_journal(request: Request):
+    data = await request.json()
+    start = data.get("start")
+    end = data.get("end")
+    
+    if engine_instance:
+        try:
+            # Run in executor to avoid blocking
+            loop = asyncio.get_running_loop()
+            count = await loop.run_in_executor(None, lambda: engine_instance.sync_trade_history(start, end))
+            
+            return {"status": "ok", "message": f"Synced {count} trades.", "count": count}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+            
+    return {"status": "error", "message": "Engine not initialized"}
 
 @app.websocket("/ws/backtest")
 async def backtest_websocket(websocket: WebSocket):

@@ -292,3 +292,37 @@ def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
 
 # (End of file, removed Prod Token and Stock Info functions)
 
+def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "") -> Any:
+    """
+    Wrapper for inquire-daily-ccld (Daily Execution History)
+    TR_ID: TTTC0081R (Real/Inner) or VTSC9215R (Demo/Before) - simplified for Inner period
+    """
+    # Determine Environment and TR_ID
+    # Simplified logic: Assuming 'inner' period (within 3 months) which is standard usage
+    # For 'real' env: TTTC0081R, For 'paper' env: VTTC0081R
+    
+    is_paper = is_paper_trading()
+    tr_id = "VTTC0081R" if is_paper else "TTTC0081R"
+    
+    # We need account info. In kis_auth, it's stored in global vars, but better to fetch or pass.
+    # Assuming ka.getTREnv() has account details
+    env = ka.getTREnv()
+    cano = env.my_acct
+    acnt_prdt_cd = env.my_prod
+    
+    params = {
+        "CANO": cano,
+        "ACNT_PRDT_CD": acnt_prdt_cd,
+        "INQR_STRT_DT": start_dt, # YYYYMMDD
+        "INQR_END_DT": end_dt,    # YYYYMMDD
+        "SLL_BUY_DVSN_CD": "00",  # 00: All
+        "CCLD_DVSN": "01",        # 01: Executed Only
+        "PDNO": symbol,           # Empty for all
+        "INQR_DVSN": "00",        # 00: Descending (Latest first)
+        "INQR_DVSN_3": "00",      # 00: All
+        "CTX_AREA_FK100": "",
+        "CTX_AREA_NK100": ""
+    }
+    
+    # Use _url_fetch directly via rate_limiter
+    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-daily-ccld", tr_id, "", params)

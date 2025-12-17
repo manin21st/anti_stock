@@ -109,6 +109,9 @@ class Portfolio:
             if symbol in self.positions:
                 pos = self.positions[symbol]
                 
+                # Capture pre-update state for PnL calculation
+                old_avg_price = pos.avg_price
+
                 # Detect Change
                 if qty != pos.qty:
                     diff = qty - pos.qty
@@ -122,7 +125,14 @@ class Portfolio:
                         "symbol": symbol,
                         "qty": abs(diff),
                         "price": avg_price if diff > 0 else current_price, # Approx price
-                        "tag": saved_tag
+                        "tag": saved_tag,
+                        # [NEW] Enhanced Data
+                        "exec_qty": abs(diff),
+                        "exec_price": avg_price if diff > 0 else current_price,
+                        "new_qty": qty,
+                        "new_avg_price": avg_price,
+                        "old_avg_price": old_avg_price,
+                        "total_asset": self.total_asset
                     })
 
                 pos.name = name
@@ -145,6 +155,7 @@ class Portfolio:
                 pass 
             else:
                 if qty > 0:
+                     # [FIXED] Notify for New Position
                      self.positions[symbol] = Position(
                          symbol=symbol, 
                          name=name, 
@@ -155,6 +166,21 @@ class Portfolio:
                          partial_taken=saved_partial,
                          max_price=saved_max
                      )
+                     
+                     self._notify_change({
+                        "type": "BUY_FILLED",
+                        "symbol": symbol,
+                        "qty": qty,
+                        "price": avg_price,
+                        "tag": saved_tag,
+                        # [NEW] Enhanced Data
+                        "exec_qty": qty,
+                        "exec_price": avg_price,
+                        "new_qty": qty,
+                        "new_avg_price": avg_price,
+                        "old_avg_price": 0.0,
+                        "total_asset": self.total_asset
+                     })
                 else:
                      # Ignore 0 qty positions if they don't exist
                      pass
@@ -170,7 +196,14 @@ class Portfolio:
                     "symbol": sym,
                     "qty": old_pos.qty, # Closed qty
                     "price": old_pos.current_price, # Approx exit price
-                    "tag": old_pos.tag
+                    "tag": old_pos.tag,
+                    # [NEW] Enhanced Data
+                    "exec_qty": old_pos.qty,
+                    "exec_price": old_pos.current_price,
+                    "new_qty": 0,
+                    "new_avg_price": 0.0,
+                    "old_avg_price": old_pos.avg_price,
+                    "total_asset": self.total_asset
                 })
                 del self.positions[sym]
         

@@ -71,6 +71,7 @@ class Engine:
         
         # Trade History
         self.trade_history: List[TradeEvent] = []
+        self.load_trade_history()
         
         # Subscribe to Broker and Portfolio events
         self.broker.on_order_sent.append(self.record_order_event)
@@ -525,6 +526,43 @@ class Engine:
             except Exception as e:
                 logger.error(f"Error in strategy execution: {e}")
 
+    def load_trade_history(self):
+        """Load trade history from file"""
+        try:
+            path = "data/trade_history.json"
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.trade_history = [TradeEvent(**item) for item in data]
+                logger.info(f"Loaded {len(self.trade_history)} trade events from {path}")
+            else:
+                logger.info("No existing trade history found. Starting fresh.")
+        except Exception as e:
+            logger.error(f"Failed to load trade history: {e}")
+
+    def save_trade_history(self):
+        """Save trade history to file"""
+        try:
+            path = "data/trade_history.json"
+            os.makedirs("data", exist_ok=True)
+            
+            # Serialize
+            data = [event.__dict__ for event in self.trade_history]
+            # Convert datetime objects to string if needed (TradeEvent usually stores timestamp as datetime)
+            # Assuming TradeEvent.__dict__ has timestamps as strings or we need custom encoder
+            # Let's use a robust serialization approach
+            def json_serial(obj):
+                if isinstance(obj, (datetime, pd.Timestamp)):
+                    return obj.isoformat()
+                return str(obj)
+
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, default=json_serial, indent=2, ensure_ascii=False)
+            
+            logger.debug(f"Saved {len(self.trade_history)} trade events")
+        except Exception as e:
+            logger.error(f"Failed to save trade history: {e}")
+
     def record_order_event(self, order_info: Dict):
         """Callback from Broker when order is sent"""
         try:
@@ -541,6 +579,7 @@ class Engine:
                 meta={"type": order_info["type"]}
             )
             self.trade_history.append(event)
+            self.save_trade_history() # Save on update
             logger.info(f"Recorded Order Event: {event.event_type} {event.symbol}")
             
             # Telegram Alert
@@ -577,9 +616,10 @@ class Engine:
                 price=float(change_info["price"]),
                 qty=int(change_info["qty"]),
                 order_id="sync_detected", # We don't have order ID here easily
-                meta={}
+                meta=change_info
             )
             self.trade_history.append(event)
+            self.save_trade_history() # Save on update
             logger.info(f"Recorded Position Event: {event.event_type} {event.symbol}")
 
             # Telegram Alert
@@ -590,11 +630,101 @@ class Engine:
                 price=float(change_info["price"]),
                 qty=int(change_info["qty"]),
                 side=side,
-                stock_name=stock_name
+                stock_name=stock_name,
+                position_info=change_info # Pass full context
             )
         except Exception as e:
             logger.error(f"Failed to record position event: {e}")
 
+    def sync_trade_history(self, start_date: str, end_date: str):
+        """Syncs local trade history with Broker API"""
+        from core import kis_api as ka
+        try:
+            logger.info(f"Syncing trade history from {start_date} to {end_date}...")
+            # Fetch from API
+            resp = ka.fetch_daily_ccld(start_date, end_date)
+            
+            if not resp.isOK():
+                logger.error(f"API Error: {resp.getErrorCode()} {resp.getErrorMessage()}")
+                return 0
+                
+            # Process API Data
+            # resp.getBody().output1 is the list of executions
+            # output1 might be a list of dicts.
+            import pandas as pd
+            
+            # Safe access to output1 (it might be a list or None)
+            body = resp.getBody()
+            output1 = getattr(body, 'output1', [])
+            
+            if not output1:
+                logger.info("No execution history found from API.")
+                return 0
+                
+            df1 = pd.DataFrame(output1)
+            
+            if df1.empty:
+                logger.info("No execution history found from API (Empty DataFrame).")
+                return 0
+                
+            # Process API Data
+            # KIS API df1 columns: odno(order_no), pdno(symbol), ccld_qty(qty), avg_prvs(price), sll_buy_dvsn_cd(1:sell, 2:buy), ord_dt(date)
+            # We need to deduplicate based on ODNO (Order No)
+            
+            local_odnos = set(t.order_id for t in self.trade_history if t.order_id)
+            new_count = 0
+            
+            for _, row in df1.iterrows():
+                odno = str(row['odno'])
+                if odno in local_odnos:
+                    continue
+                    
+                # New Trade Found
+                symbol = str(row['pdno'])
+                qty = int(row['ccld_qty'])
+                price = float(row['avg_prvs'])
+                date_str = str(row['ord_dt']) # YYYYMMDD
+                side_code = str(row['sll_buy_dvsn_cd'])
+                side = "BUY" if side_code == "02" else "SELL"
+                
+                # Assume time is unknown (00:00:00) or check if API provides time (usually separate field or not in this TR)
+                # inquire-daily-ccld output usually has date but maybe not precise time.
+                # Let's check keys if needed, but for now use date + noon
+                ts = datetime.strptime(date_str, "%Y%m%d")
+                
+                # Strategy ID Logic: Default to 'ma_trend' as per user request
+                strategy_id = "ma_trend" 
+                
+                event = TradeEvent(
+                    event_id=str(uuid.uuid4()),
+                    timestamp=ts,
+                    symbol=symbol,
+                    strategy_id=strategy_id,
+                    event_type="ORDER_FILLED_SYNC", # Distinct type
+                    side=side,
+                    price=price,
+                    qty=qty,
+                    order_id=odno,
+                    meta={"source": "api_sync"}
+                )
+                self.trade_history.append(event)
+                new_count += 1
+                
+            if new_count > 0:
+                # Sort by timestamp
+                self.trade_history.sort(key=lambda x: x.timestamp if isinstance(x.timestamp, datetime) else datetime.fromisoformat(str(x.timestamp)))
+                self.save_trade_history()
+                logger.info(f" synced {new_count} new trades from Broker API.")
+            else:
+                logger.info("All trades already exist locally.")
+                
+            return new_count
+            
+        except Exception as e:
+            logger.error(f"Sync failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise e
 
     def run_backtest(self, strategy_id: str, symbol: str, start_date: str, end_date: str, initial_cash: int = 100000000, strategy_config: Dict = None, progress_callback=None) -> Dict:
         """

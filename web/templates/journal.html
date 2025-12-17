@@ -1,0 +1,71 @@
+<div id="tab-journal" class="tab-content">
+    <section class="card journal-card full-height"
+        style="display: flex; flex-direction: column; padding: 20px; gap: 0;">
+
+        <!-- Header & Filters -->
+        <div class="journal-header"
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div class="filters" style="display: flex; gap: 10px; align-items: center;">
+                <input type="date" id="journal-start" class="date-input">
+                <span style="color: #aaa;">~</span>
+                <input type="date" id="journal-end" class="date-input">
+                <input type="text" id="journal-symbol" placeholder="종목코드/명" class="symbol-input">
+                <button id="btn-journal-search" class="btn-primary small-btn">조회</button>
+            </div>
+            <div class="actions">
+                <button id="btn-journal-sync" class="btn-primary small-btn"
+                    style="background-color: #f59e0b; border-color: #f59e0b;">
+                    <span class="icon">🔄</span> 증권사 동기화
+                </button>
+            </div>
+        </div>
+
+        <!-- Summary Cards (Styled like Backtest Results) -->
+        <div class="results-section"
+            style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border);">
+            <div class="section-header" style="margin-bottom: 10px;">
+                <h3 style="margin: 0; font-size: 1.1em; color: var(--text-primary);">성과 요약</h3>
+            </div>
+            <div class="metric-group compact" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+                <div class="metric">
+                    <span class="label">총 실현손익</span>
+                    <span class="value" id="j-total-pnl">₩0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">승률</span>
+                    <span class="value" id="j-win-rate">0%</span>
+                </div>
+                <div class="metric">
+                    <span class="label">매매 횟수</span>
+                    <span class="value" id="j-trade-count">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">수익 팩터</span>
+                    <span class="value" id="j-profit-factor">0.0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trade Table -->
+        <div class="table-container-scroll" style="flex: 1; overflow-y: auto;">
+            <table id="journal-table" class="data-table">
+                <thead class="sticky-header">
+                    <tr>
+                        <th style="width: 140px;">일자/시간</th>
+                        <th>종목</th>
+                        <th>구분</th>
+                        <th class="text-right">가격</th>
+                        <th class="text-right">수량</th>
+                        <th class="text-right">정산금액</th>
+                        <th class="text-right">실현손익</th>
+                        <th>전략</th>
+                        <th>주문번호</th>
+                    </tr>
+                </thead>
+                <tbody id="journal-list">
+                    <!-- Javascript will populate this -->
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
