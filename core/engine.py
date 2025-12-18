@@ -5,6 +5,7 @@ from typing import Dict, List
 import sys
 import os
 import yaml
+import json
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -654,59 +655,133 @@ class Engine:
     def sync_trade_history(self, start_date: str, end_date: str):
         """Syncs local trade history with Broker API"""
         from core import kis_api as ka
+        import time
         try:
             logger.info(f"Syncing trade history from {start_date} to {end_date}...")
-            # Fetch from API
-            resp = ka.fetch_daily_ccld(start_date, end_date)
             
-            if not resp.isOK():
-                logger.error(f"API Error: {resp.getErrorCode()} {resp.getErrorMessage()}")
-                return 0
+            all_trades = []
+            ctx_area_fk = ""
+            ctx_area_nk = ""
+            
+            while True:
+                # Fetch from API
+                resp = ka.fetch_daily_ccld(start_date, end_date, ctx_area_fk=ctx_area_fk, ctx_area_nk=ctx_area_nk)
                 
-            # Process API Data
-            # resp.getBody().output1 is the list of executions
-            # output1 might be a list of dicts.
-            import pandas as pd
-            
-            # Safe access to output1 (it might be a list or None)
-            body = resp.getBody()
-            output1 = getattr(body, 'output1', [])
-            
-            if not output1:
+                if not resp.isOK():
+                    logger.error(f"API Error: {resp.getErrorCode()} {resp.getErrorMessage()}")
+                    break
+                    
+                # Process API Data
+                body = resp.getBody()
+                
+                # Helper to get attribute case-insensitively
+                def get_attr_case_insensitive(obj, attr_name, default=None):
+                    # If obj is namedtuple or object, dir(obj) helps, but _fields is better for namedtuple
+                    if hasattr(obj, '_fields'):
+                        for field in obj._fields:
+                            if field.lower() == attr_name.lower():
+                                return getattr(obj, field)
+                    # If it's a dict (fallback for body dict)
+                    elif isinstance(obj, dict):
+                         for key in obj.keys():
+                             if key.lower() == attr_name.lower():
+                                 return obj[key]
+                    return default
+
+                output1 = get_attr_case_insensitive(body, 'output1', [])
+                
+                if output1:
+                    all_trades.extend(output1)
+                
+            # Check Pagination
+                # ctx_area_nk100 might be in body or header. 
+                # Let's inspect body keys for debugging first
+                if not ctx_area_nk:
+                     body_keys = getattr(body, '_fields', [])
+                     logger.debug(f"[DEBUG] Body Keys: {body_keys}")
+                
+                ctx_area_nk = get_attr_case_insensitive(body, 'ctx_area_nk100', "").strip()
+                ctx_area_fk = get_attr_case_insensitive(body, 'ctx_area_fk100', "").strip()
+                
+                logger.info(f"[DEBUG] Pagination: fk=[{ctx_area_fk}], nk=[{ctx_area_nk}], count={len(output1)}")
+                
+                if not ctx_area_nk:
+                    break
+                    
+                time.sleep(0.2) # Rate limit safety
+                
+            if not all_trades:
                 logger.info("No execution history found from API.")
                 return 0
                 
-            df1 = pd.DataFrame(output1)
+            import pandas as pd
+            # Normalize list of dicts/objects to dicts if they are objects
+            # output1 elements are likely namedtuples too if created by kis_auth? 
+            # kis_auth._getResultObject creates namedtuples recursively? 
+            # No, _setBody creates namedtuple for top level. JSON deserialization usually makes dicts for nested objects unless customized.
+            # requests.json() returns dicts/lists. 
+            # kis_auth: _tb_ = namedtuple("body", self._resp.json().keys()) -> attributes are values.
+            # If value is list, it's list of dicts.
+            
+            df1 = pd.DataFrame(all_trades)
             
             if df1.empty:
                 logger.info("No execution history found from API (Empty DataFrame).")
                 return 0
                 
             # Process API Data
-            # KIS API df1 columns: odno(order_no), pdno(symbol), ccld_qty(qty), avg_prvs(price), sll_buy_dvsn_cd(1:sell, 2:buy), ord_dt(date)
-            # We need to deduplicate based on ODNO (Order No)
+            # KIS API v1.0 domestic-stock/trading/inquire-daily-ccld details
             
             local_odnos = set(t.order_id for t in self.trade_history if t.order_id)
             new_count = 0
             
             for _, row in df1.iterrows():
-                odno = str(row['odno'])
+                # row is a Series. Keys are columns.
+                # Columns might be upper/lower.
+                
+                def get_val(row_series, candidates, default=None):
+                    for cand in candidates:
+                         if cand in row_series:
+                             return row_series[cand]
+                         if cand.upper() in row_series:
+                             return row_series[cand.upper()]
+                         if cand.lower() in row_series:
+                             return row_series[cand.lower()]
+                    return default
+
+                odno = str(get_val(row, ['odno', 'ODNO']))
+                if odno == 'None' or not odno: # Skip invalid
+                     continue
+
                 if odno in local_odnos:
                     continue
                     
                 # New Trade Found
-                symbol = str(row['pdno'])
-                qty = int(row['ccld_qty'])
-                price = float(row['avg_prvs'])
-                date_str = str(row['ord_dt']) # YYYYMMDD
-                side_code = str(row['sll_buy_dvsn_cd'])
+                symbol = str(get_val(row, ['pdno', 'PDNO']))
+                
+                qty_candidates = ['tot_ccld_qty', 'TOT_CCLD_QTY', 'ccld_qty', 'CCLD_QTY']
+                qty = int(get_val(row, qty_candidates, 0))
+                
+                price = float(get_val(row, ['avg_prvs', 'AVG_PRVS'], 0.0))
+                date_str = str(get_val(row, ['ord_dt', 'ORD_DT'], "")) 
+                time_str = str(get_val(row, ['ord_tmd', 'ORD_TMD'], "000000"))
+                side_code = str(get_val(row, ['sll_buy_dvsn_cd', 'SLL_BUY_DVSN_CD'], ""))
                 side = "BUY" if side_code == "02" else "SELL"
                 
-                # Assume time is unknown (00:00:00) or check if API provides time (usually separate field or not in this TR)
-                # inquire-daily-ccld output usually has date but maybe not precise time.
-                # Let's check keys if needed, but for now use date + noon
-                ts = datetime.strptime(date_str, "%Y%m%d")
-                
+                # Parse Date and Time
+                if not date_str:
+                     continue # Skip if no date
+                     
+                try:
+                    full_dt_str = f"{date_str}{time_str}"
+                    ts = datetime.strptime(full_dt_str, "%Y%m%d%H%M%S")
+                except ValueError:
+                     # Fallback if time is missing or invalid
+                     try:
+                        ts = datetime.strptime(date_str, "%Y%m%d")
+                     except:
+                        ts = datetime.now() # Should not happen
+
                 # Strategy ID Logic: Default to 'ma_trend' as per user request
                 strategy_id = "ma_trend" 
                 
@@ -732,7 +807,91 @@ class Engine:
                 logger.info(f" synced {new_count} new trades from Broker API.")
             else:
                 logger.info("All trades already exist locally.")
+
+            # --- Sync Realized PnL ---
+            try:
+                # Only sync PnL if we have trades or just always try for the period? 
+                # Always try is safer to catch up updates.
+                logger.info(f"Syncing Period PnL from {start_date} to {end_date}...")
+                pnl_resp = ka.fetch_period_profit(start_date, end_date)
                 
+                if pnl_resp and pnl_resp.isOK():
+                    pnl_body = pnl_resp.getBody()
+                    pnl_list = getattr(pnl_body, 'output1', [])
+                    
+                    # Build Map: (date_str, symbol) -> pnl
+                    pnl_map = {}
+                    
+                    # Inspect first item to handle naming key variations
+                    if pnl_list and len(pnl_list) > 0:
+                        sample = pnl_list[0]
+                        # logger.debug(f"PnL Sample Data: {sample}")
+
+                    for item in pnl_list:
+                        # Helper to get value
+                        def g(obj, keys, default=None):
+                            if isinstance(obj, dict):
+                                for k in keys: 
+                                    if k in obj: return obj[k]
+                            else:
+                                for k in keys:
+                                    if hasattr(obj, k): return getattr(obj, k)
+                            return default
+
+                        dt = str(g(item, ['tr_dt', 'TR_DT'], ""))
+                        sym = str(g(item, ['pdno', 'PDNO'], ""))
+                        pnl = float(g(item, ['rlzg_pl', 'RLZG_PL'], 0))
+                        
+                        if dt and sym:
+                            pnl_map[(dt, sym)] = pnl
+                    
+                    logger.info(f"Fetched {len(pnl_map)} PnL records.")
+
+                    # Assign PnL to local Sell events
+                    # Strategy: Assign Daily PnL to the LAST Sell event of that day for that symbol
+                    
+                    # 1. Group Sell Events
+                    day_sell_events = {} # (date_str, symbol) -> [event]
+                    
+                    for event in self.trade_history:
+                        if event.side == "SELL":
+                            d_str = event.timestamp.strftime("%Y%m%d")
+                            k = (d_str, event.symbol)
+                            if k not in day_sell_events:
+                                day_sell_events[k] = []
+                            day_sell_events[k].append(event)
+                    
+                    # 2. Match and Update
+                    updated_pnl_count = 0
+                    for k, events in day_sell_events.items():
+                        if k in pnl_map:
+                            daily_pnl = pnl_map[k]
+                            # Sort events by time just in case
+                            events.sort(key=lambda x: x.timestamp)
+                            
+                            # Assign to the last one
+                            last_event = events[-1]
+                            
+                            # Check if update needed
+                            if last_event.pnl != daily_pnl:
+                                last_event.pnl = daily_pnl
+                                updated_pnl_count += 1
+                                # logger.debug(f"Updated PnL for {last_event.symbol} on {k[0]}: {daily_pnl}")
+                    
+                    if updated_pnl_count > 0:
+                        self.save_trade_history()
+                        logger.info(f"Updated PnL for {updated_pnl_count} trade events.")
+                    else:
+                        logger.info("No PnL updates needed.")
+                        
+                else:
+                    logger.warning(f"PnL Fetch Failed: {pnl_resp.getErrorMessage() if pnl_resp else 'None'}")
+
+            except Exception as e:
+                logger.error(f"PnL Sync Logic Error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+
             return new_count
             
         except Exception as e:

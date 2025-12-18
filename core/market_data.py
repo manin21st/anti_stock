@@ -103,24 +103,40 @@ class MarketData:
         if not os.path.exists(file_path): return 0
         
         count = 0
-        with open(file_path, mode="r", encoding="cp949") as f:
+        with open(file_path, mode="rb") as f:
             for row in f:
-                # Based on kis_kospi_code_mst.py
-                # Short Code(9), Standard Code(12), Name(Remaining)
-                # But actually the parsing logic in example was:
-                # rf1 = row[0:len(row) - 228]
-                # rf1_1 = rf1[0:9].rstrip() (Short)
-                # rf1_2 = rf1[9:21].rstrip() (Standard)
-                # rf1_3 = rf1[21:].strip() (Name)
-                
-                # We only need Short Code and Name
                 try:
-                    # The example logic splits strictly by length from end.
-                    # Let's trust the logic: row[:-228] contains the name part.
-                    # But if row length is small?
-                    part1 = row[:-228]
-                    code = part1[0:9].strip()
-                    name = part1[21:].strip()
+                    # KOSPI: Total length varies? But usually fixed tail.
+                    # Logic: row[:-228] is the head part containing codes and name
+                    # ShortCode(9) + StandardCode(12) + Group(2) + Name(variable padded to fixed?)
+                    # Actually better to trust relative offsets from start if standard.
+                    # But the example used tail offset. Let's replicate exact logic but in BYTES.
+                    
+                    # Ensure row has enough length
+                    if len(row) < 50: continue
+                    
+                    # Split Name part
+                    # ShortCode(9) StandardCode(12) -> Offsets 0:9, 9:21
+                    # Name starts at 21.
+                    # Tail is 228 bytes? from end (excluding newline?)
+                    # row includes \n or \r\n. 
+                    # strip() first? No, stripping whitespace from bytes might remove padding.
+                    # rstrip() whitespace from right end of row is dangerous if data has valid space.
+                    
+                    # Safe approach: Slice from 21 to (Length - 228).
+                    # Check if (Len - 228) > 21.
+                    
+                    # Note: The "228" number in example likely includes the newline char(s).
+                    # Let's try slicing [21: -228]
+                    
+                    upper_bound = len(row) - 228
+                    if upper_bound <= 21: continue
+                    
+                    code_bytes = row[0:9]
+                    name_bytes = row[21:upper_bound]
+                    
+                    code = code_bytes.decode('ascii', errors='ignore').strip()
+                    name = name_bytes.decode('cp949', errors='ignore').strip()
                     
                     if code and name:
                         self._name_cache[code] = name
@@ -134,13 +150,20 @@ class MarketData:
         if not os.path.exists(file_path): return 0
         
         count = 0
-        with open(file_path, mode="r", encoding="cp949") as f:
+        with open(file_path, mode="rb") as f:
             for row in f:
-                # KOSDAQ: row[:-222]
                 try:
-                    part1 = row[:-222]
-                    code = part1[0:9].strip()
-                    name = part1[21:].strip()
+                    # KOSDAQ: Last 222 bytes are tail
+                    if len(row) < 50: continue
+                    
+                    upper_bound = len(row) - 222
+                    if upper_bound <= 21: continue
+                    
+                    code_bytes = row[0:9]
+                    name_bytes = row[21:upper_bound]
+                    
+                    code = code_bytes.decode('ascii', errors='ignore').strip()
+                    name = name_bytes.decode('cp949', errors='ignore').strip()
                     
                     if code and name:
                         self._name_cache[code] = name

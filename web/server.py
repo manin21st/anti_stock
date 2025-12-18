@@ -600,23 +600,14 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
             # Looking at portfolio.py, SELL event has 'realized_pnl' in change_info.
             
             for item in data:
-                if item['event_type'] in ["SELL_FILLED", "POSITION_CLOSED", "ORDER_FILLED_SYNC"]:
-                    # Try to extract PnL
-                    # If it's a sync event, we might not have pnl unless we calculate it or API gives it.
-                    # KIS API daily ccld doesn't give PnL directly for each execution easily (it gives price/qty).
-                    # PnL is usually in 'inquire-balance' or 'inquire-ccld-pnl'.
-                    # For now, let's try to extract from 'meta' if available (from real-time tracking)
-                    
-                    # Real-time event has 'position_info' in notification, but TradeEvent meta usually catches partials.
-                    # Current implementation Engine.record_position_event meta is empty dict!
-                    # Wait, meta={} in line 580 of engine.py. Failed opportunity.
-                    # We should fix Engine to store change_info in meta.
-                    pass 
-            
-                # For now just return raw list, UI can try to calculate or show what we have.
-                # We will improve Engine to store PnL in meta in a follow-up or right now.
-                # Let's fix Engine persistence first to include metadata. 
-                # See next step. For now return list.
+                # Inject Stock Name if missing
+                if 'name' not in item or not item['name']:
+                    if engine_instance and engine_instance.market_data:
+                        item['name'] = engine_instance.market_data.get_stock_name(item['symbol'])
+                
+                # PnL Logic: Currently disabled for pure sync as we lack cost basis.
+                # Future: Implement inquire-ccld-pnl for accurate PnL history.
+                pass
 
             return {"status": "ok", "data": data}
             

@@ -133,6 +133,18 @@ class RateLimiter:
                     self.last_call_time = time.time()
                     return result
 
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                    if attempt < max_retries:
+                        backoff = 1.0 * (attempt + 1)
+                        logger.warning(f"[RateLimiter] Connection unstable: {e}. Retrying in {backoff}s... (Attempt {attempt+1}/{max_retries})")
+                        time.sleep(backoff)
+                        self.last_call_time = time.time()
+                        continue
+                    else:
+                        logger.error(f"[RateLimiter] Max retries exceeded for connection error: {e}")
+                        self.last_call_time = time.time()
+                        raise e
+                        
                 except Exception as e:
                     # In case of real exception, update time and raise
                     self.last_call_time = time.time()
@@ -292,7 +304,7 @@ def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
 
 # (End of file, removed Prod Token and Stock Info functions)
 
-def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "") -> Any:
+def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "", ctx_area_fk: str = "", ctx_area_nk: str = "") -> Any:
     """
     Wrapper for inquire-daily-ccld (Daily Execution History)
     TR_ID: TTTC0081R (Real/Inner) or VTSC9215R (Demo/Before) - simplified for Inner period
@@ -319,14 +331,51 @@ def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "") -> Any:
         "CCLD_DVSN": "01",        # 01: Executed Only
         "PDNO": symbol,           # Empty for all
         "INQR_DVSN": "00",        # 00: Descending (Latest first)
-        "INQR_DVSN_3": "00",      # 00: All
+        "INQR_DVSN_1": "",
         "INQR_DVSN_3": "00",      # 00: All
         "ORD_GNO_BRNO": "",       # Required field: Branch Number
         "ODNO": "",               # Required field: Order Number
         "ORD_DVSN": "00",         # Required field: Order Division (00: All)
-        "CTX_AREA_FK100": "",
-        "CTX_AREA_NK100": ""
+        "CTX_AREA_FK100": ctx_area_fk,
+        "CTX_AREA_NK100": ctx_area_nk
     }
     
     # Use _url_fetch directly via rate_limiter
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-daily-ccld", tr_id, "", params)
+
+def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_area_nk: str = "") -> Any:
+    """
+    Wrapper for inquire-period-profit (Period Profit Analysis)
+    TR_ID: TTTC8708R (Real) or VTTC8708R (Paper)
+    URL: /uapi/domestic-stock/v1/trading/inquire-period-profit
+    """
+    is_paper = is_paper_trading()
+    # tr_id = "VTTC8708R" if is_paper else "TTTC8708R"
+    # Try TTTC8708R for both first (Some TRs are shared or I can't find the V code)
+    tr_id = "TTTC8708R"
+    
+    env = ka.getTREnv()
+    cano = env.my_acct
+    acnt_prdt_cd = env.my_prod
+    
+    params = {
+        "CANO": cano,
+        "ACNT_PRDT_CD": acnt_prdt_cd,
+        "INQR_STRT_DT": start_dt,
+        "INQR_END_DT": end_dt,
+        "SORT_DVSN": "00",        # 00: Descending
+        "INQR_DVSN": "00",        # 00: All
+        "CBLC_DVSN": "00",        # 00: All
+        # "PDNO": "",             # Strip if empty
+        # "CTX_AREA_FK100": ctx_area_fk,
+        # "CTX_AREA_NK100": ctx_area_nk
+    }
+    
+    if ctx_area_fk: params["CTX_AREA_FK100"] = ctx_area_fk
+    if ctx_area_nk: params["CTX_AREA_NK100"] = ctx_area_nk
+    
+    # PDNO is optional, some APIs error if sent as empty string
+    # But domestic_stock_functions.py sends it.
+    # Let's try sending it ONLY if not empty.
+    
+    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-period-profit", tr_id, "", params)

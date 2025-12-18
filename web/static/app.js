@@ -961,6 +961,12 @@ function renderJournalTable(data) {
         // We can check if `meta` has pnl info or if it's a SELL and we can infer?
         // Let's just show "-" for now until we have PnL tracking in Engine properly
         let pnlText = "-";
+        if (item.pnl !== undefined && item.pnl !== null) {
+            const val = Math.round(item.pnl);
+            pnlText = val.toLocaleString();
+            if (val > 0) pnlText = `<span style="color: #ef4444;">${pnlText}</span>`; // Positive Red (KR market)
+            else if (val < 0) pnlText = `<span style="color: #3b82f6;">${pnlText}</span>`; // Negative Blue
+        }
 
         // Check for sync strategy default
         let strategyName = strategyNames[item.strategy_id] || item.strategy_id;
@@ -969,9 +975,14 @@ function renderJournalTable(data) {
             // But user asked to set it as ma_trend, so it's fine.
         }
 
+        // Format Stock Name/Symbol
+        const nameHtml = item.name
+            ? `<div style="font-weight: 500;">${item.name}</div><div style="font-size: 11px; color: #888;">${item.symbol}</div>`
+            : `<div style="font-weight: 500;">${item.symbol}</div>`;
+
         tr.innerHTML = `
             <td>${item.timestamp}</td>
-            <td>${item.symbol}</td>
+            <td>${nameHtml}</td>
             <td class="${sideClass}">${sideLabel}</td>
             <td class="text-right">${price}</td>
             <td class="text-right">${item.qty}</td>
