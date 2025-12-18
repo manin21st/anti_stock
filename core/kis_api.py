@@ -320,6 +320,10 @@ def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "") -> Any:
         "PDNO": symbol,           # Empty for all
         "INQR_DVSN": "00",        # 00: Descending (Latest first)
         "INQR_DVSN_3": "00",      # 00: All
+        "INQR_DVSN_3": "00",      # 00: All
+        "ORD_GNO_BRNO": "",       # Required field: Branch Number
+        "ODNO": "",               # Required field: Order Number
+        "ORD_DVSN": "00",         # Required field: Order Division (00: All)
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": ""
     }

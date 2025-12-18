@@ -533,6 +533,16 @@ class Engine:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    # Convert timestamp strings back to datetime objects
+                    for item in data:
+                        if isinstance(item.get("timestamp"), str):
+                            try:
+                                item["timestamp"] = datetime.fromisoformat(item["timestamp"])
+                            except ValueError:
+                                # Fallback for other formats if necessary, or keep as string (but preferred datetime)
+                                pass
                     self.trade_history = [TradeEvent(**item) for item in data]
                 logger.info(f"Loaded {len(self.trade_history)} trade events from {path}")
             else:
@@ -606,6 +616,11 @@ class Engine:
             if event_type == "POSITION_CLOSED":
                 side = "SELL" # Assuming long-only for now
             
+            # [FIX] Filter out invalid events with 0 price to prevent ghost entries and notifications
+            if float(change_info["price"]) <= 0:
+                logger.debug(f"Skipping position event with 0 price: {event_type} {change_info['symbol']}")
+                return
+
             event = TradeEvent(
                 event_id=str(uuid.uuid4()),
                 timestamp=datetime.now(),

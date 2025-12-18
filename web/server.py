@@ -570,6 +570,10 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
                 if e_dt and t.timestamp > e_dt:
                     continue
                 
+                # 3. Filter out invalid/ghost entries (Price 0)
+                if t.price <= 0:
+                    continue
+                
                 item = t.__dict__.copy()
                 
                 # Format Timestamp for display
