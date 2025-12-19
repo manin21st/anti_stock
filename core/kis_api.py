@@ -33,7 +33,6 @@ class RateLimiter:
 
     def _initialize(self):
         # Configurable TPS Limit (Default: 2.0 for single machine standard performance)
-        # To run on multiple machines, set TPS_LIMIT=1.0 (for 2 machines) or 0.5 (for 4 machines)
         try:
             self.tps_limit = float(os.environ.get("TPS_LIMIT", 2.0))
         except ValueError:
@@ -43,31 +42,110 @@ class RateLimiter:
         self.last_call_time = 0.0
         self.lock = threading.Lock()
         
+        # TPS Server Config
+        self.server_url = os.environ.get("TPS_SERVER_URL", "http://localhost:9000")
+        self.use_server = False 
+        self.server_alive = True 
+        self.server_fail_count = 0 
+        self.logged_server_error = False 
+        
+        # Generate Client ID (Hostname + PID)
+        import socket
+        self.client_id = f"{socket.gethostname()}-{os.getpid()}"
+        
         logger.info(f"[RateLimiter] Initialized with TPS_LIMIT={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
+        # Check if we should try to use server (if explicitly set or default)
+        # We will try lazily in execute
+        
+    def set_limit(self, tps_limit: float):
+        """Update TPS Limit dynamically"""
+        with self.lock:
+            self.tps_limit = float(tps_limit)
+            self.min_interval = 1.0 / max(self.tps_limit, 0.1)
+            logger.info(f"[RateLimiter] Limit updated to TPS={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
+
+    def set_server_url(self, url: str):
+        """Update TPS Server URL dynamically"""
+        with self.lock:
+            if url and url != self.server_url:
+                self.server_url = url.rstrip('/') # Normalize
+                self.server_alive = True # Reset status to try new URL
+                self.logged_server_error = False
+                logger.info(f"[RateLimiter] Server URL updated to: {self.server_url}")
+
+    def _request_token_from_server(self):
+        """
+        Request a token from the centralized server.
+        Returns:
+            True: Token acquired (Proceed)
+            False: Limit exceeded (Wait)
+            None: Server error (Fallback to Local)
+        """
+        try:
+            # Short timeout to not block trading
+            headers = {"X-Client-ID": self.client_id}
+            resp = requests.get(f"{self.server_url}/token", headers=headers, timeout=0.1)
+            
+            if resp.status_code == 200:
+                if not self.server_alive:
+                     self.server_alive = True
+                     logger.info(f"[RateLimiter] TPS Server Reconnected: {self.server_url}")
+                     self.logged_server_error = False
+                return True
+            elif resp.status_code == 429:
+                return False
+            else:
+                return False # Treat other codes as limit exceeded or error? Let's say False to backoff.
+                
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            if not self.logged_server_error:
+                logger.warning(f"[RateLimiter] TPS Server Unreachable ({self.server_url}). Switching to Local Mode.")
+                self.logged_server_error = True
+            self.server_alive = False
+            return None
+        except Exception:
+            return None
 
     def execute(self, func, *args, **kwargs):
         """
         Executes the function with Rate Limiting Lock held.
-        Ensures that no other thread can execute an API call until the interval has passed.
-        Includes Adaptive Rate Limiting: Retries on EGW00201 with Jitter.
         """
         max_retries = 3
         
         for attempt in range(max_retries + 1):
             with self.lock:
-                # 1. Enforce Interval
-                now = time.time()
-                elapsed = now - self.last_call_time
+                # Hybrid Rate Limiting
+                # 1. Try Server if alive
+                token_granted = False
                 
-                if elapsed < self.min_interval:
-                    sleep_time = self.min_interval - elapsed
-                    # logger.debug(f"Rate Limit Sleep: {sleep_time:.3f}s")
-                    time.sleep(sleep_time)
+                # Check server only if we haven't failed too much or logic dictates
+                # We simply try if not failed recently? Or just try every time if not flagged?
+                # The requirement says: switch to local if server fails.
+                # Let's try server first.
+                
+                server_status = self._request_token_from_server()
+                
+                if server_status is True:
+                    # Token Granted! Proceed immediately without efficient wait
+                    pass 
+                elif server_status is False:
+                    # Limit Exceeded (Server said wait)
+                    # We should wait a bit. Server usually returns 'wait' time in body but we didn't parse it for speed.
+                    # Default wait 0.1s
+                    time.sleep(0.1) 
+                    # Don't increment call time, just loop
+                    continue
+                else:
+                    # Server Error (None) -> Fallback to Local Interval
+                    now = time.time()
+                    elapsed = now - self.last_call_time
+                    if elapsed < self.min_interval:
+                        sleep_time = self.min_interval - elapsed
+                        time.sleep(sleep_time)
                 
                 # 2. Execute API Call
                 try:
-                    # Suppress external library prints (kis_auth.py)
-                    # This prevents "Error Code : 500" from forcibly printing to console
+                    # Suppress external library prints
                     with open(os.devnull, 'w') as devnull:
                         with contextlib.redirect_stdout(devnull):
                             result = func(*args, **kwargs)
@@ -77,21 +155,15 @@ class RateLimiter:
                     if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
                         is_rate_limit = True
                     elif hasattr(result, 'getErrorMessage'):
-                         # Fallback: Check if error message contains the code (EGW00201)
-                         # This handles APIRespError where error code might be HTTP status (e.g. 500)
                          msg = result.getErrorMessage()
                          if msg and "EGW00201" in msg:
                              is_rate_limit = True
 
                     if is_rate_limit:
                         if attempt < max_retries:
-                            # Smart Backoff with Jitter: Base 0.5s + Random(0.0 ~ 0.5s)
-                            # Prevents synchronized retries in distributed environment
                             jitter = random.uniform(0.0, 0.5)
                             backoff_time = 0.5 + jitter
-                            # Downgraded to DEBUG to keep logs clean
-                            logger.debug(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s (Jitter)... (Attempt {attempt+1}/{max_retries})")
-                            
+                            logger.debug(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s... (Attempt {attempt+1})")
                             time.sleep(backoff_time)
                             self.last_call_time = time.time()
                             continue # Retry
@@ -109,34 +181,29 @@ class RateLimiter:
                             
                     if is_expired_token:
                         if attempt < max_retries:
-                            # Downgraded to DEBUG
-                            logger.debug(f"[RateLimiter] Token expired (EGW00123). Re-authenticating... (Attempt {attempt+1}/{max_retries})")
-                            # Force Auth logic: Delete token file to ensure fresh token
+                            logger.debug(f"[RateLimiter] Token expired (EGW00123). Re-authenticating...")
                             try:
                                 if hasattr(ka, 'token_tmp') and os.path.exists(ka.token_tmp):
                                     os.remove(ka.token_tmp)
-                                    logger.debug(f"[RateLimiter] Deleted token file to force refresh: {ka.token_tmp}")
-                            except Exception as e:
-                                logger.warning(f"[RateLimiter] Failed to delete token file: {e}")
+                            except Exception:
+                                pass
 
-                            # Force Auth with correct environment
                             svr = "vps" if ka.isPaperTrading() else "prod"
-                            ka.auth(svr=svr) # This updates the token
+                            ka.auth(svr=svr)
                             
-                            # Update timestamp
                             self.last_call_time = time.time()
-                            continue # Retry
+                            continue 
                         else:
                             logger.error("[RateLimiter] Max retries exceeded for token expiration.")
                     
-                    # Update timestamp
+                    # Update timestamp (Local fallback needs this)
                     self.last_call_time = time.time()
                     return result
 
                 except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                     if attempt < max_retries:
                         backoff = 1.0 * (attempt + 1)
-                        logger.warning(f"[RateLimiter] Connection unstable: {e}. Retrying in {backoff}s... (Attempt {attempt+1}/{max_retries})")
+                        logger.warning(f"[RateLimiter] Connection unstable: {e}. Retrying in {backoff}s...")
                         time.sleep(backoff)
                         self.last_call_time = time.time()
                         continue
@@ -146,7 +213,6 @@ class RateLimiter:
                         raise e
                         
                 except Exception as e:
-                    # In case of real exception, update time and raise
                     self.last_call_time = time.time()
                     raise e
                     
@@ -156,7 +222,6 @@ rate_limiter = RateLimiter()
 def auth(svr="prod", product=None, url=None, force=False):
     """
     Wrapper for kis_auth.auth
-    If force=True, deletes the token file to ensure a fresh token is requested.
     """
     kwargs = {"svr": svr}
     if product is not None:
@@ -165,24 +230,17 @@ def auth(svr="prod", product=None, url=None, force=False):
         kwargs["url"] = url
     
     if force:
-        # Force refresh by deleting the token file
         try:
             token_file = ka.token_tmp
             if os.path.exists(token_file):
                 os.remove(token_file)
-                logger.info(f"[RateLimiter] Deleted token file to force refresh: {token_file}")
-            else:
-                logger.info(f"[RateLimiter] Token file not found (already deleted?): {token_file}")
-        except Exception as e:
-            logger.warning(f"Failed to delete token file: {e}")
+        except Exception:
+            pass
         
-    # Auth probably doesn't need strict rate limiting but good to be safe if it calls API
     ka.auth(**kwargs)
     
-    # Update RateLimiter timestamp because auth() makes an API call
     if rate_limiter:
         rate_limiter.last_call_time = time.time()
-        logger.info(f"[RateLimiter] Auth completed. Timestamp updated to {rate_limiter.last_call_time}")
 
 def auth_ws(svr="prod", product=None):
     """

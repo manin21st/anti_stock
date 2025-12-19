@@ -51,21 +51,26 @@ pip install -r requirements.txt
 
 ### 방법 A: 간단 실행 (nohup)
 ```bash
-# 로그를 파일에 남기며 백그라운드 실행
+# 1. TPS 서버 실행 (필수)
+nohup python tps_server.py > logs/tps_server.log 2>&1 &
+
+# 2. 웹 서버 실행 (로그를 파일에 남기며 백그라운드 실행)
 nohup python main.py > server.log 2>&1 &
 
 # 실행 확인
 ps aux | grep python
 ```
 
+
 ### 방법 B: 서비스 등록 (Systemd) - 권장
 서버 재부팅 시 자동 실행되도록 설정합니다.
 
-1. 서비스 파일 생성: `sudo nano /etc/systemd/system/anti_stock.service`
+
+2. 서비스 파일 생성 (웹 서버): `sudo nano /etc/systemd/system/anti_stock.service`
 ```ini
 [Unit]
-Description=Anti-Stock Trading Bot
-After=network.target
+Description=Anti-Stock Trading Bot (Web)
+After=network.target anti_stock_tps.service
 
 [Service]
 User=root
@@ -77,9 +82,32 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-2. 서비스 시작 및 등록:
+3. 서비스 파일 생성 (TPS 서버): `sudo nano /etc/systemd/system/anti_stock_tps.service`
+```ini
+[Unit]
+Description=Anti-Stock TPS Server
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/anti_stock
+ExecStart=/root/anti_stock/venv/bin/python tps_server.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+
+4. 서비스 시작 및 등록:
 ```bash
 sudo systemctl daemon-reload
+
+# TPS 서버 먼저 시작
+sudo systemctl start anti_stock_tps
+sudo systemctl enable anti_stock_tps
+
+# 웹 서버 시작
 sudo systemctl start anti_stock
 sudo systemctl enable anti_stock
 ```

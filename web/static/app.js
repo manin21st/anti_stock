@@ -277,6 +277,16 @@ async function loadSystemConfig() {
         document.getElementById("enable_system_alert").checked = telegram.enable_system_alert;
     }
 
+    // TPS Limit - Removed
+
+    // TPS Server URL
+    if (config.tps_server_url) {
+        document.getElementById("tps_server_url").value = config.tps_server_url;
+    } else {
+        document.getElementById("tps_server_url").value = "http://localhost:9000";
+    }
+
+
     // Toggle Visibility
     const toggleScannerUI = () => {
         if (autoScannerCheckbox.checked) {
@@ -338,6 +348,8 @@ async function loadSystemConfig() {
 
     // Text Inputs: Blur triggers save
     universeInput.addEventListener("blur", autoSaveSystem);
+    document.getElementById("tps_server_url").addEventListener("blur", autoSaveSystem);
+
 
     document.getElementById("enable_trade_alert").addEventListener("change", autoSaveSystem);
     document.getElementById("enable_system_alert").addEventListener("change", autoSaveSystem);
@@ -362,8 +374,12 @@ async function saveSystemConfig() {
     const universeStr = document.getElementById("universe-input").value;
     const universe = universeStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
 
+
+
     const enable_trade_alert = document.getElementById("enable_trade_alert").checked;
     const enable_system_alert = document.getElementById("enable_system_alert").checked;
+
+    const tps_server_url = document.getElementById("tps_server_url").value;
 
     await fetch(`${API_BASE}/system_config`, {
         method: "POST",
@@ -374,6 +390,8 @@ async function saveSystemConfig() {
             use_auto_scanner,
             scanner_mode,
             universe,
+            tps_server_url,
+            // tps_limit, - Removed
             telegram: {
                 enable_trade_alert,
                 enable_system_alert
@@ -1023,3 +1041,70 @@ function updateJournalSummary(data) {
     document.getElementById("j-trade-count").textContent = tradeCount;
     // ... others 0 for now
 }
+
+// --- TPS Monitoring Logic ---
+function updateTpsStats() {
+    // Only update if Settings tab is active
+    const settingsTab = document.getElementById('tab-settings');
+    if (!settingsTab || !settingsTab.classList.contains('active')) return;
+
+    fetch('/api/tps/stats')
+        .then(res => res.json())
+        .then(data => {
+            const led = document.getElementById('tps-status-led');
+            const text = document.getElementById('tps-status-text');
+
+            if (data.status === 'running') {
+                if (led) led.className = 'led-on'; // Green
+                if (text) {
+                    text.textContent = '정상 가동중';
+                    text.style.color = '#4ade80';
+                }
+
+                const cur = document.getElementById('tps-current');
+                const cli = document.getElementById('tps-clients');
+                const tok = document.getElementById('tps-tokens');
+
+                if (cur) cur.textContent = data.current_tps;
+                if (cli) cli.textContent = data.active_clients;
+                if (tok) tok.textContent = parseFloat(data.tokens_left).toFixed(2);
+            } else {
+                if (led) led.className = 'led-off';
+                if (text) {
+                    text.textContent = '연결 실패';
+                    text.style.color = '#ef4444';
+                }
+            }
+        })
+        .catch(err => {
+            const led = document.getElementById('tps-status-led');
+            const text = document.getElementById('tps-status-text');
+            if (led) led.className = 'led-off';
+            if (text) {
+                text.textContent = '서버 응답 없음';
+                text.style.color = '#ef4444';
+            }
+        });
+}
+
+// Start Polling (3s interval)
+setInterval(updateTpsStats, 3000);
+
+// Initialize TPS controls
+document.addEventListener('DOMContentLoaded', () => {
+    // Download Log Button
+    const btnDownloadTps = document.getElementById('btn-download-tps-log');
+    if (btnDownloadTps) {
+        btnDownloadTps.addEventListener('click', () => {
+            window.open('/api/tps/logs/download', '_blank');
+        });
+    }
+
+    // Trigger update immediately when tab switches to settings
+    const settingTabBtn = document.querySelector('button[data-tab="tab-settings"]');
+    if (settingTabBtn) {
+        settingTabBtn.addEventListener('click', () => {
+            setTimeout(updateTpsStats, 100);
+        });
+    }
+});

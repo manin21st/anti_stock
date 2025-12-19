@@ -328,6 +328,35 @@ async def inject_trades(request: Request):
             return {"status": "error", "message": str(e)}
     return {"status": "error", "message": "Engine not initialized"}
 
+# TPS Server Proxy & Monitoring
+@app.get("/api/tps/stats")
+async def get_tps_stats():
+    import requests
+    try:
+        # Resolve TPS URL from Engine Config
+        tps_base_url = "http://localhost:9000"
+        if engine_instance:
+             tps_base_url = engine_instance.system_config.get("tps_server_url", "http://localhost:9000")
+        
+        # Proxy to TPS Server
+        resp = requests.get(f"{tps_base_url}/stats", timeout=0.5)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        # If server is down
+        return {"status": "error", "message": "TPS Server Unreachable"}
+    return {"status": "error", "message": "Connect Error"}
+
+@app.get("/api/tps/logs/download")
+async def download_tps_logs():
+    from fastapi.responses import FileResponse
+    log_file = os.path.join("logs", "tps_server.log")
+    if os.path.exists(log_file):
+        # Serve file
+        filename = f"tps_server_{datetime.now().strftime('%Y%m%d_%H%M')}.log"
+        return FileResponse(log_file, media_type='text/plain', filename=filename)
+    return {"status": "error", "message": "TPS Log file not found"}
+
 # Backtest APIs
 
 @app.post("/api/backtest/check_data")

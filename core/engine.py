@@ -43,6 +43,15 @@ class Engine:
         
         from core import kis_api as ka
         try:
+
+            # Apply TPS Config (Limit & URL)
+            tps_limit = float(self.system_config.get("tps_limit", os.environ.get("TPS_LIMIT", 2.0)))
+            tps_url = self.system_config.get("tps_server_url", os.environ.get("TPS_SERVER_URL", "http://localhost:9000"))
+            
+            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
+                ka.rate_limiter.set_limit(tps_limit)
+                ka.rate_limiter.set_server_url(tps_url)
+
             ka.auth(svr=svr)
             ka.auth_ws(svr=svr) # Also get WebSocket approval key
         except Exception as e:
@@ -52,7 +61,6 @@ class Engine:
         self.market_data = MarketData()
         self.broker = Broker()
         self.portfolio = Portfolio()
-        self.risk_manager = RiskManager(self.portfolio, self.config)
         self.risk_manager = RiskManager(self.portfolio, self.config)
         self.scanner = Scanner()
         self.telegram = TelegramBot(self.system_config)
@@ -91,6 +99,17 @@ class Engine:
         # 2. Reload components
         if hasattr(self, 'telegram'):
             self.telegram.reload_config(self.system_config)
+            
+        # Apply TPS Config Dynamic Update
+        try:
+            from core import kis_api as ka
+            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
+                if "tps_limit" in new_config:
+                    ka.rate_limiter.set_limit(float(new_config["tps_limit"]))
+                if "tps_server_url" in new_config:
+                    ka.rate_limiter.set_server_url(new_config["tps_server_url"])
+        except Exception as e:
+            logger.error(f"Failed to update TPS dynamic config: {e}")
             
         # 3. Save to Files (Split Strategy vs Secrets)
         # Load current secrets to preserve valid token/chat_id existing there
@@ -138,6 +157,18 @@ class Engine:
         logger.info("Restart requested...")
         self.restart_requested = True
         self.is_trading = False
+        
+        # Update TPS Limit on Restart
+        try:
+            from core import kis_api as ka
+            tps_limit = float(self.system_config.get("tps_limit", os.environ.get("TPS_LIMIT", 2.0)))
+            tps_url = self.system_config.get("tps_server_url", os.environ.get("TPS_SERVER_URL", "http://localhost:9000"))
+            
+            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
+                ka.rate_limiter.set_limit(tps_limit)
+                ka.rate_limiter.set_server_url(tps_url)
+        except Exception as e:
+            logger.error(f"Failed to update TPS Config on restart: {e}")
 
     def start_trading(self):
         """Enable trading"""
