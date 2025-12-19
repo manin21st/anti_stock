@@ -17,12 +17,12 @@ breakout:
   timeframe: 1m
   vol_k: 2
 common:
+  cross_lookback: 3
   max_positions: 10
   risk_pct: 0.03
   target_weight: 0.1
   trail_activation_pct: 0.03
-  whipsaw_threshold: 0.002 # 0.2% Price gap above MA required
-  cross_lookback: 3 # Valid for 3 bars after cross
+  whipsaw_threshold: 0.002
 ma_trend:
   enabled: true
   id: ma_trend
@@ -40,11 +40,7 @@ system:
   env_type: paper
   market_type: KRX
   scanner_mode: volume
-  telegram:
-    bot_token: 7175981417:AAF58bvA9QvQ_Kpz3pd0PDbH5D79hgenSh8
-    chat_id: '7692999971'
-    enable_system_alert: true
-    enable_trade_alert: true
+  tps_server_url: https://tps.bhsong.org
   universe:
   - 005930
   - '000660'

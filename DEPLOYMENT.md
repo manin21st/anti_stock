@@ -197,6 +197,20 @@ server {
         proxy_set_header Connection "upgrade";
     }
 }
+
+# TPS 서버 (추가)
+server {
+    listen 80;
+    server_name tps.bhsong.org;
+
+    location / {
+        proxy_pass http://127.0.0.1:9000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
 ```
 
 ### 3. 설정 적용
@@ -212,7 +226,9 @@ sudo systemctl restart nginx
 ```
 
 ### 4. Cloudflare 설정
-1. **DNS**: `botocks` A 레코드의 Proxy Status를 **Proxied (주황색 구름)**으로 설정.
+1. **DNS**: 
+    - `botocks` A 레코드: Proxy Status **Proxied (주황색 구름)**.
+    - `tps` A 레코드: Proxy Status **Proxied (주황색 구름)**.
 2. **SSL/TLS**: **Full** 모드 권장 (또는 Flexible).
 
 이제 `http://botocks.bhsong.org` (또는 https)로 접속하면 8000번 포트 없이 접속 가능합니다.

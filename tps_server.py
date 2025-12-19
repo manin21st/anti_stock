@@ -108,6 +108,10 @@ def log_event(event_type: str, client_id: str, extra: str = ""):
     msg = f"[Event:{event_type}] Client={client_id}. {extra} Stats: Active={active_count}, Tokens={current_tokens}/{bucket.capacity}"
     logger.info(msg)
 
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "Anti-Stock TPS Server Running"}
+
 @app.get("/token")
 def get_token(response: Response, request: Request, client_id: str = "unknown"):
     """
