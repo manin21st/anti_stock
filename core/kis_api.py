@@ -271,7 +271,20 @@ def auth_ws(svr="prod", product=None):
 
 
 def is_paper_trading():
-    return ka.isPaperTrading()
+    """
+    Check if running in Paper Trading (VPS) mode by inspecting the API URL.
+    Robust against kis_auth internal changes.
+    """
+    try:
+        env = ka.getTREnv()
+        url = getattr(env, 'my_url', '')
+        if url and "openapivts" in url:
+            return True
+        return False
+    except Exception:
+        # Fallback
+        return False
+
 
 def get_tr_env():
     return ka.getTREnv()
@@ -441,13 +454,9 @@ def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_a
         "SORT_DVSN": "00",        # 00: Descending
         "INQR_DVSN": "00",        # 00: All
         "CBLC_DVSN": "00",        # 00: All
-        # "PDNO": "",             # Strip if empty
-        # "CTX_AREA_FK100": ctx_area_fk,
-        # "CTX_AREA_NK100": ctx_area_nk
+        "CTX_AREA_FK100": ctx_area_fk,
+        "CTX_AREA_NK100": ctx_area_nk
     }
-    
-    if ctx_area_fk: params["CTX_AREA_FK100"] = ctx_area_fk
-    if ctx_area_nk: params["CTX_AREA_NK100"] = ctx_area_nk
     
     # PDNO is optional, some APIs error if sent as empty string
     # But domestic_stock_functions.py sends it.

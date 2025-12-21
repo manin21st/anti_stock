@@ -28,6 +28,7 @@ class TradeEvent:
     price: float
     qty: int
     order_id: str
+    exec_amt: float = 0.0 # Execution Amount (Price * Qty)
     position_id: Optional[str] = None
     pnl: Optional[float] = None
     pnl_pct: Optional[float] = None
@@ -188,10 +189,22 @@ class TradeVisualizationService:
 
         # 2. Get Trade Markers from Engine's trade history
         markers = []
-        if hasattr(self.engine, 'trade_history'):
-            for event in self.engine.trade_history:
-                if event.symbol == symbol:
-                    markers.append(event.to_dict())
+        markers = []
+        try:
+            from core.dao import TradeDAO
+            trades = TradeDAO.get_trades(symbol=symbol, limit=500)
+            markers = [t.__dict__ for t in trades]
+            # Convert timestamp to string/isoformat if needed for frontend
+            for m in markers:
+                if isinstance(m.get('timestamp'), datetime):
+                    m['timestamp'] = m['timestamp'].isoformat()
+        except Exception as e:
+            logger.error(f"Failed to fetch trade markers: {e}")
+
+        # Fallback/Optimization: If getting from DB is too slow for frequent chart updates,
+        # we might resort to memory, but for "history consistency", DB is better.
+        # Given this is an API call for chart data (not ultra high freq), DB is fine.
+
 
         return {
             "symbol": symbol,

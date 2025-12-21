@@ -23,7 +23,12 @@ class Portfolio:
         self.deposit_d1: float = 0.0 # Next Day Deposit
         self.deposit_d2: float = 0.0 # D+2 Deposit
         self.total_asset: float = 0.0
+        self.total_asset: float = 0.0
         self.on_position_change = [] # List of callbacks (change_info: dict)
+        
+        # State Cache (In-Memory)
+        self._state_cache = {}
+        self._load_state_to_cache() # Initial Load
 
     def update_position(self, symbol: str, qty: int, price: float, tag: str = ""):
         """Update position from order execution"""
@@ -60,6 +65,7 @@ class Portfolio:
         # This should be synced with Broker's balance
         return self.total_asset
     
+    
     def sync_with_broker(self, broker_balance: Dict, notify: bool = True, tag_lookup_fn=None):
         """Sync internal state with actual broker balance"""
         if not broker_balance:
@@ -68,24 +74,16 @@ class Portfolio:
         # Update Cash & Asset
         summary = broker_balance.get("summary", [])
         if summary:
-            # dnca_tot_amt: Deposit
-            # nxdy_excc_amt: Next Day Deposit
-            # prvs_rcdl_excc_amt: D+2 Deposit
-            # tot_evlu_amt: Total Eval Amount
             self.cash = float(summary[0].get("dnca_tot_amt", 0))
             self.deposit_d1 = float(summary[0].get("nxdy_excc_amt", 0))
             self.deposit_d2 = float(summary[0].get("prvs_rcdl_excc_amt", 0))
             self.total_asset = float(summary[0].get("tot_evlu_amt", 0))
 
-        # Load saved state to preserve metadata (partial_taken, max_price)
-        saved_state = {}
-        if os.path.exists("portfolio_state.json"):
-            try:
-                with open("portfolio_state.json", "r", encoding="utf-8") as f:
-                    saved_state = json.load(f)
-                # print(f"DEBUG: Loaded saved state for sync: {saved_state.keys()}")
-            except Exception as e:
-                print(f"Failed to load portfolio state during sync: {e}")
+        # Use In-Memory State (Loaded in __init__)
+        saved_state = self._state_cache 
+        
+        # ... logic ...
+        # (Rest of sync logic is fine, but we need to ensure self._state_cache exists)
 
         # Update Positions
         holdings = broker_balance.get("holdings", [])
@@ -224,7 +222,7 @@ class Portfolio:
                 print(f"Callback error: {e}")
 
     def save_state(self):
-        """Save portfolio state (partial_taken, max_price) to file"""
+        """Save portfolio state (partial_taken, max_price) to file and memory"""
         state = {}
         for symbol, pos in self.positions.items():
             state[symbol] = {
@@ -233,31 +231,29 @@ class Portfolio:
                 "tag": pos.tag
             }
         
+        # Update Cache
+        self._state_cache = state
+        
         try:
             with open("portfolio_state.json", "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=4)
-            # print(f"DEBUG: Saved portfolio state: {state}")
         except Exception as e:
             print(f"Failed to save portfolio state: {e}")
 
-    def load_state(self):
-        """Load portfolio state and apply to existing positions"""
+    def _load_state_to_cache(self):
+        """Load portfolio state into memory cache once"""
         if not os.path.exists("portfolio_state.json"):
-            print("DEBUG: portfolio_state.json not found.")
+            self._state_cache = {}
             return
 
         try:
             with open("portfolio_state.json", "r", encoding="utf-8") as f:
-                state = json.load(f)
-            
-            # print(f"DEBUG: Loading portfolio state: {state}")
-            for symbol, data in state.items():
-                if symbol in self.positions:
-                    pos = self.positions[symbol]
-                    pos.partial_taken = data.get("partial_taken", False)
-                    pos.max_price = data.get("max_price", pos.current_price)
-                    pos.tag = data.get("tag", "")
-                    pos.tag = data.get("tag", "")
-                    # print(f"DEBUG: Restored state for {symbol}: Partial={pos.partial_taken}, Max={pos.max_price}")
+                self._state_cache = json.load(f)
         except Exception as e:
             print(f"Failed to load portfolio state: {e}")
+            self._state_cache = {}
+
+    def load_state(self):
+        """Apply cache to existing positions (called if needed, but usually we use cache in sync)"""
+        # Deprecated: sync_with_broker uses _state_cache directly
+        pass

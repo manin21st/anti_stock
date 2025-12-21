@@ -931,7 +931,7 @@ function renderJournalTable(data) {
     tbody.innerHTML = "";
 
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">데이터가 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">데이터가 없습니다.</td></tr>';
         return;
     }
 
@@ -945,24 +945,32 @@ function renderJournalTable(data) {
         const price = Math.round(item.price).toLocaleString();
         const amt = Math.round(item.price * item.qty).toLocaleString();
 
-        // PnL (Only if available / calculated? We don't have it yet effectively)
-        // For now, leave empty or calculate if sell?
-        // We can check if `meta` has pnl info or if it's a SELL and we can infer?
-        // Let's just show "-" for now until we have PnL tracking in Engine properly
+        // PnL & Cost Logic
         let pnlText = "-";
+        let costText = "-";
+        let avgPriceText = "-";
+
+        // Cost (Fees) - Display if available (usually in meta)
+        if (item.meta && item.meta.fees !== undefined) {
+            const fees = Math.round(item.meta.fees);
+            if (fees > 0) costText = fees.toLocaleString();
+        }
+
+        // Avg Price - Display if available (meta.old_avg_price)
+        if (item.side === "SELL" && item.meta && item.meta.old_avg_price) {
+            avgPriceText = formatCurrency(Math.round(item.meta.old_avg_price));
+        }
+
+        // PnL
         if (item.pnl !== undefined && item.pnl !== null) {
             const val = Math.round(item.pnl);
             pnlText = val.toLocaleString();
-            if (val > 0) pnlText = `<span style="color: #ef4444;">${pnlText}</span>`; // Positive Red (KR market)
-            else if (val < 0) pnlText = `<span style="color: #3b82f6;">${pnlText}</span>`; // Negative Blue
+            if (val > 0) pnlText = `<span class="pnl-positive">${pnlText}</span>`;
+            else if (val < 0) pnlText = `<span class="pnl-negative">${pnlText}</span>`;
         }
 
         // Check for sync strategy default
         let strategyName = strategyNames[item.strategy_id] || item.strategy_id;
-        if (item.strategy_id === 'ma_trend') {
-            // If it was auto-synced as ma_trend, user might want to know?
-            // But user asked to set it as ma_trend, so it's fine.
-        }
 
         // Format Stock Name/Symbol
         const nameHtml = item.name
@@ -970,47 +978,83 @@ function renderJournalTable(data) {
             : `<div style="font-weight: 500;">${item.symbol}</div>`;
 
         tr.innerHTML = `
-            <td>${item.timestamp}</td>
+            <td style="font-size: 0.9em;">${item.timestamp.replace('T', ' ')}</td>
             <td>${nameHtml}</td>
             <td class="${sideClass}">${sideLabel}</td>
+            <td class="text-right" style="color:#666;">${avgPriceText}</td>
             <td class="text-right">${price}</td>
             <td class="text-right">${item.qty}</td>
             <td class="text-right">${amt}</td>
-            <td class="text-right">${pnlText}</td>
+            <td class="text-right" style="font-weight:bold;">${pnlText}</td>
+            <td class="text-right" style="color:#888; font-size:0.9em;">${costText}</td>
             <td>${strategyName}</td>
-            <td style="font-size: 11px; color: #666;">${item.order_id || '-'}</td>
+            <td style="font-size: 11px; color: #aaa;">${item.order_id || '-'}</td>
         `;
         tbody.appendChild(tr);
     });
 }
 
 function updateJournalSummary(data) {
-    // Calculate simple metrics from the list
+    // Calculate metrics from realization events
     let totalPnl = 0;
     let winCount = 0;
     let lossCount = 0;
-    let tradeCount = 0;
+    let realizedCount = 0;
 
-    // This calculation is tricky because 'data' is a list of mixed BUY/SELL events, not closed trades.
-    // Making a "Journal" usually requires pairing buys and sells to calculate "Trade" performance.
-    // For this simple version, we might just sum up "Realized PnL" if we had it.
-    // Since we don't have stored PnL in TradeEvent yet (except messy meta), we can't accurately show PnL here without complex pairing logic.
-    // However, for the user request, we should try.
-    // But pairing takes time. Let's start with Trade Count and maybe "Estimated" if possible.
+    let grossProfit = 0;
+    let grossLoss = 0;
 
-    // Actually, if we just want to verify "Sync", maybe we skip PnL for now or show "0"?
-    // User requested "Total PnL, Win Rate".
-    // I can implement a simple FIFO matcher here in JS? Or do it in Backend?
-    // Backend is better. 
-    // But I already implemented the endpoint to return raw events.
+    data.forEach(item => {
+        if (item.pnl !== undefined && item.pnl !== null) {
+            const pnl = Number(item.pnl);
+            totalPnl += pnl;
+            realizedCount++;
 
-    // Let's stick to simple event counting for now and return to PnL later if needed.
-    // Or just count "SELL" events?
+            if (pnl > 0) {
+                winCount++;
+                grossProfit += pnl;
+            } else {
+                lossCount++;
+                grossLoss += Math.abs(pnl);
+            }
+        }
+    });
 
-    tradeCount = data.length;
+    // Win Rate
+    let winRate = 0;
+    if (realizedCount > 0) {
+        winRate = (winCount / realizedCount) * 100;
+    }
 
-    document.getElementById("j-trade-count").textContent = tradeCount;
-    // ... others 0 for now
+    // Profit Factor
+    let pf = 0;
+    if (grossLoss === 0) {
+        pf = grossProfit > 0 ? 99.99 : 0; // Infinite or 0
+    } else {
+        pf = grossProfit / grossLoss;
+    }
+
+    // DOM Updates
+    if (document.getElementById("j-total-pnl")) {
+        const pnlText = formatCurrency(totalPnl);
+        const el = document.getElementById("j-total-pnl");
+        el.textContent = pnlText;
+        el.className = "value " + (totalPnl >= 0 ? "pnl-positive" : "pnl-negative");
+    }
+
+    if (document.getElementById("j-win-rate")) {
+        document.getElementById("j-win-rate").textContent = `${winRate.toFixed(1)}%`;
+    }
+
+    if (document.getElementById("j-trade-count")) {
+        // Show Total Events / Realized Trades
+        // e.g. "110 (31)"
+        document.getElementById("j-trade-count").textContent = `${data.length} w/ ${realizedCount} PnL`;
+    }
+
+    if (document.getElementById("j-profit-factor")) {
+        document.getElementById("j-profit-factor").textContent = pf.toFixed(2);
+    }
 }
 
 // --- TPS Monitoring Logic ---

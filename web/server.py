@@ -142,10 +142,14 @@ async def get_all_stocks():
 
 @app.get("/api/watchlist")
 async def get_watchlist():
-    """Get Saved Watchlist"""
-    if engine_instance:
-        return engine_instance.watchlist
-    return []
+    """Get Saved Watchlist from DB (Non-blocking)"""
+    try:
+        from core.dao import WatchlistDAO
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, WatchlistDAO.get_all_symbols)
+    except Exception as e:
+        logger.error(f"Failed to get watchlist: {e}")
+        return []
 
 @app.post("/api/watchlist")
 async def update_watchlist(request: Request):
@@ -465,8 +469,23 @@ async def inject_trades(request: Request):
                 )
                 new_events.append(event)
             
-            # Append to engine history
-            engine_instance.trade_history.extend(new_events)
+            # DB Insert
+            from core.dao import TradeDAO
+            TradeDAO.insert_trade({
+                "event_id": event.event_id,
+                "timestamp": event.timestamp,
+                "symbol": event.symbol,
+                "strategy_id": event.strategy_id,
+                "side": event.side,
+                "price": event.price,
+                "qty": event.qty,
+                "exec_amt": event.price * event.qty,
+                "order_id": event.order_id,
+                "meta": event.meta
+            })
+            
+            # Update memory
+            engine_instance.trade_history.append(event)
             logger.info(f"DEBUG: Injected {len(new_events)} dummy trades for {symbol}")
             
             return {"status": "ok", "message": f"Injected {len(new_events)} trades", "count": len(new_events)}
@@ -696,83 +715,85 @@ async def get_backtest_data(request: Request):
 @app.get("/api/journal/trades")
 async def get_journal_trades(start: str = None, end: str = None, symbol: str = None):
     """
-    Get trade history from Engine
+    Get trade history from DB
     """
     if engine_instance:
         try:
-            trades = engine_instance.trade_history
+            from core.dao import TradeDAO
             
-            # Convert to list of dicts suitable for JSON
-            data = []
+            # Check DB Connection state via simple count
+            # total = TradeDAO.get_all_trades_count()
             
-            # Date Filtering (start, end are YYYYMMDD or YYYY-MM-DD)
-            # Normalize to datetime for comparison
+            # Convert date strings to datetime objects for DAO
             s_dt = None
             e_dt = None
             if start:
-                start = start.replace("-", "")
-                try: s_dt = datetime.strptime(start, "%Y%m%d")
+                try: 
+                    s_dt = datetime.strptime(start.replace("-", ""), "%Y%m%d")
                 except: pass
             if end:
-                end = end.replace("-", "")
                 try: 
-                    # End date is inclusive, so set to end of day if we compare timestamps
-                    e_dt_base = datetime.strptime(end, "%Y%m%d")
+                    e_dt_base = datetime.strptime(end.replace("-", ""), "%Y%m%d")
                     e_dt = e_dt_base.replace(hour=23, minute=59, second=59)
                 except: pass
                 
+
+            # Use In-Memory Cache for Speed
+            # Filter and sort in memory
+            # This is much faster than DB query for small datasets (1000 items)
+            trades = engine_instance.trade_history
+            
+            # Apply filters if needed
+            if symbol or start or end:
+                filtered = []
+                for t in trades:
+                    # Symbol Filter
+                    if symbol and t.symbol != symbol:
+                        continue
+                        
+                    # Date Filter
+                    if s_dt and t.timestamp < s_dt:
+                        continue
+                    if e_dt and t.timestamp > e_dt:
+                        continue
+                    filtered.append(t)
+                trades = filtered
+            
+            # Sort by Timestamp DESC? (Already sorted in load?)
+            # Usually memory list is sorted by time (newest first or last?)
+            # engine.trade_history is prepended (newest at index 0).
+            # So it is already sorted DESC.
+            
+            data = []
             for t in trades:
-                # 1. Filter by Symbol
-                if symbol and t.symbol != symbol:
-                    continue
+                # Convert SQLAlchemy Model to Dict
+                item = {
+                    "event_id": t.event_id,
+                    "timestamp": t.timestamp,
+                    "symbol": t.symbol,
+                    "strategy_id": t.strategy_id,
+                    "side": t.side,
+                    "price": t.price,
+                    "qty": t.qty,
+                    "exec_amt": t.exec_amt,
+                    "pnl": t.pnl,
+                    "revenue_rate": t.pnl_pct, # Frontend expects revenue_rate or pnl_pct
+                    "order_id": t.order_id,
+                    "meta": t.meta
+                }
                 
-                # 2. Filter by Date
-                if s_dt and t.timestamp < s_dt:
-                    continue
-                if e_dt and t.timestamp > e_dt:
-                    continue
-                
-                # 3. Filter out invalid/ghost entries (Price 0)
-                if t.price <= 0:
-                    continue
-                
-                item = t.__dict__.copy()
-                
-                # Format Timestamp for display
-                if isinstance(t.timestamp, datetime):
-                    item['timestamp'] = t.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                # Format Timestamp
+                if isinstance(item['timestamp'], datetime):
+                    item['timestamp'] = item['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
                 else:
-                    item['timestamp'] = str(t.timestamp)
+                    item['timestamp'] = str(item['timestamp'])
+                    
+                # Inject Name
+                if engine_instance.market_data:
+                    item['name'] = engine_instance.market_data.get_stock_name(t.symbol)
                     
                 data.append(item)
-            
-            # Sort descending (latest first)
-            data.sort(key=lambda x: x['timestamp'], reverse=True)
-            
-            # Calculate summary metrics on the filtered set
-            total_pnl = 0
-            win_count = 0
-            loss_count = 0
-            total_count = len(data)
-            
-            # Only count closed trades (SELL) for PnL stats? Or assume PnL is tracked in Sell events?
-            # TradeEvent doesn't explicitly store PnL unless we put it in meta or calculate it.
-            # In engine.py record_position_event, we didn't explicitly add PnL to TradeEvent (it's in change_info but not mapped to a top-level field).
-            # We should check if 'position_info' in meta has 'pnl' or 'realized_pnl'.
-            # Looking at portfolio.py, SELL event has 'realized_pnl' in change_info.
-            
-            for item in data:
-                # Inject Stock Name if missing
-                if 'name' not in item or not item['name']:
-                    if engine_instance and engine_instance.market_data:
-                        item['name'] = engine_instance.market_data.get_stock_name(item['symbol'])
                 
-                # PnL Mapping
-                if hasattr(t, 'pnl') and t.pnl is not None:
-                     item['pnl'] = t.pnl
-                if hasattr(t, 'pnl_pct') and t.pnl_pct is not None:
-                     item['revenue_rate'] = t.pnl_pct
-
             return {"status": "ok", "data": data}
             
         except Exception as e:

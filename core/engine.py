@@ -89,33 +89,37 @@ class Engine:
         # Watchlist Management
         self.watchlist = []
         self._load_watchlist() 
-        self._migrate_legacy_universe() # Migration Only once (or on startup if legacy exists)
+        # Database Warm-up
+        self._warmup_db()
+
+    def _warmup_db(self):
+        """Force DB connection establishment to avoid lazy loading delay on first UI request"""
+        try:
+            logger.info("Warming up Database Connection...")
+            from core.database import db_manager
+            from sqlalchemy import text
+            session = db_manager.get_session()
+            session.execute(text("SELECT 1"))
+            session.close()
+            logger.info("Database Connection Ready.")
+        except Exception as e:
+            logger.warning(f"Database Warm-up failed (will retry on demand): {e}")
 
     def _load_watchlist(self):
-        """Load watchlist from JSON"""
+        """Load watchlist from Database"""
         try:
-            path = "data/watchlist.json"
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    self.watchlist = json.load(f)
-                    # Deduplicate and ensure string format
-                    self.watchlist = list(set([str(x).zfill(6) for x in self.watchlist]))
-                logger.info(f"Loaded Watchlist: {len(self.watchlist)} items")
-            else:
-                self.watchlist = []
+            from core.dao import WatchlistDAO
+            self.watchlist = WatchlistDAO.get_all_symbols()
+            logger.info(f"Loaded Watchlist: {len(self.watchlist)} items from Database")
         except Exception as e:
             logger.error(f"Failed to load watchlist: {e}")
             self.watchlist = []
 
+
     def _save_watchlist(self):
-        """Save watchlist to JSON"""
-        try:
-            path = "data/watchlist.json"
-            os.makedirs("data", exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self.watchlist, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save watchlist: {e}")
+        """Save watchlist (Deprecated for DB)"""
+        pass
+
 
     def _migrate_legacy_universe(self):
         """Migrate legacy 'universe' config to watchlist.json"""
@@ -128,9 +132,14 @@ class Engine:
                 current_set.add(str(code).zfill(6))
             
             self.watchlist = list(current_set)
-            self._save_watchlist()
             
+            # DB Sync
+            from core.dao import WatchlistDAO
+            for s in self.watchlist:
+                WatchlistDAO.add_symbol(s)
+                
             # Clear legacy config
+
             self.update_system_config({"universe": []})
             logger.info("Legacy universe migration completed.")
 
@@ -146,7 +155,11 @@ class Engine:
                     current_set.add(str(code).zfill(6))
                 
                 self.watchlist = list(current_set)
-                self._save_watchlist()
+                
+                from core.dao import WatchlistDAO
+                for s in self.watchlist:
+                    WatchlistDAO.add_symbol(s)
+
                 
                 added = len(current_set) - count_before
                 logger.info(f"Imported {len(imported)} items from Broker. (New: {added})")
@@ -159,7 +172,20 @@ class Engine:
     def update_watchlist(self, new_list: List[str]):
         """Update entire watchlist"""
         self.watchlist = [str(x).zfill(6) for x in new_list]
-        self._save_watchlist()
+        
+        # DB Sync (Full Replace)
+        from core.dao import WatchlistDAO
+        current_db = set(WatchlistDAO.get_all_symbols())
+        new_set = set(self.watchlist)
+        
+        to_add = new_set - current_db
+        to_remove = current_db - new_set
+        
+        for s in to_add:
+            WatchlistDAO.add_symbol(s)
+        for s in to_remove:
+            WatchlistDAO.remove_symbol(s)
+
         # Trigger subscription update immediately
         self._update_universe()
         # If trading is active, ensure polling is updated
@@ -659,51 +685,41 @@ class Engine:
                 logger.error(f"Error in strategy execution: {e}")
 
     def load_trade_history(self):
-        """Load trade history from file"""
+        """Load trade history from Database"""
         try:
-            path = "data/trade_history.json"
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    # Convert timestamp strings back to datetime objects
-                    for item in data:
-                        if isinstance(item.get("timestamp"), str):
-                            try:
-                                item["timestamp"] = datetime.fromisoformat(item["timestamp"])
-                            except ValueError:
-                                # Fallback for other formats if necessary, or keep as string (but preferred datetime)
-                                pass
-                    self.trade_history = [TradeEvent(**item) for item in data]
-                logger.info(f"Loaded {len(self.trade_history)} trade events from {path}")
-            else:
-                logger.info("No existing trade history found. Starting fresh.")
+            from core.dao import TradeDAO
+            from core.visualization import TradeEvent
+            trades = TradeDAO.get_trades(limit=1000)
+            
+            # Convert SQLAlchemy Models to TradeEvent objects for consistent memory usage
+            self.trade_history = []
+            for t in trades:
+                self.trade_history.append(TradeEvent(
+                    event_id=t.event_id,
+                    timestamp=t.timestamp,
+                    symbol=t.symbol,
+                    strategy_id=t.strategy_id,
+                    event_type="DB_LOADED", # Or infer from meta
+                    side=t.side,
+                    price=t.price,
+                    qty=t.qty,
+                    exec_amt=t.exec_amt if t.exec_amt else (t.price * t.qty),
+                    order_id=t.order_id,
+                    pnl=t.pnl,
+                    pnl_pct=t.pnl_pct,
+                    meta=t.meta
+                ))
+            logger.info(f"Loaded {len(self.trade_history)} recent trade events from Database")
         except Exception as e:
             logger.error(f"Failed to load trade history: {e}")
 
-    def save_trade_history(self):
-        """Save trade history to file"""
-        try:
-            path = "data/trade_history.json"
-            os.makedirs("data", exist_ok=True)
-            
-            # Serialize
-            data = [event.__dict__ for event in self.trade_history]
-            # Convert datetime objects to string if needed (TradeEvent usually stores timestamp as datetime)
-            # Assuming TradeEvent.__dict__ has timestamps as strings or we need custom encoder
-            # Let's use a robust serialization approach
-            def json_serial(obj):
-                if isinstance(obj, (datetime, pd.Timestamp)):
-                    return obj.isoformat()
-                return str(obj)
 
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, default=json_serial, indent=2, ensure_ascii=False)
-            
-            logger.debug(f"Saved {len(self.trade_history)} trade events")
-        except Exception as e:
-            logger.error(f"Failed to save trade history: {e}")
+    def save_trade_history(self):
+        """Save trade history (Deprecated for DB)"""
+        # With DB, we save incrementally. This method might be kept for compatibility or bulk save if needed.
+        # For now, PASS as individual updates handle persistence.
+        pass
+
 
     def record_order_event(self, order_info: Dict):
         """Callback from Broker when order is sent"""
@@ -720,8 +736,25 @@ class Engine:
                 order_id=order_info["order_no"],
                 meta={"type": order_info["type"]}
             )
-            self.trade_history.append(event)
-            self.save_trade_history() # Save on update
+            # self.trade_history.append(event) # Optional: Keep in memory? Yes.
+            
+            # DB Insert
+            from core.dao import TradeDAO
+            TradeDAO.insert_trade({
+                "event_id": event.event_id,
+                "timestamp": event.timestamp,
+                "symbol": event.symbol,
+                "strategy_id": event.strategy_id,
+                "side": event.side,
+                "price": event.price,
+                "qty": event.qty,
+                "exec_amt": event.price * event.qty,
+                "order_id": event.order_id,
+                "meta": event.meta
+            })
+            # Reload memory to sync? Or just append. 
+            self.trade_history.insert(0, event) # Prepend for recent
+            
             logger.info(f"Recorded Order Event: {event.event_type} {event.symbol}")
             
             # Telegram Alert Removed: Duplicate notification. 
@@ -731,36 +764,94 @@ class Engine:
             logger.error(f"Failed to record order event: {e}")
 
     def record_position_event(self, change_info: Dict):
-        """Callback from Portfolio when position changes"""
+        """Callback from Portfolio when position changes (Fills)"""
         try:
             event_type = change_info["type"]
             # Map to TradeEvent
-            # change_info: type, symbol, qty, price, tag
+            # change_info: type, symbol, qty, price, tag, exec_qty, exec_price, old_avg_price...
             
             side = "BUY" if "BUY" in event_type else "SELL"
             if event_type == "POSITION_CLOSED":
-                side = "SELL" # Assuming long-only for now
+                side = "SELL" # Position Closed is a valid SELL event
             
-            # [FIX] Filter out invalid events with 0 price to prevent ghost entries and notifications
+            # [FIX] Filter out invalid events with 0 price
             if float(change_info["price"]) <= 0:
-                logger.debug(f"Skipping position event with 0 price: {event_type} {change_info['symbol']}")
                 return
 
+            # XPnL Calculation (Client-side)
+            pnl = None
+            pnl_pct = None
+            
+            if side == "SELL":
+                exec_qty = change_info.get("exec_qty", 0)
+                exec_price = change_info.get("exec_price", 0)
+                old_avg_price = change_info.get("old_avg_price", 0)
+                
+                if exec_qty > 0 and old_avg_price > 0:
+                    # Fee Calculation (Conservative: 0.25%)
+                    # Tax/Fee = Total Sell Amount * 0.0025
+                    total_sell_amt = exec_price * exec_qty
+                    fees = total_sell_amt * 0.0025
+                    
+                    gross_pnl = (exec_price - old_avg_price) * exec_qty
+                    net_pnl = gross_pnl - fees
+                    
+                    pnl = round(net_pnl, 0)
+                    pnl_pct = round(((exec_price - old_avg_price) / old_avg_price) * 100, 2)
+                    
+                    logger.info(f"[PnL Calculated] {change_info['symbol']} PnL: {pnl} ({pnl_pct}%) [Avg: {old_avg_price} -> Sell: {exec_price}]")
+            
+            # [NEW] Ensure meta has fees and old_avg_price
+            if "meta" not in change_info:
+                change_info["meta"] = {}
+            if side == "SELL":
+                # If calculated above
+                if pnl is not None:
+                     change_info["fees"] = round(fees, 0) if 'fees' in locals() else 0
+                     change_info["old_avg_price"] = round(old_avg_price, 2) if 'old_avg_price' in locals() else 0
+
+            # Create TradeEvent for the Fill
             event = TradeEvent(
                 event_id=str(uuid.uuid4()),
                 timestamp=datetime.now(),
                 symbol=change_info["symbol"],
-                strategy_id=change_info["tag"],
+                strategy_id=change_info.get("tag", ""),
                 event_type=event_type,
                 side=side,
                 price=float(change_info["price"]),
-                qty=int(change_info["qty"]),
-                order_id="sync_detected", # We don't have order ID here easily
-                meta=change_info
+                qty=int(change_info["qty"]), # Remaining Qty or Exec Qty? 
+                # change_info['qty'] in portfolio.py comes from 'qty' (current position qty).
+                # We want Execution Qty for the log.
+                # Portfolio sends 'exec_qty' in enhanced data.
+                order_id=f"fill_{int(time.time()*1000)}", # Virtual Order ID since we don't have exact ODNO here easily
+                pnl=pnl,
+                pnl_pct=pnl_pct,
+                meta=change_info # Store full context
             )
-            self.trade_history.append(event)
-            self.save_trade_history() # Save on update
-            logger.info(f"Recorded Position Event: {event.event_type} {event.symbol}")
+            
+            # Use 'exec_qty' if available for accurate trade record, otherwise diff
+            if "exec_qty" in change_info:
+                event.qty = change_info["exec_qty"]
+
+            self.trade_history.insert(0, event) # Prepend
+            
+            from core.dao import TradeDAO
+            TradeDAO.insert_trade({
+                "event_id": event.event_id,
+                "timestamp": event.timestamp,
+                "symbol": event.symbol,
+                "strategy_id": event.strategy_id,
+                "side": event.side,
+                "price": event.price,
+                "qty": event.qty,
+                "exec_amt": event.price * event.qty,
+                "pnl": event.pnl,
+                "pnl_pct": event.pnl_pct,
+                "order_id": event.order_id,
+                "meta": event.meta
+            })
+
+            logger.info(f"Recorded Position Event: {event.event_type} {event.symbol} (PnL: {pnl})")
 
             # Telegram Alert
             stock_name = self.market_data.get_stock_name(change_info["symbol"])
@@ -768,13 +859,15 @@ class Engine:
                 event_type=event_type,
                 symbol=change_info["symbol"],
                 price=float(change_info["price"]),
-                qty=int(change_info["qty"]),
+                qty=int(event.qty),
                 side=side,
                 stock_name=stock_name,
-                position_info=change_info # Pass full context
+                position_info=change_info
             )
         except Exception as e:
             logger.error(f"Failed to record position event: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def sync_trade_history(self, start_date: str, end_date: str):
         """Syncs local trade history with Broker API"""
@@ -786,8 +879,18 @@ class Engine:
             all_trades = []
             ctx_area_fk = ""
             ctx_area_nk = ""
+            prev_nk = ""
+            
+            page_count = 0
+            empty_page_count = 0
+            MAX_PAGES = 200 # Safety limit
             
             while True:
+                page_count += 1
+                if page_count > MAX_PAGES:
+                    logger.warning(f"Reached MAX_PAGES ({MAX_PAGES}) limit. Stopping sync.")
+                    break
+
                 # Fetch from API
                 resp = ka.fetch_daily_ccld(start_date, end_date, ctx_area_fk=ctx_area_fk, ctx_area_nk=ctx_area_nk)
                 
@@ -816,21 +919,33 @@ class Engine:
                 
                 if output1:
                     all_trades.extend(output1)
+                    empty_page_count = 0
+                else:
+                    empty_page_count += 1
+                    
+                if empty_page_count >= 5:
+                    logger.warning("Too many consecutive empty pages with next token. Stopping sync.")
+                    break
                 
             # Check Pagination
                 # ctx_area_nk100 might be in body or header. 
                 # Let's inspect body keys for debugging first
-                if not ctx_area_nk:
-                     body_keys = getattr(body, '_fields', [])
-                     logger.debug(f"[DEBUG] Body Keys: {body_keys}")
+                # if not ctx_area_nk:
+                #      body_keys = getattr(body, '_fields', [])
+                #      logger.debug(f"[DEBUG] Body Keys: {body_keys}")
                 
                 ctx_area_nk = get_attr_case_insensitive(body, 'ctx_area_nk100', "").strip()
                 ctx_area_fk = get_attr_case_insensitive(body, 'ctx_area_fk100', "").strip()
                 
-                logger.info(f"[DEBUG] Pagination: fk=[{ctx_area_fk}], nk=[{ctx_area_nk}], count={len(output1)}")
+                logger.info(f"[DEBUG] Pagination: fk=[{ctx_area_fk}], nk=[{ctx_area_nk}], count={len(output1)} (Page {page_count})")
                 
                 if not ctx_area_nk:
                     break
+
+                if ctx_area_nk == prev_nk:
+                    logger.warning(f"Infinite loop detected: Pagination token {ctx_area_nk} did not change. Stopping sync.")
+                    break
+                prev_nk = ctx_area_nk
                     
                 time.sleep(0.2) # Rate limit safety
                 
@@ -909,6 +1024,7 @@ class Engine:
                 # Strategy ID Logic: Default to 'ma_trend' as per user request
                 strategy_id = "ma_trend" 
                 
+
                 event = TradeEvent(
                     event_id=str(uuid.uuid4()),
                     timestamp=ts,
@@ -924,10 +1040,23 @@ class Engine:
                 self.trade_history.append(event)
                 new_count += 1
                 
+                from core.dao import TradeDAO
+                TradeDAO.insert_trade({
+                    "event_id": event.event_id,
+                    "timestamp": event.timestamp,
+                    "symbol": event.symbol,
+                    "strategy_id": event.strategy_id,
+                    "side": event.side,
+                    "price": event.price,
+                    "qty": event.qty,
+                    "exec_amt": event.price * event.qty,
+                    "order_id": event.order_id,
+                    "meta": event.meta
+                })
+                
             if new_count > 0:
                 # Sort by timestamp
                 self.trade_history.sort(key=lambda x: x.timestamp if isinstance(x.timestamp, datetime) else datetime.fromisoformat(str(x.timestamp)))
-                self.save_trade_history()
                 logger.info(f" synced {new_count} new trades from Broker API.")
             else:
                 logger.info("All trades already exist locally.")
@@ -1020,13 +1149,26 @@ class Engine:
                                 # logger.debug(f"Updated PnL for {last_event.symbol} on {k[0]}: {daily_pnl}")
                     
                     if updated_pnl_count > 0:
-                        self.save_trade_history()
+                        from core.dao import TradeDAO
+                        # We need to loop again to update DB or track what changed
+                        # Re-loop day_sell_events is faster
+                         
+                        for k, events in day_sell_events.items():
+                             if k in pnl_map:
+                                 daily_pnl = pnl_map[k]
+                                 last_event = events[-1]
+                                 # Update DB using TradeDAO
+                                 TradeDAO.update_pnl(last_event.event_id, daily_pnl, 0.0) # Pct calc might need more info, passing 0 for now or calc it
+
                         logger.info(f"Updated PnL for {updated_pnl_count} trade events.")
                     else:
                         logger.info("No PnL updates needed.")
                         
                 else:
-                    logger.warning(f"PnL Fetch Failed: {pnl_resp.getErrorMessage() if pnl_resp else 'None'}")
+                    msg = pnl_resp.getErrorMessage() if pnl_resp else 'None'
+                    code = pnl_resp.getErrorCode() if pnl_resp else 'Unknown'
+                    logger.warning(f"PnL Fetch Failed: [{code}] {msg}. Falling back to local FIFO PnL calculation.")
+                    self._calculate_pnl_from_local_history()
 
             except Exception as e:
                 logger.error(f"PnL Sync Logic Error: {e}")
@@ -1035,11 +1177,90 @@ class Engine:
 
             return new_count
             
+        except KeyboardInterrupt:
+            logger.warning("Sync operation interrupted by user.")
+            return 0
         except Exception as e:
             logger.error(f"Sync failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
             raise e
+
+    def _calculate_pnl_from_local_history(self):
+        """
+        Calculate Realized PnL for SELL events using FIFO method from local trade history.
+        This is a fallback when API PnL is unavailable.
+        """
+        try:
+            # Sort by time
+            sorted_events = sorted(self.trade_history, key=lambda x: x.timestamp)
+            
+            # Inventory: symbol -> list of [price, qty]
+            inventory = {}
+            updated_count = 0
+            
+            for event in sorted_events:
+                sym = event.symbol
+                if sym not in inventory:
+                    inventory[sym] = []
+                    
+                if event.side == "BUY":
+                    # Add to inventory
+                    inventory[sym].append([event.price, event.qty])
+                
+                elif event.side == "SELL":
+                    # FIFO Matching
+                    sell_qty = event.qty
+                    sell_price = event.price
+                    
+                    cost_basis = 0.0
+                    matched_qty = 0
+                    
+                    # Consume inventory
+                    while sell_qty > 0 and inventory[sym]:
+                        bucket = inventory[sym][0] # Oldest
+                        b_price = bucket[0]
+                        b_qty = bucket[1]
+                        
+                        take_qty = min(sell_qty, b_qty)
+                        
+                        cost_basis += (take_qty * b_price)
+                        matched_qty += take_qty
+                        
+                        # Update bucket
+                        if b_qty > take_qty:
+                            bucket[1] -= take_qty
+                            sell_qty = 0
+                        else:
+                            inventory[sym].pop(0) # Fully consumed
+                            sell_qty -= take_qty
+                            
+                    if matched_qty > 0:
+                        avg_buy_price = cost_basis / matched_qty
+                        gross_pnl = (sell_price - avg_buy_price) * matched_qty
+                        
+                        # Apply Fee (Estimate 0.25%)
+                        fee = (sell_price * matched_qty) * 0.0025
+                        net_pnl = gross_pnl - fee
+                        pnl_pct = ((sell_price - avg_buy_price) / avg_buy_price) * 100
+                        
+                        # Update Event if PnL is missing or we want to overwrite?
+                        # Only update if missing to respect API data if valid
+                        if event.pnl is None or event.pnl == 0:
+                            event.pnl = round(net_pnl, 0)
+                            event.pnl_pct = round(pnl_pct, 2)
+                            updated_count += 1
+            
+            if updated_count > 0:
+                from core.dao import TradeDAO
+                for event in sorted_events:
+                     if event.side == "SELL" and event.pnl is not None:
+                          TradeDAO.update_pnl(event.event_id, event.pnl, event.pnl_pct)
+                
+                logger.info(f"Locally calculated PnL for {updated_count} SELL events using FIFO.")
+                
+        except Exception as e:
+            logger.error(f"Local PnL Calculation Failed: {e}")
 
     def run_backtest(self, strategy_id: str, symbol: str, start_date: str, end_date: str, initial_cash: int = 100000000, strategy_config: Dict = None, progress_callback=None) -> Dict:
         """
