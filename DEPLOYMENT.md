@@ -40,6 +40,10 @@ source venv/bin/activate
 `requirements.txt`에 명시된 라이브러리를 설치합니다.
 ```bash
 pip install -r requirements.txt
+
+# 만약 "error: externally-managed-environment" 오류가 발생하면 아래 명령어를 사용하세요:
+pip install -r requirements.txt --break-system-packages
+
 ```
 
 ## 6. 설정 파일 확인

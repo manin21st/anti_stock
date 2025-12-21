@@ -9,3 +9,5 @@ jinja2
 pytest
 itsdangerous
 xlsxwriter
+sqlalchemy
+psycopg2-binary
