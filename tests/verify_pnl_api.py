@@ -41,8 +41,8 @@ def test_period_pnl():
     tr_id = "VTTC8708R" if is_paper else "TTTC8708R"
     print(f"Using TR_ID: {tr_id} (Paper: {is_paper})")
     
-    start_dt = "20241201"
-    end_dt = "20241219"
+    start_dt = "20251218"
+    end_dt = "20251218"
     
     
     print(f"Fetching PnL from {start_dt} to {end_dt}...")

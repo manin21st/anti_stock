@@ -40,6 +40,7 @@
 
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="tab-portfolio">포트폴리오</button>
+            <button class="tab-btn" data-tab="tab-watchlist">감시종목</button>
             <button class="tab-btn" data-tab="tab-chart">차트</button>
             <button class="tab-btn" data-tab="tab-backtest">백테스트</button>
             <button class="tab-btn" data-tab="tab-journal">매매일지</button>
@@ -92,6 +93,9 @@
                     </div>
                 </section>
             </div>
+
+            <!-- Tab: Watchlist (New) -->
+            {% include 'watchlist.html' %}
 
             <!-- Tab 2: Chart -->
             <div id="tab-chart" class="tab-content">
@@ -220,57 +224,49 @@
                                         상위</label>
                                 </div>
                             </div>
-                            <div class="option-group" id="universe-group">
-                                <label class="group-label">수동 종목 지정 (콤마 구분)</label>
-                                <textarea id="universe-input" rows="3" placeholder="예: 005930, 000660"></textarea>
-                            </div>
+                            <!-- Removed Manual Universe Input -->
                             <div class="option-group">
                                 <label class="group-label">알림 설정 (Telegram)</label>
                                 <label><input type="checkbox" id="enable_trade_alert"> 매매 알림</label>
                                 <label><input type="checkbox" id="enable_system_alert"> 시스템 알림</label>
                             </div>
-                            <!-- TPS Server Monitoring (Merged) -->
-                            <div class="option-group tps-monitoring-group" style="margin-top: 15px;">
-                                <label class="group-label"
-                                    style="display: flex; justify-content: space-between; align-items: center;">
-                                    TPS 서버 설정
-                                    <div class="status-indicator-box"
-                                        style="font-size: 12px; font-weight: normal; margin-left: 10px;">
-                                        <div id="tps-status-led" class="led-off"></div>
-                                        <span id="tps-status-text">연결 대기중...</span>
+                            <!-- TPS Server Monitoring (Dedicated Section) -->
+                            <div class="tps-server-container">
+                                <div class="tps-header">
+                                    <div class="tps-title">
+                                        <span class="icon">⚡</span> TPS 독립 서버 설정
                                     </div>
-                                    <button id="btn-download-tps-log" class="btn-secondary small-btn"
-                                        style="padding: 2px 6px; font-size: 11px;">로그 다운로드</button>
-                                </label>
-                                <!-- TPS Server URL Config -->
-                                <div
-                                    style="margin-top: 5px; margin-bottom: 10px; display: flex; align-items: center; gap: 5px;">
-                                    <span style="font-size: 13px; color: #333; width: 70px;">서버 URL</span>
-                                    <input type="text" id="tps_server_url" placeholder="http://localhost:9000"
-                                        style="flex: 1; padding: 6px; font-size: 13px; background: #fff; color: #333; border: 1px solid #d1d5db; border-radius: 4px;">
+                                    <div class="tps-controls">
+                                        <div class="status-badge">
+                                            <div id="tps-status-led" class="led-off"></div>
+                                            <span id="tps-status-text">연결 대기중...</span>
+                                        </div>
+                                        <button id="btn-download-tps-log" class="btn-secondary small-btn"
+                                            style="padding: 2px 8px; font-size: 11px;">로그 다운로드</button>
+                                    </div>
                                 </div>
-                                <div class="metric-grid"
-                                    style="margin-top: 5px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px;">
-                                    <div class="metric-box"
-                                        style="padding: 8px 5px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; text-align: center;">
-                                        <div class="label" style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">
-                                            현재 TPS</div>
-                                        <div class="value" id="tps-current"
-                                            style="font-size: 14px; font-weight: 600; color: #111827;">0.0</div>
+
+                                <div class="tps-body">
+                                    <!-- Server URL Config -->
+                                    <div class="tps-input-group">
+                                        <span class="label">서버 URL</span>
+                                        <input type="text" id="tps_server_url" placeholder="http://localhost:9000">
                                     </div>
-                                    <div class="metric-box"
-                                        style="padding: 8px 5px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; text-align: center;">
-                                        <div class="label" style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">
-                                            활성 클라이언트</div>
-                                        <div class="value" id="tps-clients"
-                                            style="font-size: 14px; font-weight: 600; color: #111827;">0</div>
-                                    </div>
-                                    <div class="metric-box"
-                                        style="padding: 8px 5px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; text-align: center;">
-                                        <div class="label" style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">
-                                            잔여 토큰</div>
-                                        <div class="value" id="tps-tokens"
-                                            style="font-size: 14px; font-weight: 600; color: #111827;">0.0</div>
+
+                                    <!-- Monitoring Metrics -->
+                                    <div class="tps-metric-grid">
+                                        <div class="tps-metric-box">
+                                            <div class="label">현재 TPS</div>
+                                            <div class="value" id="tps-current">0.0</div>
+                                        </div>
+                                        <div class="tps-metric-box">
+                                            <div class="label">활성 클라이언트</div>
+                                            <div class="value" id="tps-clients">0</div>
+                                        </div>
+                                        <div class="tps-metric-box">
+                                            <div class="label">잔여 토큰</div>
+                                            <div class="value" id="tps-tokens">0.0</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -313,8 +309,10 @@
         </main>
     </div>
     </div>
+    </div>
     <script src="/static/app.js?v=11"></script>
     <script src="/static/chart.js?v=24"></script>
+    <script src="/static/watchlist.js?v=2"></script>
 </body>
 
 </html>

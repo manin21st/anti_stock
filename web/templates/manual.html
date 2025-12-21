@@ -157,6 +157,17 @@
         </section>
 
         <section class="card">
+            <h2>감시종목 탭 사용 가이드 (Watchlist Tab)</h2>
+            <p>실시간으로 시세를 모니터링하고 싶은 종목들을 관리하는 공간입니다.</p>
+            <ul>
+                <li><strong>좌우 3:7 분할</strong>: 좌측은 종목 검색 및 선택, 우측은 모니터링 리스트입니다.</li>
+                <li><strong>종목 검색</strong>: 좌측 상단 입력창에 종목명이나 코드를 입력하여 빠르게 찾을 수 있습니다.</li>
+                <li><strong>스파크라인 (Sparkline)</strong>: 각 종목의 최근 30일간 주가 흐름을 미니 차트로 한눈에 파악할 수 있습니다.</li>
+                <li><strong>데이터 업데이트</strong>: 우측 리스트의 데이터(현재가, 등락률 등)는 탭이 활성화되어 있을 때 5초마다 자동으로 갱신됩니다.</li>
+            </ul>
+        </section>
+
+        <section class="card">
             <h2>차트 탭 사용 가이드 (Chart Tab)</h2>
             <p>실시간 시세 차트와 매매 내역을 시각적으로 확인하고 분석할 수 있는 공간입니다.</p>
 
@@ -220,13 +231,14 @@
             <h2>대상 종목 선정 (Target Stock Selection)</h2>
             <p>봇이 거래할 종목을 선정하는 두 가지 방법이 있습니다.</p>
 
-            <h3>1. 수동 지정 (Manual Universe)</h3>
-            <p><code>config/strategies.yaml</code> 파일의 <code>universe</code> 리스트에 거래하고 싶은 종목 코드를 직접 입력합니다.</p>
-            <div class="config-item">
-                <span class="config-name">universe</span>
-                <p class="config-desc">거래 대상 종목 코드 리스트입니다.</p>
-                <p class="config-example">예시:<br>universe:<br> - "005930" # 삼성전자<br> - "000660" # SK하이닉스</p>
-            </div>
+            <h3>1. 감시종목 탭 이용 (Watchlist)</h3>
+            <p>메인 화면의 <strong>'감시종목'</strong> 탭에서 관심 있는 종목을 검색하고 리스트에 추가합니다. 이 리스트에 추가된 종목들은 시스템이 실시간으로 시세를 감시하며, 자동 매매의
+                대상 후보군이 됩니다.</p>
+            <ul>
+                <li><strong>종목 추가</strong>: 좌측 패널에서 종목명/코드를 검색하고 선택한 뒤 '추가' 버튼을 누릅니다.</li>
+                <li><strong>증권사 가져오기</strong>: '증권사 가져오기' 버튼을 통해 HTS/MTS에 저장된 관심종목 그룹을 한 번에 불러올 수 있습니다.</li>
+                <li><strong>자동 저장</strong>: '저장' 버튼을 누르면 리스트가 영구 저장되어 재시작 후에도 유지됩니다.</li>
+            </ul>
 
             <h3>2. 자동 선정 (Auto-Scanner)</h3>
             <p>시장 상황에 따라 거래량이 터지거나 급등하는 종목을 봇이 자동으로 찾아냅니다. 이 기능을 켜면 수동 지정한 종목은 무시됩니다.</p>

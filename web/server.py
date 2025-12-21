@@ -128,6 +128,142 @@ async def logout(request: Request):
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+# Watchlist & Stock Master APIs
+@app.get("/api/stocks")
+async def get_all_stocks():
+    """Get all stocks (Master Data)"""
+    if engine_instance and engine_instance.market_data:
+        return engine_instance.market_data.get_master_list()
+    return []
+
+@app.get("/api/watchlist")
+async def get_watchlist():
+    """Get Saved Watchlist"""
+    if engine_instance:
+        return engine_instance.watchlist
+    return []
+
+@app.post("/api/watchlist")
+async def update_watchlist(request: Request):
+    """Update Watchlist"""
+    data = await request.json()
+    new_list = data.get("watchlist", [])
+    if engine_instance:
+        engine_instance.update_watchlist(new_list)
+        return {"status": "ok", "count": len(new_list)}
+    return {"status": "error", "message": "Engine not initialized"}
+
+@app.post("/api/watchlist/import")
+async def import_watchlist():
+    """Import from Broker"""
+    if engine_instance:
+        try:
+            total, added = engine_instance.import_broker_watchlist()
+            return {"status": "ok", "total": total, "added": added}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "error", "message": "Engine not initialized"}
+
+@app.post("/api/market/data")
+async def get_market_data_batch(request: Request):
+    """
+    Get detailed market data for a list of symbols.
+    Includes: Current Price, Change Rate, MA20, Sparkline (30d)
+    This might be slow if too many symbols. Limit recommended.
+    """
+    data = await request.json()
+    symbols = data.get("symbols", [])
+    
+    results = []
+    if engine_instance and engine_instance.market_data:
+        md = engine_instance.market_data
+        
+        for symbol in symbols:
+            try:
+                # 1. Basic Info (Name, Price)
+                name = md.get_stock_name(symbol)
+                # Fetch current price via API or Cache?
+                # Using get_last_price uses cache if simulation or API fetch
+                # For batch list, calling fetch_price sequentially is slow (approx 0.1-0.2s per call)
+                # If polling is active, we might have it in memory?
+                # md doesn't cache 'last_price' globally except for real-time tick subscribers.
+                # However, get_last_price calls API.
+                # Use a lightweight fetch?
+                # Optimization: Should we rely on client to get price from websocket?
+                # The user wants "Grid" with data. Initial load needs REST.
+                
+                # Fetch Daily Bars for MA20 & Sparkline (Cached)
+                # Lookback 30 days
+                df = md.get_bars(symbol, timeframe="1d", lookback=30)
+                
+                current_price = 0
+                change_rate = 0
+                ma20 = 0
+                sparkline = []
+                
+                # Check Holding Status
+                is_held = False
+                if engine_instance and engine_instance.portfolio:
+                    if symbol in engine_instance.portfolio.positions:
+                        is_held = True
+
+                if not df.empty:
+                    # Sparkline: Close prices
+                    # Ensure JSON serializable
+                    sparkline = df['close'].tolist()
+                    
+                    # MA20: Calculate from last 20 close prices
+                    if len(df) >= 20:
+                        ma20 = df['close'].tail(20).mean()
+                    else:
+                        ma20 = df['close'].mean() # Approx
+                        
+                    # Get Current Price from latest bar? 
+                    # If market is open, latest bar might be yesterday's close if get_bars doesn't include today?
+                    # get_bars logic: daily chart usually includes today if market open.
+                    
+                    last_bar = df.iloc[-1]
+                    current_price = float(last_bar['close'])
+                    
+                    # Calculate change rate (vs prev day)
+                    if len(df) >= 2:
+                        prev_close = float(df.iloc[-2]['close'])
+                        if prev_close > 0:
+                            change_rate = (current_price - prev_close) / prev_close * 100
+                            
+                # If real-time price is needed (and faster/newer than daily bar), fetch it?
+                # For "Watchlist", user expects real-time.
+                # But calling API for 20 stocks take 2-4 seconds.
+                # Ideally we rely on WebSocket for updates, and this API for initial state.
+                # Let's rely on Daily Bar for 'History' (Sparkline/MA20)
+                # and try to get Real-time price if possible, or just use Daily Close.
+                
+                item = {
+                    "no": 0, # Frontend will assign
+                    "name": name,
+                    "code": symbol,
+                    "price": current_price,
+                    "change_rate": round(change_rate, 2),
+                    "ma20": round(ma20, 0),
+                    "sparkline": sparkline,
+                    "is_held": is_held
+                }
+                results.append(item)
+                
+            except Exception as e:
+                logger.error(f"Error fetching data for {symbol}: {e}")
+                results.append({
+                    "code": symbol, 
+                    "error": str(e),
+                    "name": md.get_stock_name(symbol)
+                })
+
+    return {"status": "ok", "data": results}
+
 @app.get("/api/config")
 async def get_config():
     if engine_instance:
@@ -155,11 +291,17 @@ async def update_config(request: Request):
         return {"status": "ok"}
     return {"status": "error", "message": "Engine not initialized"}
 
-@app.get("/api/system_config")
-async def get_system_config():
+from fastapi.responses import JSONResponse
+
+@app.get("/api/system/settings")
+async def get_system_settings():
     if engine_instance:
-        return engine_instance.system_config
-    return {}
+        cfg = engine_instance.system_config.copy()
+        # Ensure TPS URL is present (fallback to default)
+        if "tps_server_url" not in cfg:
+             cfg["tps_server_url"] = "http://localhost:9000"
+        return JSONResponse(content=cfg)
+    return JSONResponse(content={})
 
 @app.post("/api/system_config")
 async def update_system_config(request: Request):
@@ -217,6 +359,13 @@ async def download_logs():
     if os.path.exists(log_file):
         return FileResponse(log_file, media_type='text/plain', filename="anti_stock.log")
     return {"status": "error", "message": "Log file not found"}
+
+@app.get("/api/tps/stats")
+async def get_tps_stats():
+    from core import kis_api as ka
+    if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
+        return ka.rate_limiter.get_server_stats()
+    return {"status": "offline", "message": "Global RateLimiter not initialized"}
 
 @app.get("/api/chart/data")
 async def get_chart_data(symbol: str, timeframe: str = "1m", lookback: int = 300):
@@ -328,24 +477,8 @@ async def inject_trades(request: Request):
             return {"status": "error", "message": str(e)}
     return {"status": "error", "message": "Engine not initialized"}
 
-# TPS Server Proxy & Monitoring
-@app.get("/api/tps/stats")
-async def get_tps_stats():
-    import requests
-    try:
-        # Resolve TPS URL from Engine Config
-        tps_base_url = "http://localhost:9000"
-        if engine_instance:
-             tps_base_url = engine_instance.system_config.get("tps_server_url", "http://localhost:9000")
-        
-        # Proxy to TPS Server
-        resp = requests.get(f"{tps_base_url}/stats", timeout=0.5)
-        if resp.status_code == 200:
-            return resp.json()
-    except Exception as e:
-        # If server is down
-        return {"status": "error", "message": "TPS Server Unreachable"}
-    return {"status": "error", "message": "Connect Error"}
+# TPS Server Proxy & Monitoring - Legacy implementations removed to avoid duplication
+# New implementation uses kis_api.rate_limiter directly
 
 @app.get("/api/tps/logs/download")
 async def download_tps_logs():
@@ -634,9 +767,11 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
                     if engine_instance and engine_instance.market_data:
                         item['name'] = engine_instance.market_data.get_stock_name(item['symbol'])
                 
-                # PnL Logic: Currently disabled for pure sync as we lack cost basis.
-                # Future: Implement inquire-ccld-pnl for accurate PnL history.
-                pass
+                # PnL Mapping
+                if hasattr(t, 'pnl') and t.pnl is not None:
+                     item['pnl'] = t.pnl
+                if hasattr(t, 'pnl_pct') and t.pnl_pct is not None:
+                     item['revenue_rate'] = t.pnl_pct
 
             return {"status": "ok", "data": data}
             

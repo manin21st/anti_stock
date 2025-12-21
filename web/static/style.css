@@ -343,8 +343,8 @@ button:hover {
 }
 
 .btn-secondary {
-    background: #64748b;
-    color: white;
+    background: #6c757d !important;
+    color: white !important;
     width: auto;
 }
 
@@ -659,4 +659,140 @@ a.btn-success {
     color: #3b82f6;
     /* Blue */
     font-weight: 600;
+}
+
+/* Watchlist Specific Styles */
+.sparkline {
+    fill: none;
+    stroke: #3b82f6;
+    stroke-width: 1.5;
+}
+
+.sparkline-up {
+    stroke: #ef4444;
+    /* Red for Price Up trend? Or just positive closes? Usually sparkline shows history. */
+}
+
+.sparkline-down {
+    stroke: #3b82f6;
+}
+
+.stock-list-item {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.stock-list-item:hover {
+    background-color: #f8fafc;
+}
+
+.stock-list-item.selected {
+    background-color: #e0f2fe;
+}
+
+.stock-list-item input[type="checkbox"] {
+    cursor: pointer;
+}
+
+/* TPS Server Dedicated Section */
+.tps-server-container {
+    margin-top: 30px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background-color: #f8fafc;
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.tps-header {
+    background-color: #1e293b;
+    color: #e2e8f0;
+    padding: 12px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.tps-title {
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tps-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+}
+
+.tps-body {
+    padding: 20px;
+}
+
+.tps-input-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.tps-input-group .label {
+    min-width: 80px;
+    font-weight: 600;
+    color: #475569;
+}
+
+.tps-input-group input {
+    flex: 1;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 8px;
+    background: #fff;
+    font-family: monospace;
+    color: #334155;
+}
+
+.tps-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+}
+
+.tps-metric-box {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px;
+    text-align: center;
+}
+
+.tps-metric-box .label {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.tps-metric-box .value {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0f172a;
+    font-family: 'Consolas', monospace;
 }

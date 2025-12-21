@@ -23,3 +23,6 @@ config/secrets.yaml
 # System
 Thumbs.db
 Desktop.ini
+
+# Tests
+tests/

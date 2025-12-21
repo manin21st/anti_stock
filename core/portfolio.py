@@ -60,7 +60,7 @@ class Portfolio:
         # This should be synced with Broker's balance
         return self.total_asset
     
-    def sync_with_broker(self, broker_balance: Dict, notify: bool = True):
+    def sync_with_broker(self, broker_balance: Dict, notify: bool = True, tag_lookup_fn=None):
         """Sync internal state with actual broker balance"""
         if not broker_balance:
             return
@@ -104,7 +104,11 @@ class Portfolio:
             saved_data = saved_state.get(symbol, {})
             saved_partial = saved_data.get("partial_taken", False)
             saved_max = saved_data.get("max_price", current_price)
-            saved_tag = saved_data.get("tag", "unknown")
+            saved_tag = saved_data.get("tag", "")
+            
+            # [Fix] Helper to look up tag if missing (e.g. restart data loss)
+            if not saved_tag and tag_lookup_fn:
+                saved_tag = tag_lookup_fn(symbol) or ""
 
             if symbol in self.positions:
                 pos = self.positions[symbol]

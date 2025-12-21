@@ -40,10 +40,13 @@ system:
   env_type: paper
   market_type: KRX
   scanner_mode: volume
+  telegram:
+    bot_token: 7175981417:AAF58bvA9QvQ_Kpz3pd0PDbH5D79hgenSh8
+    chat_id: '7692999971'
+    enable_system_alert: false
+    enable_trade_alert: false
   tps_server_url: https://tps.bhsong.org
-  universe:
-  - 005930
-  - '000660'
+  universe: []
   use_auto_scanner: true
   watchlist_group_code: '000'
 vwap_scalping:

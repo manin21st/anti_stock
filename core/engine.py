@@ -86,6 +86,86 @@ class Engine:
         self.broker.on_order_sent.append(self.record_order_event)
         self.portfolio.on_position_change.append(self.record_position_event)
 
+        # Watchlist Management
+        self.watchlist = []
+        self._load_watchlist() 
+        self._migrate_legacy_universe() # Migration Only once (or on startup if legacy exists)
+
+    def _load_watchlist(self):
+        """Load watchlist from JSON"""
+        try:
+            path = "data/watchlist.json"
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    self.watchlist = json.load(f)
+                    # Deduplicate and ensure string format
+                    self.watchlist = list(set([str(x).zfill(6) for x in self.watchlist]))
+                logger.info(f"Loaded Watchlist: {len(self.watchlist)} items")
+            else:
+                self.watchlist = []
+        except Exception as e:
+            logger.error(f"Failed to load watchlist: {e}")
+            self.watchlist = []
+
+    def _save_watchlist(self):
+        """Save watchlist to JSON"""
+        try:
+            path = "data/watchlist.json"
+            os.makedirs("data", exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.watchlist, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save watchlist: {e}")
+
+    def _migrate_legacy_universe(self):
+        """Migrate legacy 'universe' config to watchlist.json"""
+        legacy_universe = self.system_config.get("universe", [])
+        if legacy_universe:
+            logger.info(f"Migrating legacy universe ({len(legacy_universe)} items) to Watchlist...")
+            
+            current_set = set(self.watchlist)
+            for code in legacy_universe:
+                current_set.add(str(code).zfill(6))
+            
+            self.watchlist = list(current_set)
+            self._save_watchlist()
+            
+            # Clear legacy config
+            self.update_system_config({"universe": []})
+            logger.info("Legacy universe migration completed.")
+
+    def import_broker_watchlist(self):
+        """Import watchlist from Broker (HTS Groups)"""
+        try:
+            logger.info("Importing Broker Watchlist...")
+            imported = self.scanner.get_watchlist() # Fetches from API
+            if imported:
+                current_set = set(self.watchlist)
+                count_before = len(current_set)
+                for code in imported:
+                    current_set.add(str(code).zfill(6))
+                
+                self.watchlist = list(current_set)
+                self._save_watchlist()
+                
+                added = len(current_set) - count_before
+                logger.info(f"Imported {len(imported)} items from Broker. (New: {added})")
+                return len(imported), added
+            return 0, 0
+        except Exception as e:
+            logger.error(f"Failed to import broker watchlist: {e}")
+            raise e
+
+    def update_watchlist(self, new_list: List[str]):
+        """Update entire watchlist"""
+        self.watchlist = [str(x).zfill(6) for x in new_list]
+        self._save_watchlist()
+        # Trigger subscription update immediately
+        self._update_universe()
+        # If trading is active, ensure polling is updated
+        if self.is_trading and not self.market_data.is_polling:
+             self.market_data.start_polling()
+
     def update_system_config(self, new_config: Dict):
         """Update system configuration and save to appropriate files"""
         # 1. Update In-Memory Config (Deep Merge)
@@ -235,7 +315,8 @@ class Engine:
                 balance = self.broker.get_balance()
                 # logger.debug(f"Broker Balance: {balance}")
                 if balance:
-                    self.portfolio.sync_with_broker(balance, notify=False)
+                    # [Fix] Pass lookup function
+                    self.portfolio.sync_with_broker(balance, notify=False, tag_lookup_fn=self._resolve_strategy_tag)
                     self.portfolio.load_state()
                     
                     total_asset = int(self.portfolio.total_asset)
@@ -340,7 +421,8 @@ class Engine:
                         try:
                             balance = self.broker.get_balance()
                             if balance:
-                                self.portfolio.sync_with_broker(balance)
+                                # [Fix] Pass lookup function
+                                self.portfolio.sync_with_broker(balance, notify=True, tag_lookup_fn=self._resolve_strategy_tag)
                                 # logger.debug("Portfolio synced with broker")
 
                                 # FIX: Correct prices during off-hours or whenever polling is inactive
@@ -429,14 +511,18 @@ class Engine:
                 logger.info(f"Scanner found {len(scanned_symbols)} stocks: {scanned_symbols}")
                 
                 # Filter by Manual Universe (Watchlist)
-                # Use Cached Watchlist
+                # Use Cached Watchlist (HTS) only if UI Watchlist is empty
                 api_watchlist = getattr(self, 'cached_watchlist', [])
-                manual_watchlist = self.system_config.get("universe", [])
                 
-                # Merge lists (API + Manual Config)
-                full_watchlist = set(api_watchlist)
-                if manual_watchlist:
-                    full_watchlist.update([str(x).zfill(6) for x in manual_watchlist])
+                # Determine the Authority List
+                if self.watchlist:
+                    # User has defined a list in UI -> This is the FINAL list
+                    full_watchlist = set(self.watchlist)
+                    # logger.info(f"Using UI Watchlist as Filter: {len(full_watchlist)} items")
+                else:
+                    # Fallback to Broker Group if UI list is empty
+                    full_watchlist = set(api_watchlist)
+                    # logger.info(f"Using Broker Group as Filter: {len(full_watchlist)} items")
                 
                 watchlist = list(full_watchlist)
                 
@@ -445,20 +531,27 @@ class Engine:
                     watchlist = [str(x).zfill(6) for x in watchlist]
                     # Intersection
                     universe = [s for s in scanned_symbols if s in watchlist]
-                    logger.info(f"Filtered by Watchlist (API+Manual): {len(universe)} stocks selected {universe}")
+                    logger.info(f"Filtered by Watchlist: {len(universe)} stocks selected {universe}")
                 else:
-                    logger.warning("Auto-Scanner is on, but Watchlist (API & Manual) is empty. No stocks selected.")
+                    logger.warning("Auto-Scanner is on, but Watchlist is empty. No stocks selected.")
                     universe = []
 
             except Exception as e:
                 logger.error(f"Scanner failed: {e}")
                 universe = []
         else:
-            universe = self.system_config.get("universe", [])
-            logger.info(f"Using manual universe: {universe}")
+            # universe = self.system_config.get("universe", []) # Legacy
+            universe = self.watchlist # Use New Watchlist as Manual Universe
+            logger.info(f"Using manual universe (Watchlist): {universe}")
             
-        # Combine Universe + Current Holdings for subscription
+        # Combine Universe + Current Holdings + WATCHLIST for subscription
+        # New Rule: We ALWAYS subscribe to Watchlist items to show them in the UI tab,
+        # even if they are not selected for 'Trading Universe' by the scanner.
         subscription_list = set(universe) if universe else set()
+        
+        # Add Watchlist (for UI monitoring)
+        if self.watchlist:
+            subscription_list.update(self.watchlist)
         
         # Add current holdings to subscription list so we can manage exits
         if self.portfolio.positions:
@@ -500,6 +593,13 @@ class Engine:
         if hasattr(self, 'market_data'):
             self.market_data.stop_polling()
         logger.info("Engine stopped")
+
+    def _resolve_strategy_tag(self, symbol: str) -> str:
+        """Helper to find the last strategy that traded this symbol from history"""
+        for event in reversed(self.trade_history):
+            if event.symbol == symbol and event.event_type == "ORDER_SUBMITTED":
+                 return event.strategy_id
+        return ""
 
     def update_strategy_config(self, new_config: Dict):
         """Update strategy configuration (Config only, applied on restart)"""
@@ -624,16 +724,9 @@ class Engine:
             self.save_trade_history() # Save on update
             logger.info(f"Recorded Order Event: {event.event_type} {event.symbol}")
             
-            # Telegram Alert
-            stock_name = self.market_data.get_stock_name(order_info["symbol"])
-            self.telegram.send_trade_event(
-                event_type="ORDER_SUBMITTED",
-                symbol=order_info["symbol"],
-                price=float(order_info["price"]),
-                qty=int(order_info["qty"]),
-                side=order_info["side"],
-                stock_name=stock_name
-            )
+            # Telegram Alert Removed: Duplicate notification. 
+            # "Order Submitted" is not "Execution". 
+            # True execution alert is handled by 'record_position_event'.
         except Exception as e:
             logger.error(f"Failed to record order event: {e}")
 
@@ -852,7 +945,18 @@ class Engine:
                     
                     # Build Map: (date_str, symbol) -> pnl
                     pnl_map = {}
-                    
+
+                    def safe_float(val):
+                        if val is None or val == "": return 0.0
+                        if isinstance(val, (int, float)): return float(val)
+                        try:
+                            # Remove commas and whitespace
+                            clean_val = str(val).replace(',', '').strip()
+                            if not clean_val: return 0.0
+                            return float(clean_val)
+                        except Exception:
+                            return 0.0
+
                     # Inspect first item to handle naming key variations
                     if pnl_list and len(pnl_list) > 0:
                         sample = pnl_list[0]
@@ -869,14 +973,20 @@ class Engine:
                                     if hasattr(obj, k): return getattr(obj, k)
                             return default
 
-                        dt = str(g(item, ['tr_dt', 'TR_DT'], ""))
-                        sym = str(g(item, ['pdno', 'PDNO'], ""))
-                        pnl = float(g(item, ['rlzg_pl', 'RLZG_PL'], 0))
+                        dt = str(g(item, ['tr_dt', 'TR_DT', 'ord_dt', 'ORD_DT'], ""))
+                        sym = str(g(item, ['pdno', 'PDNO', 'shtn_pdno'], ""))
+                        
+                        # Use safe_float for PnL
+                        pnl_raw = g(item, ['rlzg_pl', 'RLZG_PL', 'cisa_pl', 'CISA_PL'], 0)
+                        pnl = safe_float(pnl_raw)
                         
                         if dt and sym:
-                            pnl_map[(dt, sym)] = pnl
+                            pnl_map[(dt, sym)] = pnl_map.get((dt, sym), 0.0) + pnl
                     
-                    logger.info(f"Fetched {len(pnl_map)} PnL records.")
+                    if pnl_map:
+                        logger.info(f"Fetched PnL data for {len(pnl_map)} day-symbol pairs.")
+                    else:
+                        logger.info("Fetched PnL data but result map is empty.")
 
                     # Assign PnL to local Sell events
                     # Strategy: Assign Daily PnL to the LAST Sell event of that day for that symbol

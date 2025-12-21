@@ -84,7 +84,8 @@ class RateLimiter:
         try:
             # Short timeout to not block trading
             headers = {"X-Client-ID": self.client_id}
-            resp = requests.get(f"{self.server_url}/token", headers=headers, timeout=0.1)
+            # Increased timeout to 1.0s to prevent flapping during burst requests (e.g. Watchlist load)
+            resp = requests.get(f"{self.server_url}/token", headers=headers, timeout=1.0)
             
             if resp.status_code == 200:
                 if not self.server_alive:
@@ -105,6 +106,23 @@ class RateLimiter:
             return None
         except Exception:
             return None
+
+    def get_server_stats(self) -> Dict[str, Any]:
+        """Fetch statistics from TPS Server"""
+        if not self.use_server and self.server_url == "http://localhost:9000":
+             return {"status": "local", "current_tps": self.tps_limit}
+             
+        try:
+            headers = {"X-Client-ID": self.client_id}
+            resp = requests.get(f"{self.server_url}/stats", headers=headers, timeout=1.0)
+            if resp.status_code == 200:
+                stats = resp.json()
+                stats["status"] = "running" # Ensure status is present
+                return stats
+            else:
+                 return {"status": "error", "message": f"HTTP {resp.status_code}"}
+        except Exception as e:
+            return {"status": "offline", "message": str(e)}
 
     def execute(self, func, *args, **kwargs):
         """
@@ -408,9 +426,8 @@ def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_a
     URL: /uapi/domestic-stock/v1/trading/inquire-period-profit
     """
     is_paper = is_paper_trading()
-    # tr_id = "VTTC8708R" if is_paper else "TTTC8708R"
-    # Try TTTC8708R for both first (Some TRs are shared or I can't find the V code)
-    tr_id = "TTTC8708R"
+    tr_id = "VTTC8708R" if is_paper else "TTTC8708R"
+    # tr_id = "TTTC8708R"
     
     env = ka.getTREnv()
     cano = env.my_acct

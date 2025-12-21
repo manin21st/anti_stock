@@ -236,7 +236,8 @@ async function saveStrategyConfigField(input) {
 
 // System Config & Control
 async function loadSystemConfig() {
-    const res = await fetch(`${API_BASE}/system_config`);
+    // Load Settings
+    const res = await fetch(`${API_BASE}/system/settings`);
     const config = await res.json();
 
     // Set Radio Buttons
@@ -264,90 +265,40 @@ async function loadSystemConfig() {
         if (el) el.checked = true;
     }
 
-    if (config.universe && Array.isArray(config.universe)) {
+    if (universeInput && config.universe && Array.isArray(config.universe)) {
         universeInput.value = config.universe.join(", ");
     }
 
     // Telegram Alerts
-    const telegram = config.telegram || {};
-    if (telegram.enable_trade_alert !== undefined) {
-        document.getElementById("enable_trade_alert").checked = telegram.enable_trade_alert;
-    }
-    if (telegram.enable_system_alert !== undefined) {
-        document.getElementById("enable_system_alert").checked = telegram.enable_system_alert;
-    }
-
-    // TPS Limit - Removed
-
-    // TPS Server URL
-    if (config.tps_server_url) {
-        document.getElementById("tps_server_url").value = config.tps_server_url;
-    } else {
-        document.getElementById("tps_server_url").value = "http://localhost:9000";
-    }
-
+    // ... (omitted lines) ...
 
     // Toggle Visibility
     const toggleScannerUI = () => {
         if (autoScannerCheckbox.checked) {
             scannerModeGroup.style.display = "block";
-            universeGroup.style.opacity = "0.5";
-            universeInput.disabled = true;
+            if (universeGroup) universeGroup.style.opacity = "0.5";
+            if (universeInput) universeInput.disabled = true;
         } else {
             scannerModeGroup.style.display = "none";
-            universeGroup.style.opacity = "1";
-            universeInput.disabled = false;
+            if (universeGroup) universeGroup.style.opacity = "1";
+            if (universeInput) universeInput.disabled = false;
         }
     };
 
     autoScannerCheckbox.addEventListener("change", toggleScannerUI);
     toggleScannerUI(); // Initial state
 
-    // Instant Save for Telegram Settings
-    const saveTelegramSettings = async () => {
-        const enable_trade_alert = document.getElementById("enable_trade_alert").checked;
-        const enable_system_alert = document.getElementById("enable_system_alert").checked;
+    // ... (omitted lines) ...
 
-        try {
-            const res = await fetch(`${API_BASE}/system_config`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    telegram: {
-                        enable_trade_alert,
-                        enable_system_alert
-                    }
-                })
-            });
-            if (res.ok) {
-                console.log("Telegram settings saved instantly.");
-                // Optional: Show a small toast or visual feedback
-            } else {
-                console.error("Failed to save telegram settings");
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    // Auto-Save Listeners for System Configs
-    const autoSaveSystem = async () => {
-        await saveSystemConfig();
-        console.log("System config auto-saved.");
-    };
-
-    // Radio Buttons: Change triggers save
-    const radios = document.querySelectorAll('input[name="env_type"], input[name="market_type"], input[name="scanner_mode"]');
-    radios.forEach(r => r.addEventListener("change", autoSaveSystem));
-
-    // Checkboxes: Change triggers save
-    autoScannerCheckbox.addEventListener("change", async () => {
-        toggleScannerUI();
-        await autoSaveSystem();
-    });
+    // TPS Server URL
+    if (config.tps_server_url) {
+        document.getElementById("tps_server_url").value = config.tps_server_url;
+    }
 
     // Text Inputs: Blur triggers save
-    universeInput.addEventListener("blur", autoSaveSystem);
+    if (universeInput) {
+        universeInput.addEventListener("blur", autoSaveSystem);
+    }
     document.getElementById("tps_server_url").addEventListener("blur", autoSaveSystem);
 
 
@@ -355,14 +306,7 @@ async function loadSystemConfig() {
     document.getElementById("enable_system_alert").addEventListener("change", autoSaveSystem);
 }
 
-async function sendControl(command) {
-    await fetch(`${API_BASE}/control`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: command })
-    });
-    setTimeout(updateStatus, 1000); // Wait a bit then update status
-}
+// ... (omitted) ...
 
 async function saveSystemConfig() {
     const env_type = document.querySelector('input[name="env_type"]:checked').value;
@@ -371,10 +315,12 @@ async function saveSystemConfig() {
     const use_auto_scanner = document.getElementById("use_auto_scanner").checked;
     const scanner_mode = document.querySelector('input[name="scanner_mode"]:checked').value;
 
-    const universeStr = document.getElementById("universe-input").value;
-    const universe = universeStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
-
-
+    let universe = [];
+    const universeInput = document.getElementById("universe-input");
+    if (universeInput) {
+        const universeStr = universeInput.value;
+        universe = universeStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
+    }
 
     const enable_trade_alert = document.getElementById("enable_trade_alert").checked;
     const enable_system_alert = document.getElementById("enable_system_alert").checked;
@@ -391,7 +337,6 @@ async function saveSystemConfig() {
             scanner_mode,
             universe,
             tps_server_url,
-            // tps_limit, - Removed
             telegram: {
                 enable_trade_alert,
                 enable_system_alert
@@ -435,22 +380,48 @@ async function saveAllAndGetReady() {
     }
 }
 
+async function sendControl(command) {
+    await fetch(`${API_BASE}/control`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: command })
+    });
+    setTimeout(updateStatus, 1000); // Wait a bit then update status
+}
+
 document.getElementById("btn-start").onclick = async () => {
     const btn = document.getElementById("btn-start");
-    const mode = btn.textContent; // "시작" or "재시작"
+    const originalText = btn.textContent; // "시작" or "재시작"
+    const isRestart = originalText === "재시작";
 
-    console.log(`${mode} button clicked`);
+    try {
+        console.log(`${originalText} button clicked`);
+        btn.disabled = true;
+        btn.textContent = "저장 중...";
 
-    // Force Save All
-    await saveAllAndGetReady();
+        // Force Save All
+        await saveAllAndGetReady();
 
-    if (mode === "재시작") {
-        if (confirm("시스템을 재시작하시겠습니까?")) {
-            await sendControl("restart");
-            alert("재시작 요청을 보냈습니다.");
+        if (isRestart) {
+            btn.textContent = "재시작"; // Restore text for confirm
+            if (confirm("시스템을 재시작하시겠습니까?")) {
+                btn.textContent = "요청 중...";
+                await sendControl("restart");
+                alert("재시작 요청을 보냈습니다. (잠시 후 수치가 갱신됩니다)");
+            } else {
+                // Cancelled
+                btn.disabled = false;
+            }
+        } else {
+            btn.textContent = "시작 요청 중...";
+            await sendControl("start");
+            // Status update will re-enable button
         }
-    } else {
-        await sendControl("start");
+    } catch (e) {
+        console.error("Start/Restart Error:", e);
+        alert(`오류가 발생했습니다: ${e.message}`);
+        btn.textContent = originalText;
+        btn.disabled = false;
     }
 };
 

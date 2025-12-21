@@ -510,3 +510,7 @@ class MarketData:
             
         # If not in cache, returning symbol is the safest bet (or 'Unknown')
         return symbol
+
+    def get_master_list(self) -> List[Dict]:
+        """Return full list of stocks from master files (KOSPI + KOSDAQ)"""
+        return [{"code": code, "name": name} for code, name in self._name_cache.items()]

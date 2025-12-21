@@ -1,0 +1,65 @@
+<div id="tab-watchlist" class="tab-content">
+    <div class="watchlist-container" style="display: flex; gap: 20px; height: calc(100vh - 140px);">
+        <!-- Left Panel: Search & Selection (30%) -->
+        <section class="card left-panel"
+            style="flex: 3; display: flex; flex-direction: column; overflow: hidden; padding: 15px;">
+            <div class="panel-header"
+                style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; border: none; font-size: 16px;">종목 검색</h2>
+                <div>
+                    <button id="btn-refresh-stocks" class="btn-secondary small-btn" title="새로고침"
+                        style="margin-right: 5px;">↻</button>
+                    <button id="btn-add-stock" class="btn-primary small-btn">추가</button>
+                </div>
+            </div>
+
+            <input type="text" id="stock-search-input" placeholder="종목명 또는 코드 입력..."
+                style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; box-sizing: border-box;">
+
+            <div id="stock-list-container"
+                style="flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 5px; background: #fff;">
+                <!-- Stock list populated by JS -->
+                <div style="text-align: center; color: #aaa; padding: 20px;">로딩 중...</div>
+            </div>
+            <div style="margin-top: 5px; font-size: 12px; color: #666; text-align: right;">
+                <span id="stock-list-count">0</span>개 종목
+            </div>
+        </section>
+
+        <!-- Right Panel: Monitoring (70%) -->
+        <section class="card right-panel"
+            style="flex: 7; display: flex; flex-direction: column; overflow: hidden; padding: 15px;">
+            <div class="panel-header"
+                style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; border: none; font-size: 16px;">감시 종목 리스트</h2>
+                <div class="wl-controls">
+                    <button id="btn-import-wl" class="btn-secondary small-btn" style="margin-right: 5px;"
+                        title="증권사(HTS) 관심종목 가져오기">증권사 가져오기</button>
+                    <button id="btn-remove-stock" class="btn-primary small-btn">삭제</button>
+                    <button id="btn-save-watchlist" class="btn-primary small-btn">저장</button>
+                </div>
+            </div>
+
+            <div class="table-container watchlist-table-container"
+                style="flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff;">
+                <table id="watchlist-table" style="width: 100%; border-collapse: collapse;">
+                    <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10;">
+                        <tr>
+                            <th style="width: 30px;"><input type="checkbox" id="wl-check-all"></th>
+                            <th style="text-align: center; width: 35px;">NO</th>
+                            <th style="text-align: left;">종목명</th>
+                            <th style="text-align: center;">종목코드</th>
+                            <th style="text-align: right;">현재가</th>
+                            <th style="text-align: right;">등락률</th>
+                            <th style="text-align: right;">MA20</th>
+                            <th style="text-align: center; width: 150px;">추세 (30일)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="watchlist-body">
+                        <!-- Watchlist items -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
