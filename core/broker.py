@@ -166,6 +166,10 @@ class Broker:
         
         res = ka.get_balance(tr_id, params)
         
+        if res is None:
+            logger.error("Failed to get balance: Response is None")
+            return {}
+
         if res.isOK():
             # output1: Holdings list
             # output2: Account summary (Total asset, deposit, etc.)

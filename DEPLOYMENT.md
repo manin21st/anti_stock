@@ -71,6 +71,7 @@ ps aux | grep python
 [Unit]
 Description=Anti-Stock Trading Bot (Web)
 After=network.target anti_stock_tps.service
+Wants=anti_stock_tps.service
 
 [Service]
 User=root
@@ -87,6 +88,7 @@ WantedBy=multi-user.target
 [Unit]
 Description=Anti-Stock TPS Server
 After=network.target
+PartOf=anti_stock.service
 
 [Service]
 User=root
@@ -103,13 +105,12 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl daemon-reload
 
-# TPS 서버 먼저 시작
-sudo systemctl start anti_stock_tps
-sudo systemctl enable anti_stock_tps
-
-# 웹 서버 시작
-sudo systemctl start anti_stock
+# 웹 서버 서비스만 시작하면 TPS도 자동으로 같이 시작됩니다 (Wants 설정)
 sudo systemctl enable anti_stock
+sudo systemctl start anti_stock
+
+# 이제 메인 서비스만 재시작해도 TPS 서버가 자동으로 같이 재시작됩니다 (PartOf 설정)
+# sudo systemctl restart anti_stock
 ```
 
 ### 3. 서비스 관리 및 로그 확인 (필수)
