@@ -18,6 +18,7 @@ from utils.data_loader import DataLoader
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.visualization import TradeVisualizationService
+from core.dao import TradeDAO, WatchlistDAO
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,6 @@ async def get_all_stocks():
 async def get_watchlist():
     """Get Saved Watchlist from DB (Non-blocking)"""
     try:
-        from core.dao import WatchlistDAO
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, WatchlistDAO.get_all_symbols)
     except Exception as e:
@@ -340,6 +340,10 @@ async def get_status():
                     } for p in engine_instance.portfolio.positions.values()
                 ]
             }
+            
+            # Calculate Total Evaluation Amount (Sum of Current Value of Stocks)
+            total_eval_amt = sum(p.current_price * p.qty for p in engine_instance.portfolio.positions.values())
+            portfolio_data["total_eval_amt"] = total_eval_amt
             # print(f"DEBUG: Status - Portfolio Cash: {portfolio_data['cash']}")
             
             return {
@@ -470,7 +474,6 @@ async def inject_trades(request: Request):
                 new_events.append(event)
             
             # DB Insert
-            from core.dao import TradeDAO
             TradeDAO.insert_trade({
                 "event_id": event.event_id,
                 "timestamp": event.timestamp,
@@ -719,7 +722,7 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
     """
     if engine_instance:
         try:
-            from core.dao import TradeDAO
+            # Check DB Connection state via simple count
             
             # Check DB Connection state via simple count
             # total = TradeDAO.get_all_trades_count()
@@ -766,6 +769,14 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
             
             data = []
             for t in trades:
+                # [FIX] Filter out Order Submission events (Duplicates)
+                if t.price <= 0:
+                    continue
+                if t.event_type == "ORDER_SUBMITTED":
+                    continue
+                if t.meta and t.meta.get("event_type") == "ORDER_SUBMITTED":
+                    continue
+
                 # Convert SQLAlchemy Model to Dict
                 item = {
                     "event_id": t.event_id,

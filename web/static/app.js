@@ -84,6 +84,9 @@ async function updateStatus() {
 
         if (data.portfolio) {
             document.getElementById("total-asset").textContent = formatCurrency(data.portfolio.total_asset);
+            if (document.getElementById("stock-eval")) {
+                document.getElementById("stock-eval").textContent = formatCurrency(data.portfolio.total_eval_amt || 0);
+            }
             document.getElementById("cash").textContent = formatCurrency(data.portfolio.cash);
 
             // New Deposit Metrics

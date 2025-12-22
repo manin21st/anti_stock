@@ -8,8 +8,8 @@ from fastapi import FastAPI, Response, status, Request
 from contextlib import asynccontextmanager
 
 # Configuration
-TPS_LIMIT = 20.0  # Total TPS limit across all clients
-BURST_LIMIT = 20  # Max accumulated tokens
+TPS_LIMIT = 5.0  # Total TPS limit across all clients (Reduced from 20.0)
+BURST_LIMIT = 1   # Max accumulated tokens (Reduced from 20 to prevent bursts)
 PORT = 9000
 LOG_FILE = os.path.join("logs", "tps_server.log")
 CLIENT_TIMEOUT = 180  # 3 minutes

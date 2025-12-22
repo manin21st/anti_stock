@@ -16,6 +16,7 @@ from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
 from core.scanner import Scanner
 from core.visualization import TradeEvent
+from core.dao import TradeDAO, WatchlistDAO
 from utils.telegram import TelegramBot
 from datetime import datetime
 import uuid
@@ -97,18 +98,19 @@ class Engine:
         try:
             logger.info("Warming up Database Connection...")
             from core.database import db_manager
-            from sqlalchemy import text
-            session = db_manager.get_session()
-            session.execute(text("SELECT 1"))
-            session.close()
-            logger.info("Database Connection Ready.")
+            
+            # Simple connection check
+            db_manager.get_session().close()
+            
+            # Real query to warm up table/cache
+            count = TradeDAO.get_all_trades_count()
+            logger.info(f"Database Connection Ready. (Trades in DB: {count})")
         except Exception as e:
             logger.warning(f"Database Warm-up failed (will retry on demand): {e}")
 
     def _load_watchlist(self):
         """Load watchlist from Database"""
         try:
-            from core.dao import WatchlistDAO
             self.watchlist = WatchlistDAO.get_all_symbols()
             logger.info(f"Loaded Watchlist: {len(self.watchlist)} items from Database")
         except Exception as e:
@@ -134,7 +136,6 @@ class Engine:
             self.watchlist = list(current_set)
             
             # DB Sync
-            from core.dao import WatchlistDAO
             for s in self.watchlist:
                 WatchlistDAO.add_symbol(s)
                 
@@ -336,44 +337,52 @@ class Engine:
                 else:
                     logger.warning(f"Strategy not found: {active_strategy_id}")
                 
-                # Sync initial portfolio state
-                # Sync initial portfolio state
-                balance = self.broker.get_balance()
-                # logger.debug(f"Broker Balance: {balance}")
-                if balance:
-                    # [Fix] Pass lookup function
-                    self.portfolio.sync_with_broker(balance, notify=False, tag_lookup_fn=self._resolve_strategy_tag)
-                    self.portfolio.load_state()
-                    
-                    total_asset = int(self.portfolio.total_asset)
-                    cash = int(self.portfolio.cash)
-                    # logger.info(f"[포트폴리오 초기화] 총자산: {total_asset:,}원 | 예수금: {cash:,}원")
-                else:
-                    logger.error("브로커 잔고 조회 실패")
-                
-                # time.sleep(1.0) # Prevent rate limit (Handled by RateLimiter)
+                # [OPTIMIZATION] Offload heavy initialization to background thread
+                # This prevents blocking the Main Thread (GIL) for too long, allowing Web Server to respond instantly.
+                def _async_init_tasks():
+                    try:
+                        logger.info("Running background initialization tasks...")
+                        # 1. Sync initial portfolio state
+                        balance = self.broker.get_balance()
+                        if balance:
+                            self.portfolio.sync_with_broker(balance, notify=False, tag_lookup_fn=self._resolve_strategy_tag)
+                            self.portfolio.load_state()
+                            total_asset = int(self.portfolio.total_asset)
+                            cash = int(self.portfolio.cash)
+                            logger.info(f"[Init] Portfolio Synced: Asset {total_asset:,} / Cash {cash:,}")
+                        else:
+                            logger.error("[Init] Failed to fetch broker balance")
 
-                # 2. Cache Watchlist
-                target_group = self.system_config.get("watchlist_group_code", "000")
-                logger.info(f"Fetching Watchlist (Group {target_group}) for caching...")
-                try:
-                    self.cached_watchlist = self.scanner.get_watchlist(target_group_code=target_group)
-                    logger.info(f"Cached Watchlist: {len(self.cached_watchlist)} stocks")
-                except Exception as e:
-                    logger.error(f"Failed to cache watchlist: {e}")
-                    self.cached_watchlist = []
+                        # 2. Cache Watchlist
+                        target_group = self.system_config.get("watchlist_group_code", "000")
+                        logger.info(f"Fetching Watchlist (Group {target_group}) for caching...")
+                        try:
+                            self.cached_watchlist = self.scanner.get_watchlist(target_group_code=target_group)
+                            logger.info(f"Cached Watchlist: {len(self.cached_watchlist)} stocks")
+                        except Exception as e:
+                            logger.error(f"Failed to cache watchlist: {e}")
+                            self.cached_watchlist = []
 
-                # time.sleep(1.0) # Prevent rate limit (Handled by RateLimiter)
+                        # 3. Initial Universe Scan
+                        self._update_universe()
+                        
+                        # Log Initial Universe
+                        if hasattr(self.market_data, 'polling_symbols'):
+                             symbols = self.market_data.polling_symbols
+                             logger.info(f"[Init] Monitoring {len(symbols)} symbols: {', '.join(symbols[:10])}...")
+                             
+                    except Exception as e:
+                        logger.error(f"Background Initialization Failed: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
 
-                # 3. Initial Universe Scan
-                self._update_universe()
-                
-                # Log Initial Universe
-                if hasattr(self.market_data, 'polling_symbols'):
-                     symbols = self.market_data.polling_symbols
-                     # Get names roughly (this is strict map, might be slow if many, but ok for init)
-                     # For display, just codes is fine or use scanner's cache if available.
-                     logger.info(f"[감시 종목 업데이트] 총 {len(symbols)}개: {', '.join(symbols[:10])}{' ...' if len(symbols)>10 else ''}")
+                # Start Init Thread
+                threading.Thread(target=_async_init_tasks, daemon=True).start()
+
+            except Exception as e:
+                logger.error(f"초기화 실패: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
             except Exception as e:
                 logger.error(f"초기화 실패: {e}")
@@ -734,12 +743,12 @@ class Engine:
                 price=float(order_info["price"]),
                 qty=int(order_info["qty"]),
                 order_id=order_info["order_no"],
-                meta={"type": order_info["type"]}
+                meta={"type": order_info["type"], "event_type": "ORDER_SUBMITTED"}
             )
             # self.trade_history.append(event) # Optional: Keep in memory? Yes.
             
             # DB Insert
-            from core.dao import TradeDAO
+            # DB Insert
             TradeDAO.insert_trade({
                 "event_id": event.event_id,
                 "timestamp": event.timestamp,
@@ -835,7 +844,7 @@ class Engine:
 
             self.trade_history.insert(0, event) # Prepend
             
-            from core.dao import TradeDAO
+            # DB Insert
             TradeDAO.insert_trade({
                 "event_id": event.event_id,
                 "timestamp": event.timestamp,
@@ -1185,6 +1194,9 @@ class Engine:
             import traceback
             logger.error(traceback.format_exc())
             raise e
+        finally:
+            # Refresh In-Memory Cache with latest DB state
+            self.load_trade_history()
 
     def _calculate_pnl_from_local_history(self):
         """

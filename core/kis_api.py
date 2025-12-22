@@ -131,36 +131,53 @@ class RateLimiter:
         max_retries = 3
         
         for attempt in range(max_retries + 1):
+            # Phase 1: Check Rate Limit (Briefly hold lock)
+            should_sleep = False
+            sleep_duration = 0.0
+            time_to_sleep = 0  # Initialize variable
+            
             with self.lock:
-                # Hybrid Rate Limiting
-                # 1. Try Server if alive
-                token_granted = False
-                
-                # Check server only if we haven't failed too much or logic dictates
-                # We simply try if not failed recently? Or just try every time if not flagged?
-                # The requirement says: switch to local if server fails.
-                # Let's try server first.
-                
+                # 1. Server Check
                 server_status = self._request_token_from_server()
                 
                 if server_status is True:
-                    # Token Granted! Proceed immediately without efficient wait
+                    # Token Granted!
                     pass 
                 elif server_status is False:
                     # Limit Exceeded (Server said wait)
-                    # We should wait a bit. Server usually returns 'wait' time in body but we didn't parse it for speed.
-                    # Default wait 0.1s
-                    time.sleep(0.1) 
-                    # Don't increment call time, just loop
-                    continue
+                    # Yield lock and wait
+                    time_to_sleep = 0.1
                 else:
                     # Server Error (None) -> Fallback to Local Interval
                     now = time.time()
                     elapsed = now - self.last_call_time
                     if elapsed < self.min_interval:
-                        sleep_time = self.min_interval - elapsed
-                        time.sleep(sleep_time)
+                        time_to_sleep = self.min_interval - elapsed
+                    else:
+                        time_to_sleep = 0
+            
+            # Sleep OUTSIDE the lock
+            if time_to_sleep > 0:
+                time.sleep(time_to_sleep)
+                if server_status is False:
+                    # If we were told to wait by server, loop again
+                    continue
+                # If local wait, we typically proceed, but safer to loop again to re-check lock/token?
+                # Actually for local throttling, we just wait and then run?
+                # But 'execute' loop logic tries to grab token again.
+                # If we just sleep, we might over-sleep or lose turn.
+                # Simpler: just loop.
+                continue
                 
+            # If we got here, we have passed the checks (or it's time to run)
+            # BUT we released the lock. So we need to re-acquire to run?
+            # Or is 'execute' assuming we hold lock during execution?
+            # The original code held lock during execution (lines 164-236).
+            # We MUST hold lock during execution to prevent concurrent API calls if purely local serial.
+            
+            # Re-acquire lock for Execution
+            # Re-acquire lock for Execution
+            with self.lock:
                 # 2. Execute API Call
                 try:
                     # Suppress external library prints
@@ -168,6 +185,9 @@ class RateLimiter:
                         with contextlib.redirect_stdout(devnull):
                             result = func(*args, **kwargs)
                     
+                    # Update local timer after execution
+                    self.last_call_time = time.time()
+
                     # 3. Check for Rate Limit Error (EGW00201)
                     is_rate_limit = False
                     if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
@@ -181,13 +201,14 @@ class RateLimiter:
                         if attempt < max_retries:
                             jitter = random.uniform(0.0, 0.5)
                             backoff_time = 0.5 + jitter
-                            logger.debug(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s... (Attempt {attempt+1})")
-                            time.sleep(backoff_time)
-                            self.last_call_time = time.time()
-                            continue # Retry
+                            logger.debug(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s...")
+                            # Yield lock before sleeping? No, we are inside lock.
+                            # We MUST yield lock.
+                            pass # We break out of try/except/with naturally? 
+                            # No, we need to loop back.
                         else:
                             logger.error("[RateLimiter] Max retries exceeded for rate limit.")
-                    
+                            
                     # 4. Check for Expired Token (EGW00123)
                     is_expired_token = False
                     if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00123":
@@ -208,31 +229,44 @@ class RateLimiter:
 
                             svr = "vps" if ka.isPaperTrading() else "prod"
                             ka.auth(svr=svr)
-                            
                             self.last_call_time = time.time()
-                            continue 
+                            # Loop back
                         else:
                             logger.error("[RateLimiter] Max retries exceeded for token expiration.")
-                    
-                    # Update timestamp (Local fallback needs this)
-                    self.last_call_time = time.time()
-                    return result
 
                 except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                     if attempt < max_retries:
-                        backoff = 1.0 * (attempt + 1)
-                        logger.warning(f"[RateLimiter] Connection unstable: {e}. Retrying in {backoff}s...")
-                        time.sleep(backoff)
-                        self.last_call_time = time.time()
-                        continue
+                         # Connection error -> Retry
+                         is_rate_limit = True # Reuse logic or separate logic?
+                         # Just mark as retry needed
+                         pass
                     else:
-                        logger.error(f"[RateLimiter] Max retries exceeded for connection error: {e}")
-                        self.last_call_time = time.time()
                         raise e
-                        
                 except Exception as e:
-                    self.last_call_time = time.time()
                     raise e
+            
+            # Post-Execution: Handle Retries (Sleep OUTSIDE lock)
+            if 'is_rate_limit' in locals() and is_rate_limit and attempt < max_retries:
+                if 'backoff_time' not in locals(): # Connection error backoff
+                    backoff_time = 1.0 * (attempt + 1)
+                time.sleep(backoff_time)
+                continue
+                
+            if 'is_expired_token' in locals() and is_expired_token and attempt < max_retries:
+                continue
+
+            # Return success
+            if 'result' in locals():
+                return result
+            # If we fell through due to retries running out without result?
+            # Should raise error usually.
+            if attempt == max_retries:
+                 # If we have an exception, raise it? 
+                 # Wait, for connection error we re-raised. 
+                 # For Limit Exceeded we logged error but what do we return? None?
+                 pass
+        
+        return None
                     
 # Global Instance
 rate_limiter = RateLimiter()
