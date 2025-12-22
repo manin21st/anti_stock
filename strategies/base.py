@@ -133,3 +133,18 @@ class BaseStrategy(ABC):
         # 3. Add safety sleep for real trading to prevent API burst
         # time.sleep(0.5) # REMOVED: Handled by core.kis_api RateLimiter
         return True
+
+    def can_enter_market(self, current_time_str: str = None) -> bool:
+        """
+        Check if we can enter the market based on 'entry_start_time'.
+        Commonly used to avoid early morning volatility (e.g. before 09:10).
+        """
+        if not current_time_str:
+            return True
+            
+        start_time = self.config.get("entry_start_time", "090000")
+        if current_time_str < start_time:
+            # Silent reject or debug log?
+            return False
+            
+        return True

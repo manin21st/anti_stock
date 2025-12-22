@@ -219,7 +219,7 @@ class Scanner:
                 if target_group_code and grp_code != target_group_code:
                     continue
                     
-                logger.info(f"Fetching watchlist group: {grp_name} ({grp_code})")
+                logger.debug(f"Fetching watchlist group: {grp_name} ({grp_code})")
                 
                 params_stock = {
                     "TYPE": "1",

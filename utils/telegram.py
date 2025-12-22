@@ -66,7 +66,7 @@ class TelegramBot:
             self.enabled = False
         else:
             self.enabled = True
-            logger.info(f"Telegram Bot Configured. Trade: {self.enable_trade}, System: {self.enable_system}")
+            logger.debug(f"Telegram Bot Configured. Trade: {self.enable_trade}, System: {self.enable_system}")
 
     def _send(self, text: str):
         if not self.enabled:

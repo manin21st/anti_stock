@@ -18,17 +18,21 @@ breakout:
   vol_k: 2
 common:
   cross_lookback: 3
+  entry_start_time: 91000
   max_positions: 10
   risk_pct: 0.03
   target_weight: 0.1
   trail_activation_pct: 0.03
   whipsaw_threshold: 0.002
+database:
+  url: postgresql://antistock:antistock@211.188.56.39:5432/antistock
 ma_trend:
   enabled: true
   id: ma_trend
   ma_long: 20
   ma_short: 5
   max_positions: 10
+  prev_daily_vol_k: 1.5
   risk_pct: 0.03
   stop_loss_pct: 0.02
   take_profit1_pct: 0.03

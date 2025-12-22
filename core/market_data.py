@@ -36,7 +36,10 @@ class MarketData:
         self.subscribers: List[Callable] = []
         self.ws = None
         self.simulation_date = None
+        self.ws = None
+        self.simulation_date = None
         self.data_loader = DataLoader()
+        self.is_polling = False # Initialize polling state
         
         # Skip API/WS initialization in simulation mode
         if not is_simulation:
@@ -74,7 +77,7 @@ class MarketData:
         # 3. Parse KOSDAQ
         cnt_kosdaq = self._parse_kosdaq_master(data_dir)
         
-        logger.info(f"Loaded Master Files: KOSPI({cnt_kospi}), KOSDAQ({cnt_kosdaq})")
+        logger.debug(f"Loaded Master Files: KOSPI({cnt_kospi}), KOSDAQ({cnt_kosdaq})")
 
     def _download_file(self, url, save_dir, filename):
         ssl._create_default_https_context = ssl._create_unverified_context
@@ -91,7 +94,7 @@ class MarketData:
                 should_download = False
                 
         if should_download:
-            logger.info(f"Downloading {filename}...")
+            logger.debug(f"Downloading {filename}...")
             urllib.request.urlretrieve(url, file_path)
             
             # Extract

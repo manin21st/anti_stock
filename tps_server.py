@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 # Configuration
 TPS_LIMIT = 5.0  # Total TPS limit across all clients (Reduced from 20.0)
-BURST_LIMIT = 1   # Max accumulated tokens (Reduced from 20 to prevent bursts)
+BURST_LIMIT = 5   # Max accumulated tokens (Allowed 1s worth of burst)
 PORT = 9000
 LOG_FILE = os.path.join("logs", "tps_server.log")
 CLIENT_TIMEOUT = 180  # 3 minutes

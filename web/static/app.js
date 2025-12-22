@@ -144,11 +144,19 @@ async function loadConfig() {
 
     // Populate Strategy Selector if empty
     if (strategySelect.options.length === 1) {
-        const keys = Object.keys(currentConfig).filter(key =>
-            key !== "system" &&
-            key !== "active_strategy" &&
-            typeof currentConfig[key] === 'object'
-        );
+        let keys = [];
+        if (currentConfig.strategies_list) {
+            keys = currentConfig.strategies_list;
+        } else {
+            // Fallback for older backend
+            keys = Object.keys(currentConfig).filter(key =>
+                key !== "system" &&
+                key !== "database" &&
+                key !== "active_strategy" &&
+                key !== "strategies_list" &&
+                typeof currentConfig[key] === 'object'
+            );
+        }
 
         // Sort: common first, then others
         keys.sort((a, b) => {

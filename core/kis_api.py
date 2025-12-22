@@ -53,7 +53,7 @@ class RateLimiter:
         import socket
         self.client_id = f"{socket.gethostname()}-{os.getpid()}"
         
-        logger.info(f"[RateLimiter] Initialized with TPS_LIMIT={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
+        logger.debug(f"[RateLimiter] Initialized with TPS_LIMIT={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
         # Check if we should try to use server (if explicitly set or default)
         # We will try lazily in execute
         
@@ -62,7 +62,7 @@ class RateLimiter:
         with self.lock:
             self.tps_limit = float(tps_limit)
             self.min_interval = 1.0 / max(self.tps_limit, 0.1)
-            logger.info(f"[RateLimiter] Limit updated to TPS={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
+            logger.debug(f"[RateLimiter] Limit updated to TPS={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
 
     def set_server_url(self, url: str):
         """Update TPS Server URL dynamically"""
@@ -71,7 +71,7 @@ class RateLimiter:
                 self.server_url = url.rstrip('/') # Normalize
                 self.server_alive = True # Reset status to try new URL
                 self.logged_server_error = False
-                logger.info(f"[RateLimiter] Server URL updated to: {self.server_url}")
+                logger.debug(f"[RateLimiter] Server URL updated to: {self.server_url}")
 
     def _request_token_from_server(self):
         """

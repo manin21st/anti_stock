@@ -271,7 +271,15 @@ async def get_market_data_batch(request: Request):
 @app.get("/api/config")
 async def get_config():
     if engine_instance:
-        return engine_instance.config
+        cfg = engine_instance.config.copy()
+        
+        # Filter out system keys to provide a clean list of strategies
+        # User wants 'common' to be editable, so we include it.
+        system_keys = ["system", "database", "active_strategy"]
+        strategies_list = [k for k in cfg.keys() if k not in system_keys and isinstance(cfg[k], dict)]
+        
+        cfg["strategies_list"] = strategies_list
+        return cfg
     return {}
 
 @app.post("/api/config")
@@ -750,10 +758,18 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
             if symbol or start or end:
                 filtered = []
                 for t in trades:
-                    # Symbol Filter
-                    if symbol and t.symbol != symbol:
-                        continue
+                    # Symbol/Name Filter
+                    if symbol:
+                        # Get Name
+                        t_name = ""
+                        if engine_instance.market_data:
+                            t_name = engine_instance.market_data.get_stock_name(t.symbol)
                         
+                        # Check partial match for Symbol OR Name
+                        # user input 'symbol' is the query
+                        if (symbol not in t.symbol) and (symbol not in t_name):
+                            continue
+
                     # Date Filter
                     if s_dt and t.timestamp < s_dt:
                         continue

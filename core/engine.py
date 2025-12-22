@@ -33,14 +33,14 @@ class Engine:
         secrets = self._load_config("config/secrets.yaml")
         if secrets:
             self._merge_config(self.config, secrets)
-            logger.info("Loaded secrets from config/secrets.yaml")
+            logger.debug("Loaded secrets from config/secrets.yaml")
             
         self.system_config = self.config.get("system", {"env_type": "paper", "market_type": "KRX"})
         
         # Authenticate first
         env_type = self.system_config.get("env_type", "paper")
         svr = "vps" if env_type == "paper" else "prod"
-        logger.info(f"Authenticating for {env_type} ({svr})")
+        logger.debug(f"Authenticating for {env_type} ({svr})")
         
         from core import kis_api as ka
         try:
@@ -75,6 +75,7 @@ class Engine:
         self.restart_requested = False
         self.last_scan_time = 0
         self.last_sync_time = 0
+        self._last_wait_log_time = 0
         
         # Subscribe to market data events
         self.market_data.subscribers.append(self.on_market_data)
@@ -96,7 +97,7 @@ class Engine:
     def _warmup_db(self):
         """Force DB connection establishment to avoid lazy loading delay on first UI request"""
         try:
-            logger.info("Warming up Database Connection...")
+            logger.debug("Warming up Database Connection...")
             from core.database import db_manager
             
             # Simple connection check
@@ -104,7 +105,7 @@ class Engine:
             
             # Real query to warm up table/cache
             count = TradeDAO.get_all_trades_count()
-            logger.info(f"Database Connection Ready. (Trades in DB: {count})")
+            logger.debug(f"Database Connection Ready. (Trades in DB: {count})")
         except Exception as e:
             logger.warning(f"Database Warm-up failed (will retry on demand): {e}")
 
@@ -112,7 +113,7 @@ class Engine:
         """Load watchlist from Database"""
         try:
             self.watchlist = WatchlistDAO.get_all_symbols()
-            logger.info(f"Loaded Watchlist: {len(self.watchlist)} items from Database")
+            logger.debug(f"Loaded Watchlist: {len(self.watchlist)} items from Database")
         except Exception as e:
             logger.error(f"Failed to load watchlist: {e}")
             self.watchlist = []
@@ -304,14 +305,14 @@ class Engine:
             try:
                 # On restart, we might want to re-auth to be safe
                 if self.restart_requested:
-                    logger.info(f"DEBUG: Re-authenticating for {env_type} ({svr})")
+                    logger.debug(f"DEBUG: Re-authenticating for {env_type} ({svr})")
                     ka.auth(svr=svr)
                 
                 # Re-instantiate strategies with fresh config
                 self.strategies.clear()
                 
                 active_strategy_id = self.config.get("active_strategy")
-                logger.info(f"Active strategy ID: {active_strategy_id}")
+                logger.debug(f"Active strategy ID: {active_strategy_id}")
                 
                 if active_strategy_id and active_strategy_id in self.strategy_classes:
                     strategy_class = self.strategy_classes[active_strategy_id]
@@ -333,7 +334,7 @@ class Engine:
                         market_data=self.market_data
                     )
                     self.strategies[active_strategy_id] = strategy
-                    logger.info(f"Initialized active strategy: {active_strategy_id}")
+                    logger.debug(f"Initialized active strategy: {active_strategy_id}")
                 else:
                     logger.warning(f"Strategy not found: {active_strategy_id}")
                 
@@ -341,7 +342,7 @@ class Engine:
                 # This prevents blocking the Main Thread (GIL) for too long, allowing Web Server to respond instantly.
                 def _async_init_tasks():
                     try:
-                        logger.info("Running background initialization tasks...")
+                        logger.debug("Running background initialization tasks...")
                         # 1. Sync initial portfolio state
                         balance = self.broker.get_balance()
                         if balance:
@@ -349,27 +350,30 @@ class Engine:
                             self.portfolio.load_state()
                             total_asset = int(self.portfolio.total_asset)
                             cash = int(self.portfolio.cash)
-                            logger.info(f"[Init] Portfolio Synced: Asset {total_asset:,} / Cash {cash:,}")
+                            logger.debug(f"[Init] Portfolio Synced: Asset {total_asset:,} / Cash {cash:,}")
                         else:
                             logger.error("[Init] Failed to fetch broker balance")
 
                         # 2. Cache Watchlist
                         target_group = self.system_config.get("watchlist_group_code", "000")
-                        logger.info(f"Fetching Watchlist (Group {target_group}) for caching...")
+                        logger.debug(f"Fetching Watchlist (Group {target_group}) for caching...")
                         try:
                             self.cached_watchlist = self.scanner.get_watchlist(target_group_code=target_group)
-                            logger.info(f"Cached Watchlist: {len(self.cached_watchlist)} stocks")
+                            logger.debug(f"Cached Watchlist: {len(self.cached_watchlist)} stocks")
                         except Exception as e:
                             logger.error(f"Failed to cache watchlist: {e}")
                             self.cached_watchlist = []
 
-                        # 3. Initial Universe Scan
-                        self._update_universe()
-                        
-                        # Log Initial Universe
-                        if hasattr(self.market_data, 'polling_symbols'):
-                             symbols = self.market_data.polling_symbols
-                             logger.info(f"[Init] Monitoring {len(symbols)} symbols: {', '.join(symbols[:10])}...")
+                        # 3. Initial Universe Scan (Only if Market is Open)
+                        if self._is_trading_hour():
+                            self._update_universe()
+                            
+                            # Log Initial Universe
+                            if hasattr(self.market_data, 'polling_symbols'):
+                                 symbols = self.market_data.polling_symbols
+                                 logger.info(f"[Init] Monitoring {len(symbols)} symbols: {', '.join(symbols[:10])}...")
+                        else:
+                            logger.info(f"[Init] Watchlist Loaded from DB ({len(self.watchlist if self.watchlist else [])} items). (Market Closed - Auto-Scanner Skipped)")
                              
                     except Exception as e:
                         logger.error(f"Background Initialization Failed: {e}")
@@ -392,7 +396,7 @@ class Engine:
             # Start MarketData Polling (REST API)
             # ws_thread = threading.Thread(target=self.market_data.start_ws, daemon=True)
             # ws_thread.start()
-            self.market_data.start_polling()
+            # self.market_data.start_polling() # MOVED: Triggered inside loop if trading hour
             
             # Inner Loop
             self.restart_requested = False
@@ -404,15 +408,21 @@ class Engine:
                         if self.market_data.is_polling:
                             logger.info("장 운영 시간이 종료되었습니다. 감시를 중단합니다. (KRX: 09:00~15:30)")
                             self.market_data.stop_polling()
+                            self._last_wait_log_time = int(time.time()) # Mark as logged (suppress "Waiting" log)
                         
-                        # Log periodically while waiting
-                        if int(time.time()) % 300 == 0: # Every 5 mins
-                            logger.debug("장 운영 시간이 아닙니다. 대기 중... (KRX: 09:00~15:30)")
+                        # Log only ONCE (First time entering wait state)
+                        if self._last_wait_log_time == 0:
+                             logger.info("장 운영 시간이 아닙니다. 대기 중... (KRX: 09:00~15:30)")
+                             self._last_wait_log_time = int(time.time())
                         
                         time.sleep(1)
                         continue
                     else:
                         # Market IS Open
+                        # Reset wait log flag so we notify next time market closes
+                        if self._last_wait_log_time != 0:
+                             self._last_wait_log_time = 0
+
                         # Ensure polling is running if trading is active
                         if self.is_trading and not self.market_data.is_polling:
                              # Only start if we have symbols?
@@ -718,7 +728,7 @@ class Engine:
                     pnl_pct=t.pnl_pct,
                     meta=t.meta
                 ))
-            logger.info(f"Loaded {len(self.trade_history)} recent trade events from Database")
+            logger.debug(f"Loaded {len(self.trade_history)} recent trade events from Database")
         except Exception as e:
             logger.error(f"Failed to load trade history: {e}")
 

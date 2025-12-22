@@ -79,6 +79,11 @@ class MovingAverageTrendStrategy(BaseStrategy):
         if not self.check_rate_limit(symbol, interval_seconds=60):
             return
 
+        # [NEW] Check Entry Start Time (Avoid morning volatility)
+        current_time = bar.get('time', '')
+        if not self.can_enter_market(current_time):
+             return
+
         bars = self.market_data.get_bars(symbol, timeframe=self.config["timeframe"])
         daily = self.market_data.get_bars(symbol, timeframe="1d")
         
@@ -99,6 +104,29 @@ class MovingAverageTrendStrategy(BaseStrategy):
         
         if ma20_daily_now < ma20_daily_prev:
              self.log_monitor(f"[감시 제외] {symbol} {stock_name} | 사유: 20이평 하락 추세 (MA20 {int(ma20_daily_now):,} < 전일 {int(ma20_daily_prev):,})")
+             return
+
+        # [NEW] Daily Relative Volume Filter (User Request)
+        # Check if Previous Day's Volume was significant (>= Avg * K)
+        prev_daily_vol_k = self.config.get("prev_daily_vol_k", 1.5)
+        
+        # Calculate Previous Day Stats (Index -2)
+        # Need at least 21 bars (current + 20 history)
+        if len(daily) < 22:
+             # Not enough data for reliable prev avg logic, skip or lenient?
+             # Let's skip to be safe
+             return
+
+        prev_vol = daily.volume.iloc[-2]
+        # Avg volume of 20 days prior to yesterday (iloc[-22:-2])
+        prev_avg_vol = daily.volume.iloc[-22:-2].mean()
+        
+        if prev_avg_vol > 0:
+            if prev_vol < (prev_avg_vol * prev_daily_vol_k):
+                 self.log_monitor(f"[감시 제외] {symbol} {stock_name} | 사유: 전일 거래량 부족 (전일 {int(prev_vol):,} < {prev_daily_vol_k}배 평균 {int(prev_avg_vol):,})")
+                 return
+        else:
+             # If avg vol is 0, it's a dead stock
              return
 
         # Trend is UP -> Check Intraday Data
