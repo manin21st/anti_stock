@@ -142,7 +142,11 @@ class BaseStrategy(ABC):
         if not current_time_str:
             return True
             
-        start_time = self.config.get("entry_start_time", "090000")
+        start_time_raw = self.config.get("entry_start_time", "090000")
+        
+        # Defensive Type Conversion & Padding
+        start_time = str(start_time_raw).zfill(6)
+
         if current_time_str < start_time:
             # Silent reject or debug log?
             return False

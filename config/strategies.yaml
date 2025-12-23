@@ -18,7 +18,7 @@ breakout:
   vol_k: 2
 common:
   cross_lookback: 3
-  entry_start_time: 91000
+  entry_start_time: '091000'
   max_positions: 10
   risk_pct: 0.03
   target_weight: 0.1
