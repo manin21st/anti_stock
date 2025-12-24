@@ -337,17 +337,19 @@ async def get_status():
                 "deposit_d1": engine_instance.portfolio.deposit_d1,
                 "deposit_d2": engine_instance.portfolio.deposit_d2,
                 "total_asset": engine_instance.portfolio.total_asset,
-                "positions": [
+                "positions": sorted([
                     {
                         "symbol": p.symbol,
                         "name": p.name,
                         "qty": p.qty,
                         "avg_price": p.avg_price,
                         "current_price": p.current_price,
-                        "pnl_pct": (p.current_price - p.avg_price)/p.avg_price*100 if p.avg_price > 0 else 0
+                        "pnl_pct": (p.current_price - p.avg_price)/p.avg_price*100 if p.avg_price > 0 else 0,
+                        "holding_days": int((datetime.now().timestamp() - p.first_acquired_at) / 86400) if p.first_acquired_at > 0 else 0
                     } for p in engine_instance.portfolio.positions.values()
-                ]
+                ], key=lambda x: x['name'])
             }
+
             
             # Calculate Total Evaluation Amount (Sum of Current Value of Stocks)
             total_eval_amt = sum(p.current_price * p.qty for p in engine_instance.portfolio.positions.values())
@@ -415,6 +417,76 @@ async def control_engine(action: dict):
             # Restart triggers re-init in the main loop
             engine_instance.restart()
     return {"status": "ok"}
+
+    return {"status": "ok"}
+
+@app.get("/api/checklist")
+async def get_checklist():
+    from core.dao import ChecklistDAO
+    
+    def _get():
+        items = ChecklistDAO.get_all()
+        # Serialize
+        return [{
+            "id": item.id,
+            "text": item.text,
+            "is_done": item.is_done,
+            "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        } for item in items]
+
+    import time
+    loop = asyncio.get_running_loop()
+    data = await loop.run_in_executor(None, _get)
+    return {"status": "ok", "data": data}
+
+@app.post("/api/checklist")
+async def add_checklist_item(request: Request):
+    data = await request.json()
+    text = data.get("text")
+    if not text:
+        return {"status": "error", "message": "Text is required"}
+    
+    from core.dao import ChecklistDAO
+    
+    def _add():
+        return ChecklistDAO.add_item(text)
+        
+    loop = asyncio.get_running_loop()
+    item = await loop.run_in_executor(None, _add)
+    
+    if item:
+        return {"status": "ok", "data": {"id": item.id, "text": item.text, "is_done": item.is_done}}
+    return {"status": "error", "message": "Failed to save to DB"}
+
+@app.post("/api/checklist/{item_id}/toggle")
+async def toggle_checklist_item(item_id: int):
+    # Retrieve current status first? Or pass new status?
+    # Simpler: Pass new status in body or just toggle?
+    # The UI usually knows the new desired state.
+    # Let's use a body for explicit state, but 'toggle' implies switching.
+    # Let's support explicit update via body.
+    # Wait, GET/POST strictly?
+    # Let's make it robust: Read body for 'is_done'.
+    pass
+
+@app.post("/api/checklist/update")
+async def update_checklist_item(request: Request):
+    data = await request.json()
+    item_id = data.get("id")
+    is_done = data.get("is_done")
+    
+    from core.dao import ChecklistDAO
+    
+    loop = asyncio.get_running_loop()
+    success = await loop.run_in_executor(None, ChecklistDAO.update_status, item_id, is_done)
+    return {"status": "ok" if success else "error"}
+
+@app.delete("/api/checklist/{item_id}")
+async def delete_checklist_item(item_id: int):
+    from core.dao import ChecklistDAO
+    loop = asyncio.get_running_loop()
+    success = await loop.run_in_executor(None, ChecklistDAO.delete_item, item_id)
+    return {"status": "ok" if success else "error"}
 
 @app.websocket("/ws/logs")
 async def websocket_endpoint(websocket: WebSocket):

@@ -100,6 +100,9 @@ class Engine:
             logger.debug("Warming up Database Connection...")
             from core.database import db_manager
             
+            # Ensure tables exist (Critical for new features like Checklist)
+            db_manager.create_tables()
+
             # Simple connection check
             db_manager.get_session().close()
             
@@ -294,6 +297,11 @@ class Engine:
         self.is_trading = True # Start in active mode by default
         
         while self.is_running:
+            # [Strict Mode] Block until TPS Server is confirmed
+            from core import kis_api as ka
+            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
+                ka.rate_limiter.wait_for_tps()
+                
             logger.info("Engine loop started")
             
             # Re-authenticate if needed (e.g. on restart)

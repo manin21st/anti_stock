@@ -46,6 +46,7 @@ async function updateStatus() {
             if (data.active_strategies && data.active_strategies.length > 0) {
                 statusEl.textContent = "실행 중";
                 statusEl.className = "status-running";
+                statusEl.style.backgroundColor = ""; // Reset inline style from standby
             } else {
                 statusEl.textContent = "대기 중 (전략 없음)";
                 statusEl.className = "status-stopped"; // Use stopped style or a new standby style
@@ -119,6 +120,7 @@ async function updateStatus() {
                         <td>${formatCurrency(evalAmt)}</td>
                         <td class="${pnlClass}">${formatCurrency(pnl)}</td>
                         <td class="${pnlClass}">${pos.pnl_pct.toFixed(2)}%</td>
+                        <td style="text-align: right;">${pos.holding_days}일</td>
                     `;
                     tbody.appendChild(tr);
                 });
@@ -246,6 +248,12 @@ async function saveStrategyConfigField(input) {
 }
 
 // System Config & Control
+let saveTimeout;
+function autoSaveSystem() {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveSystemConfig, 500);
+}
+
 async function loadSystemConfig() {
     // Load Settings
     const res = await fetch(`${API_BASE}/system/settings`);
@@ -485,6 +493,13 @@ console.log("App.js initializing...");
         initJournal();
     } catch (e) {
         console.error("Error initializing journal:", e);
+    }
+
+    try {
+        console.log("Initializing checklist...");
+        initChecklist();
+    } catch (e) {
+        console.error("Error initializing checklist:", e);
     }
 
     try {
@@ -980,6 +995,27 @@ function renderJournalTable(data) {
             else if (val < 0) pnlText = `<span class="pnl-negative">${pnlText}</span>`;
         }
 
+        // Yield Calculation
+        let yieldText = "-";
+        if (item.side === "SELL" && item.pnl !== undefined && item.pnl !== null) {
+            const pnl = Number(item.pnl);
+            const totalAmt = Number(item.price * item.qty);
+            const principal = totalAmt - pnl;
+
+            if (principal !== 0) {
+                const yieldPct = (pnl / principal) * 100;
+                const yieldFormatted = yieldPct.toFixed(2) + "%";
+
+                if (yieldPct > 0) {
+                    yieldText = `<span class="pnl-positive">+${yieldFormatted}</span>`;
+                } else if (yieldPct < 0) {
+                    yieldText = `<span class="pnl-negative">${yieldFormatted}</span>`;
+                } else {
+                    yieldText = `<span class="pnl-neutral">0.00%</span>`;
+                }
+            }
+        }
+
         // Check for sync strategy default
         let strategyName = strategyNames[item.strategy_id] || item.strategy_id;
 
@@ -989,17 +1025,18 @@ function renderJournalTable(data) {
             : `<div style="font-weight: 500;">${item.symbol}</div>`;
 
         tr.innerHTML = `
-            <td style="font-size: 0.9em;">${item.timestamp.replace('T', ' ')}</td>
+            <td>${item.timestamp.replace('T', ' ')}</td>
             <td>${nameHtml}</td>
             <td class="${sideClass}">${sideLabel}</td>
             <td class="text-right" style="color:#666;">${avgPriceText}</td>
             <td class="text-right">${price}</td>
             <td class="text-right">${item.qty}</td>
             <td class="text-right">${amt}</td>
+            <td class="text-right">${yieldText}</td>
             <td class="text-right" style="font-weight:bold;">${pnlText}</td>
-            <td class="text-right" style="color:#888; font-size:0.9em;">${costText}</td>
+            <td class="text-right" style="color:#888;">${costText}</td>
             <td>${strategyName}</td>
-            <td style="font-size: 11px; color: #aaa;">${item.order_id || '-'}</td>
+            <td style="color: #aaa; word-break: break-all; font-size: 11px; line-height: 1.2;">${item.order_id || '-'}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -1134,3 +1171,145 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// Checklist Logic
+let checklistVisible = false;
+
+function toggleChecklist() {
+    checklistVisible = !checklistVisible;
+    const popup = document.getElementById('checklist-popup');
+    if (popup) {
+        popup.style.display = checklistVisible ? 'flex' : 'none';
+        if (checklistVisible) {
+            loadChecklist();
+        }
+    }
+}
+
+async function loadChecklist() {
+    try {
+        const res = await fetch('/api/checklist');
+        const data = await res.json();
+        if (data.status === 'ok') {
+            renderChecklist(data.data);
+        }
+    } catch (e) {
+        console.error("Failed to load checklist", e);
+    }
+}
+
+function renderChecklist(items) {
+    const list = document.getElementById('checklist-items');
+    list.innerHTML = items.map(item => `
+        <li class="checklist-item ${item.is_done ? 'done' : ''}" data-id="${item.id}">
+            <input type="checkbox" ${item.is_done ? 'checked' : ''} onchange="toggleChecklistItem(${item.id}, this.checked)">
+            <span>${item.text}</span>
+            <button class="delete-btn" onclick="deleteChecklistItem(${item.id})">삭제</button>
+        </li>
+    `).join('');
+}
+
+async function addChecklistItem() {
+    const input = document.getElementById('checklist-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    try {
+        const res = await fetch('/api/checklist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            input.value = '';
+            loadChecklist();
+        }
+    } catch (e) {
+        console.error("Failed to add item", e);
+    }
+}
+
+function handleChecklistInput(e) {
+    if (e.key === 'Enter') addChecklistItem();
+}
+
+async function toggleChecklistItem(id, isDone) {
+    try {
+        const res = await fetch('/api/checklist/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id, is_done: isDone ? 1 : 0 })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            loadChecklist();
+        }
+    } catch (e) {
+        console.error("Failed to update item", e);
+    }
+}
+
+async function deleteChecklistItem(id) {
+    if (!confirm('삭제하시겠습니까?')) return;
+    try {
+        const res = await fetch(`/api/checklist/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            loadChecklist();
+        }
+    } catch (e) {
+        console.error("Failed to delete item", e);
+    }
+}
+
+function initChecklist() {
+    const popup = document.getElementById('checklist-popup');
+    const header = document.getElementById('checklist-header');
+
+    if (!popup || !header) return;
+
+    let isDragging = false;
+    let currentX;
+    let currentY;
+    let initialX;
+    let initialY;
+    let xOffset = 0;
+    let yOffset = 0;
+
+    header.addEventListener("mousedown", dragStart);
+    document.addEventListener("mouseup", dragEnd);
+    document.addEventListener("mousemove", drag);
+
+    function dragStart(e) {
+        initialX = e.clientX - xOffset;
+        initialY = e.clientY - yOffset;
+
+        if (e.target === header || e.target.parentNode === header) {
+            isDragging = true;
+        }
+    }
+
+    function dragEnd(e) {
+        initialX = currentX;
+        initialY = currentY;
+        isDragging = false;
+    }
+
+    function drag(e) {
+        if (isDragging) {
+            e.preventDefault();
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+
+            xOffset = currentX;
+            yOffset = currentY;
+
+            setTranslate(currentX, currentY, popup);
+        }
+    }
+
+    function setTranslate(xPos, yPos, el) {
+        el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+    }
+}

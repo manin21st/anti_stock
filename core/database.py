@@ -31,15 +31,17 @@ class DatabaseManager:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config = yaml.safe_load(f)
                     self.db_url = config.get('database', {}).get('url')
-            else:
-                self.db_url = "sqlite:///data/anti_stock.db" # Fallback
-                
+            
             if not self.db_url:
-                raise ValueError("Database URL not configured in secrets.yaml")
+                raise ValueError("Database URL not configured in secrets.yaml. PostgreSQL is required.")
                 
             # Create Engine
             # pool_pre_ping=True: Automatically reconnect if connection drops
-            self.engine = create_engine(self.db_url, pool_pre_ping=True)
+            connect_args = {}
+            if self.db_url.startswith('sqlite'):
+                connect_args['check_same_thread'] = False
+                
+            self.engine = create_engine(self.db_url, pool_pre_ping=True, connect_args=connect_args)
             
             # Create Session Factory
             self.Session = scoped_session(sessionmaker(bind=self.engine))
@@ -54,7 +56,7 @@ class DatabaseManager:
         """Create all tables defined in models.py"""
         if self.engine:
             Base.metadata.create_all(self.engine)
-            logger.info("Database tables created successfully.")
+            logger.info("데이터베이스 준비 완료 (테이블 점검됨)")
             
     def get_session(self):
         """Get a new DB session"""

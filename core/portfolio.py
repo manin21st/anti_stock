@@ -3,6 +3,8 @@ from typing import Dict, Optional
 import json
 import os
 import time
+from datetime import datetime
+from core.dao import TradeDAO
 
 @dataclass
 class Position:
@@ -15,6 +17,7 @@ class Position:
     partial_taken: bool = False # For partial profit taking
     max_price: float = 0.0 # For trailing stop
     last_update: float = 0.0 # Timestamp of last price update
+    first_acquired_at: float = 0.0 # Timestamp of first acquisition
 
 class Portfolio:
     def __init__(self):
@@ -29,6 +32,9 @@ class Portfolio:
         # State Cache (In-Memory)
         self._state_cache = {}
         self._load_state_to_cache() # Initial Load
+        
+        # Backfill check cache
+        self._checked_backfill = set()
 
     def update_position(self, symbol: str, qty: int, price: float, tag: str = ""):
         """Update position from order execution"""
@@ -36,7 +42,7 @@ class Portfolio:
             if qty > 0:
                 # Name will be updated on next sync or we can fetch it if needed.
                 # For now, use symbol as placeholder if name is unknown.
-                self.positions[symbol] = Position(symbol, symbol, qty, price, price, tag, max_price=price)
+                self.positions[symbol] = Position(symbol, symbol, qty, price, price, tag, max_price=price, first_acquired_at=time.time())
         else:
             pos = self.positions[symbol]
             if qty > 0: # Buy more
@@ -88,6 +94,13 @@ class Portfolio:
         # Update Positions
         holdings = broker_balance.get("holdings", [])
         
+        
+        # [Safety Guard] If broker returns empty holdings but we have positions, it might be an API error (Rate Limit/Timeout)
+        # We trust local state over empty remote state in this case to prevent flickering.
+        if not holdings and self.positions:
+            print(f"[PORTFOLIO] Warning: Broker returned 0 holdings while local has {len(self.positions)}. Ignoring sync to prevent data loss.")
+            return
+
         current_symbols = set()
         for h in holdings:
             symbol = h["pdno"]
@@ -103,10 +116,29 @@ class Portfolio:
             saved_partial = saved_data.get("partial_taken", False)
             saved_max = saved_data.get("max_price", current_price)
             saved_tag = saved_data.get("tag", "")
+            saved_acquired_at = saved_data.get("first_acquired_at", 0.0)
             
-            # [Fix] Helper to look up tag if missing (e.g. restart data loss)
             if not saved_tag and tag_lookup_fn:
                 saved_tag = tag_lookup_fn(symbol) or ""
+            
+            # [Fix] Backfill acquired time check (Run once per session per symbol)
+            # We check even if saved_acquired_at exists, to correct any past errors.
+            if symbol not in self._checked_backfill:
+                 try:
+                     # Use get_last_entry_date to find the start of the CURRENT continuous position
+                     last_entry = TradeDAO.get_last_entry_date(symbol)
+                     if last_entry:
+                         ft_ts = last_entry.timestamp()
+                         
+                         # If saved is 0 OR saved is different from recalculated entry time (allow small drift of 10s)
+                         # We overwrite to correct any past errors
+                         if saved_acquired_at == 0.0 or abs(ft_ts - saved_acquired_at) > 10.0:
+                             print(f"[INFO] Correction: Backfilling acquired time for {symbol}: {saved_acquired_at} -> {ft_ts}")
+                             saved_acquired_at = ft_ts
+                             
+                     self._checked_backfill.add(symbol)
+                 except Exception as e:
+                     print(f"Failed to backfill acquired time for {symbol}: {e}")
 
             if symbol in self.positions:
                 pos = self.positions[symbol]
@@ -167,7 +199,8 @@ class Portfolio:
                          current_price=current_price, 
                          tag=saved_tag, 
                          partial_taken=saved_partial,
-                         max_price=saved_max
+                         max_price=saved_max,
+                         first_acquired_at=saved_acquired_at if saved_acquired_at > 0 else time.time()
                      )
                      
                      if notify:
@@ -195,6 +228,7 @@ class Portfolio:
                 # Position Closed
                 old_pos = self.positions[sym]
                 # Notify
+                # Notify
                 if notify:
                     self._notify_change({
                         "type": "POSITION_CLOSED",
@@ -210,6 +244,7 @@ class Portfolio:
                         "old_avg_price": old_pos.avg_price,
                         "total_asset": self.total_asset
                     })
+                print(f"[PORTFOLIO] Removing {sym} (broker sync missing). Old Qty: {old_pos.qty}")
                 del self.positions[sym]
         
         self.save_state()
@@ -228,7 +263,8 @@ class Portfolio:
             state[symbol] = {
                 "partial_taken": pos.partial_taken,
                 "max_price": pos.max_price,
-                "tag": pos.tag
+                "tag": pos.tag,
+                "first_acquired_at": pos.first_acquired_at
             }
         
         # Update Cache

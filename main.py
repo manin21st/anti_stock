@@ -47,7 +47,7 @@ def main():
     # Start Web Server in a separate thread
     server_thread = threading.Thread(target=start_server, args=(engine,), daemon=True)
     server_thread.start()
-    logger.info("Web Interface started at http://localhost:8000")
+    logger.info("웹 모니터링 서버 실행 완료: http://localhost:8000")
     
     # Start Engine (Blocking)
     try:

@@ -457,7 +457,11 @@ class MarketData:
                 except Exception as e:
                     logger.error(f"Polling error for {symbol}: {e}")
                 
-                # time.sleep(1.0) 
+                except Exception as e:
+                    logger.error(f"Polling error for {symbol}: {e}")
+                
+                 
+
 
     def _fetch_and_publish(self, symbol: str):
         """Fetch current price via REST API and publish to subscribers"""

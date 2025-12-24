@@ -37,4 +37,14 @@ class SystemConfig(Base):
 
     key = Column(String(50), primary_key=True)
     value = Column(String(255))
+    value = Column(String(255))
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+class Checklist(Base):
+    __tablename__ = 'checklist'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    text = Column(String(255), nullable=False)
+    is_done = Column(Integer, default=0) # 0: Active, 1: Done
+    created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

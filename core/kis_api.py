@@ -124,71 +124,70 @@ class RateLimiter:
         except Exception as e:
             return {"status": "offline", "message": str(e)}
 
+    def wait_for_tps(self):
+        """Block until TPS Server is connected"""
+        logger.info("[RateLimiter] TPS 서버 연결 대기 중... (Strict Mode)")
+        while True:
+            # Try to fetch token just to check connectivity
+            status = self._request_token_from_server()
+            if status is not None:
+                # Connected (Whether token granted or not, server is alive)
+                logger.info("[RateLimiter] TPS 서버 연결 성공! 시스템을 시작합니다.")
+                return
+            time.sleep(1.0) # Retry interval
+
     def execute(self, func, *args, **kwargs):
         """
         Executes the function with Rate Limiting Lock held.
+        STRICT MODE: Only execute if TPS Server facilitates it.
         """
-        max_retries = 3
+        max_retries = 3 
+        attempt = 0 
         
-        for attempt in range(max_retries + 1):
-            # Phase 1: Check Rate Limit (Briefly hold lock)
-            should_sleep = False
-            sleep_duration = 0.0
-            time_to_sleep = 0  # Initialize variable
+        should_retry = True
+        while should_retry:
             
-            with self.lock:
-                # 1. Server Check
-                server_status = self._request_token_from_server()
+            # Phase 1: Acquire Token from Server (Blocking until success)
+            token_granted = False
+            
+            while not token_granted:
+                with self.lock:
+                    server_status = self._request_token_from_server()
                 
                 if server_status is True:
-                    # Token Granted!
-                    pass 
+                    token_granted = True
                 elif server_status is False:
-                    # Limit Exceeded (Server said wait)
-                    # Yield lock and wait
-                    time_to_sleep = 0.1
+                     # Server said limit exceeded, wait a bit
+                     time.sleep(0.1)
                 else:
-                    # Server Error (None) -> Fallback to Local Interval
-                    now = time.time()
-                    elapsed = now - self.last_call_time
-                    if elapsed < self.min_interval:
-                        time_to_sleep = self.min_interval - elapsed
-                    else:
-                        time_to_sleep = 0
+                     # Server Error / Unreachable
+                     # In Strict Mode, we DO NOT fall back. We WAIT.
+                     if not self.logged_server_error:
+                         logger.warning("[RateLimiter] TPS 서버 연결 끊김. 대기 중...")
+                         self.logged_server_error = True
+                     
+                     time.sleep(1.0)
             
-            # Sleep OUTSIDE the lock
-            if time_to_sleep > 0:
-                time.sleep(time_to_sleep)
-                if server_status is False:
-                    # If we were told to wait by server, loop again
-                    continue
-                # If local wait, we typically proceed, but safer to loop again to re-check lock/token?
-                # Actually for local throttling, we just wait and then run?
-                # But 'execute' loop logic tries to grab token again.
-                # If we just sleep, we might over-sleep or lose turn.
-                # Simpler: just loop.
-                continue
+            # Token Granted. Reset error flag if we recovered
+            if self.logged_server_error:
+                logger.info("[RateLimiter] TPS 서버 재연결됨.")
+                self.logged_server_error = False
                 
-            # If we got here, we have passed the checks (or it's time to run)
-            # BUT we released the lock. So we need to re-acquire to run?
-            # Or is 'execute' assuming we hold lock during execution?
-            # The original code held lock during execution (lines 164-236).
-            # We MUST hold lock during execution to prevent concurrent API calls if purely local serial.
+            # Phase 2: Execute
+            # We don't necessarily need the lock during execution if server handles rate limiting.
+            # But the 'func' itself used to be protected by lock in original code to sequentialize.
+            # If TPS server gives tokens concurrently, we might run concurrently.
+            # Assuming 'func' is thread-safe or we accept concurrency (TPS server's job to limit rate).
+            # The original code re-acquired lock. Let's keep it safe.
             
-            # Re-acquire lock for Execution
-            # Re-acquire lock for Execution
             with self.lock:
-                # 2. Execute API Call
                 try:
                     # Suppress external library prints
                     with open(os.devnull, 'w') as devnull:
                         with contextlib.redirect_stdout(devnull):
-                            result = func(*args, **kwargs)
+                             result = func(*args, **kwargs)
                     
-                    # Update local timer after execution
-                    self.last_call_time = time.time()
-
-                    # 3. Check for Rate Limit Error (EGW00201)
+                    # Check for Rate Limit Error (EGW00201) just in case server logic was loose
                     is_rate_limit = False
                     if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
                         is_rate_limit = True
@@ -198,16 +197,13 @@ class RateLimiter:
                              is_rate_limit = True
 
                     if is_rate_limit:
-                        if attempt < max_retries:
-                            jitter = random.uniform(0.0, 0.5)
-                            backoff_time = 0.5 + jitter
-                            logger.debug(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s...")
-                            # Yield lock before sleeping? No, we are inside lock.
-                            # We MUST yield lock.
-                            pass # We break out of try/except/with naturally? 
-                            # No, we need to loop back.
-                        else:
-                            logger.error("[RateLimiter] Max retries exceeded for rate limit.")
+                        # [Strict Mode] Infinite Retry for Rate Limits
+                        # If Broker rejects us, we MUST wait. No failing allowed.
+                        backoff_time = 2.0 + random.uniform(0.0, 1.0)
+                        logger.warning(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s and retrying...")
+                        time.sleep(backoff_time)
+                        # Do NOT increment attempt count to prevent exhaustion
+                        continue
                             
                     # 4. Check for Expired Token (EGW00123)
                     is_expired_token = False
@@ -237,8 +233,7 @@ class RateLimiter:
                 except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                     if attempt < max_retries:
                          # Connection error -> Retry
-                         is_rate_limit = True # Reuse logic or separate logic?
-                         # Just mark as retry needed
+                         is_rate_limit = True # Force retry path
                          pass
                     else:
                         raise e
@@ -250,21 +245,25 @@ class RateLimiter:
                 if 'backoff_time' not in locals(): # Connection error backoff
                     backoff_time = 1.0 * (attempt + 1)
                 time.sleep(backoff_time)
+                attempt += 1 # Increment attempt
                 continue
                 
             if 'is_expired_token' in locals() and is_expired_token and attempt < max_retries:
+                attempt += 1 # Increment attempt
                 continue
 
             # Return success
             if 'result' in locals():
                 return result
+            
             # If we fell through due to retries running out without result?
-            # Should raise error usually.
-            if attempt == max_retries:
-                 # If we have an exception, raise it? 
-                 # Wait, for connection error we re-raised. 
-                 # For Limit Exceeded we logged error but what do we return? None?
-                 pass
+            if attempt >= max_retries:
+                 # Last result might be available if it was rate limit error
+                 if 'result' in locals():
+                     return result
+                 return None
+            
+            should_retry = False # Should not happen unless logic bug
         
         return None
                     

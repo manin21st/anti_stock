@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>안티-스톡 트레이딩 봇</title>
-    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="stylesheet" href="/static/style.css?v=12">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -30,6 +30,8 @@
                 </div>
             </div>
             <div class="header-right">
+                <button onclick="toggleChecklist()" class="btn-secondary small-btn" style="margin-right: 10px;">📝
+                    체크리스트</button>
                 <a href="/manual" target="_blank" class="manual-link"
                     style="margin-right: 15px; text-decoration: none; color: var(--accent); font-weight: 500;">사용
                     설명서</a>
@@ -79,15 +81,16 @@
                         <table id="positions-table">
                             <thead>
                                 <tr>
-                                    <th>종목명</th>
-                                    <th>종목코드</th>
-                                    <th>수량</th>
-                                    <th>매입평균</th>
-                                    <th>매입금액</th>
-                                    <th>현재가</th>
-                                    <th>평가금액</th>
-                                    <th>평가손익</th>
-                                    <th>수익률</th>
+                                    <th style="width: 14%;">종목명</th>
+                                    <th style="width: 8%;">종목코드</th>
+                                    <th style="width: 6%;">수량</th>
+                                    <th style="width: 11%;">매입평균</th>
+                                    <th style="width: 11%;">매입금액</th>
+                                    <th style="width: 11%;">현재가</th>
+                                    <th style="width: 11%;">평가금액</th>
+                                    <th style="width: 11%;">평가손익</th>
+                                    <th style="width: 9%;">수익률</th>
+                                    <th style="width: 8%;">보유일수</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -314,6 +317,24 @@
     </div>
     </div>
     </div>
+    <!-- Checklist Popup -->
+    <div id="checklist-popup" class="floating-popup" style="display: none;">
+        <div class="popup-header" id="checklist-header">
+            <span>📝 체크리스트</span>
+            <button onclick="toggleChecklist()" class="close-btn">×</button>
+        </div>
+        <div class="popup-body">
+            <ul id="checklist-items">
+                <!-- Items will be injected here -->
+            </ul>
+        </div>
+        <div class="popup-footer">
+            <input type="text" id="checklist-input" placeholder="할 일 추가 (Enter)"
+                onkeypress="handleChecklistInput(event)">
+            <button onclick="addChecklistItem()">추가</button>
+        </div>
+    </div>
+
     <script src="/static/app.js?v=11"></script>
     <script src="/static/chart.js?v=24"></script>
     <script src="/static/watchlist.js?v=2"></script>
