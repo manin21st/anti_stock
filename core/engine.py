@@ -371,6 +371,7 @@ class Engine:
                     if self.system_config.get("use_auto_scanner", False):
                         if time.time() - self.last_scan_time > 60: 
                             self._update_universe()
+                            # Check if polling is needed
                             if self.is_trading and not self.market_data.is_polling:
                                 self.market_data.start_polling()
                             
@@ -446,7 +447,12 @@ class Engine:
         """Update stock universe based on config or scanner"""
         universe = []
         
+        # Increase scanner interval check to 120s to be safe
         if self.system_config.get("use_auto_scanner", False):
+            # Also check if we just scanned recently (double check timestamp)
+            if time.time() - self.last_scan_time < 60:
+                return
+
             mode = self.system_config.get("scanner_mode", "volume")
             logger.info(f"Auto-Scanner running... Mode: {mode}")
             
