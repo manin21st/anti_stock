@@ -369,16 +369,8 @@ class MarketData:
                 continue
 
             symbols_to_poll = list(self.polling_symbols)
-            num_symbols = len(symbols_to_poll)
 
-            # Calculate dynamic sleep interval
-            # TPS Limit (typically 20 requests per second for Personal, but VPS might be 2?)
-            # Log shows EGW00201 which is global rate limit.
-            # "Backing off 2.xxs" means we are hitting it hard.
-            # To be safe: 1 request every 0.5s = 2 TPS.
-            # If we have 30 symbols, cycle takes 15s. This is slow but safe.
-            # If we want faster, we must use Realtime WebSocket (OPS), not polling.
-            # For now, enforce 0.5s interval to stop errors.
+            # Default Sleep
             safe_interval = 0.5
 
             for symbol in symbols_to_poll:
@@ -388,6 +380,16 @@ class MarketData:
                 try:
                     self._fetch_and_publish(symbol)
                 except Exception as e:
+                    # Detect Rate Limit Error from Exception message if raised
+                    # But RateLimiter usually suppresses exception and returns None/Error Object
+                    # In _fetch_and_publish, we use fetch_price which uses rate_limiter.execute
+
+                    # RateLimiter now logs EGW00201 warning.
+                    # We can't easily detect it here unless fetch_price returns a specific error code.
+                    # But if RateLimiter is backing off, this loop will naturally slow down because
+                    # _fetch_and_publish will block for 2+ seconds inside RateLimiter (sleeping).
+                    # Now that RateLimiter sleeps OUTSIDE the lock, it's safe!
+
                     logger.error(f"Polling error for {symbol}: {e}")
 
                 # Strict sleep to respect rate limits
