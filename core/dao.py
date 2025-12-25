@@ -102,11 +102,6 @@ class TradeDAO:
                         current_qty = 0
                         last_entry_time = None # Reset entry time when position is closed
             
-            # If we have a position but no entry time (shouldn't happen with correct logic), default to first trade?
-            # But the logic above guarantees last_entry_time is set when qty > 0.
-            
-            return last_entry_time
-            
             return last_entry_time
             
         except Exception as e:
@@ -135,7 +130,6 @@ class TradeDAO:
                 trade.pnl = pnl
                 trade.pnl_pct = pnl_pct
                 session.commit()
-                # logger.debug(f"Updated PnL for {event_id}")
             else:
                 logger.warning(f"Trade {event_id} not found for PnL update.")
         except Exception as e:
@@ -185,13 +179,23 @@ class WatchlistDAO:
 
 class ChecklistDAO:
     @staticmethod
-    def get_all():
+    def get_all() -> List[Dict]:
+        """Get all checklist items as dictionaries"""
         session = db_manager.get_session()
         try:
-            # Order by created_at DESC (Newest first)
-            # Or by is_done ASC (Active first), then Created_at DESC
             from core.models import Checklist
-            return session.query(Checklist).order_by(Checklist.is_done.asc(), Checklist.created_at.desc()).all()
+            items = session.query(Checklist).order_by(Checklist.is_done.asc(), Checklist.created_at.desc()).all()
+
+            # Convert to dict inside session to prevent detached instance access errors
+            return [{
+                "id": item.id,
+                "text": item.text,
+                "is_done": item.is_done,
+                "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else ""
+            } for item in items]
+        except Exception as e:
+            logger.error(f"Failed to fetch checklist: {e}")
+            return []
         finally:
             session.close()
 
@@ -203,9 +207,17 @@ class ChecklistDAO:
             item = Checklist(text=text, is_done=0)
             session.add(item)
             session.commit()
+
+            # Refresh to get ID and Created At
             session.refresh(item)
-            session.expunge(item)
-            return item
+
+            # Return dict directly
+            return {
+                "id": item.id,
+                "text": item.text,
+                "is_done": item.is_done,
+                "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else ""
+            }
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to add checklist item: {e}")

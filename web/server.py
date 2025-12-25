@@ -18,7 +18,7 @@ from utils.data_loader import DataLoader
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.visualization import TradeVisualizationService
-from core.dao import TradeDAO, WatchlistDAO
+from core.dao import TradeDAO, WatchlistDAO, ChecklistDAO
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +44,10 @@ def generate_otp():
     print("\n" + "="*40)
     print(f" [LOGIN OTP] 인증코드: {AUTH_OTP}")
     print("="*40 + "\n")
-    
+
     if engine_instance and hasattr(engine_instance, 'telegram'):
         engine_instance.telegram.send_otp(AUTH_OTP)
-        
+
     return AUTH_OTP
 
 # Logger setup to capture logs for streaming
@@ -63,7 +63,7 @@ class ListHandler(logging.Handler):
             self.logs.append(log_entry)
             if len(self.logs) > 1000:
                 self.logs.pop(0)
-            
+
             # Broadcast to websockets safely
             if server_loop and server_loop.is_running():
                 for ws in self.websockets:
@@ -92,12 +92,12 @@ async def auth_middleware(request: Request, call_next):
     # Public routes
     if request.url.path in ["/login", "/api/login", "/favicon.ico"] or request.url.path.startswith("/static"):
         return await call_next(request)
-    
+
     # Check session
     user = request.session.get("user")
     if not user:
         return RedirectResponse(url="/login")
-    
+
     return await call_next(request)
 
 # Security: Session Middleware (Must be added last to be executed first)
@@ -113,7 +113,7 @@ async def login_page(request: Request):
 async def login(request: Request):
     data = await request.json()
     input_otp = data.get("otp")
-    
+
     if input_otp == AUTH_OTP:
         request.session["user"] = "admin"
         return {"status": "ok"}
@@ -181,11 +181,11 @@ async def get_market_data_batch(request: Request):
     """
     data = await request.json()
     symbols = data.get("symbols", [])
-    
+
     results = []
     if engine_instance and engine_instance.market_data:
         md = engine_instance.market_data
-        
+
         for symbol in symbols:
             try:
                 # 1. Basic Info (Name, Price)
@@ -199,16 +199,16 @@ async def get_market_data_batch(request: Request):
                 # Use a lightweight fetch?
                 # Optimization: Should we rely on client to get price from websocket?
                 # The user wants "Grid" with data. Initial load needs REST.
-                
+
                 # Fetch Daily Bars for MA20 & Sparkline (Cached)
                 # Lookback 30 days
                 df = md.get_bars(symbol, timeframe="1d", lookback=30)
-                
+
                 current_price = 0
                 change_rate = 0
                 ma20 = 0
                 sparkline = []
-                
+
                 # Check Holding Status
                 is_held = False
                 if engine_instance and engine_instance.portfolio:
@@ -219,33 +219,33 @@ async def get_market_data_batch(request: Request):
                     # Sparkline: Close prices
                     # Ensure JSON serializable
                     sparkline = df['close'].tolist()
-                    
+
                     # MA20: Calculate from last 20 close prices
                     if len(df) >= 20:
                         ma20 = df['close'].tail(20).mean()
                     else:
                         ma20 = df['close'].mean() # Approx
-                        
-                    # Get Current Price from latest bar? 
+
+                    # Get Current Price from latest bar?
                     # If market is open, latest bar might be yesterday's close if get_bars doesn't include today?
                     # get_bars logic: daily chart usually includes today if market open.
-                    
+
                     last_bar = df.iloc[-1]
                     current_price = float(last_bar['close'])
-                    
+
                     # Calculate change rate (vs prev day)
                     if len(df) >= 2:
                         prev_close = float(df.iloc[-2]['close'])
                         if prev_close > 0:
                             change_rate = (current_price - prev_close) / prev_close * 100
-                            
+
                 # If real-time price is needed (and faster/newer than daily bar), fetch it?
                 # For "Watchlist", user expects real-time.
                 # But calling API for 20 stocks take 2-4 seconds.
                 # Ideally we rely on WebSocket for updates, and this API for initial state.
                 # Let's rely on Daily Bar for 'History' (Sparkline/MA20)
                 # and try to get Real-time price if possible, or just use Daily Close.
-                
+
                 item = {
                     "no": 0, # Frontend will assign
                     "name": name,
@@ -257,11 +257,11 @@ async def get_market_data_batch(request: Request):
                     "is_held": is_held
                 }
                 results.append(item)
-                
+
             except Exception as e:
                 logger.error(f"Error fetching data for {symbol}: {e}")
                 results.append({
-                    "code": symbol, 
+                    "code": symbol,
                     "error": str(e),
                     "name": md.get_stock_name(symbol)
                 })
@@ -272,12 +272,12 @@ async def get_market_data_batch(request: Request):
 async def get_config():
     if engine_instance:
         cfg = engine_instance.config.copy()
-        
+
         # Filter out system keys to provide a clean list of strategies
         # User wants 'common' to be editable, so we include it.
         system_keys = ["system", "database", "active_strategy"]
         strategies_list = [k for k in cfg.keys() if k not in system_keys and isinstance(cfg[k], dict)]
-        
+
         cfg["strategies_list"] = strategies_list
         return cfg
     return {}
@@ -287,11 +287,11 @@ async def update_config(request: Request):
     data = await request.json()
     if engine_instance:
         # data format: { "active_strategy": "...", "strategy_config": { ... } } or just config fragment
-        
+
         # If active_strategy is provided, update it in system config or root config
         if "active_strategy" in data:
             engine_instance.config["active_strategy"] = data["active_strategy"]
-            
+
         # If other config provided (strategy params)
         for key, value in data.items():
             if key != "active_strategy":
@@ -331,7 +331,7 @@ async def get_status():
             # Return all loaded strategies (since we only load the active one)
             active_strategies = list(engine_instance.strategies.keys())
             # print(f"DEBUG: Status - Strategies: {active_strategies}, Trading: {engine_instance.is_trading}")
-            
+
             portfolio_data = {
                 "cash": engine_instance.portfolio.cash,
                 "deposit_d1": engine_instance.portfolio.deposit_d1,
@@ -350,12 +350,12 @@ async def get_status():
                 ], key=lambda x: x['name'])
             }
 
-            
+
             # Calculate Total Evaluation Amount (Sum of Current Value of Stocks)
             total_eval_amt = sum(p.current_price * p.qty for p in engine_instance.portfolio.positions.values())
             portfolio_data["total_eval_amt"] = total_eval_amt
             # print(f"DEBUG: Status - Portfolio Cash: {portfolio_data['cash']}")
-            
+
             return {
                 "is_running": engine_instance.is_trading, # UI expects is_running to mean "trading active"
                 "active_strategies": active_strategies,
@@ -366,7 +366,7 @@ async def get_status():
             import traceback
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
-            
+
     print("DEBUG: engine_instance is None")
     return {"status": "stopped"}
 
@@ -422,21 +422,12 @@ async def control_engine(action: dict):
 
 @app.get("/api/checklist")
 async def get_checklist():
-    from core.dao import ChecklistDAO
-    
-    def _get():
-        items = ChecklistDAO.get_all()
-        # Serialize
-        return [{
-            "id": item.id,
-            "text": item.text,
-            "is_done": item.is_done,
-            "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        } for item in items]
+    # Remove inner import - ChecklistDAO is already imported at top level
 
-    import time
+    # Use ChecklistDAO directly, which now returns dicts
+    # Run in executor to avoid blocking main thread with DB IO
     loop = asyncio.get_running_loop()
-    data = await loop.run_in_executor(None, _get)
+    data = await loop.run_in_executor(None, ChecklistDAO.get_all)
     return {"status": "ok", "data": data}
 
 @app.post("/api/checklist")
@@ -445,17 +436,12 @@ async def add_checklist_item(request: Request):
     text = data.get("text")
     if not text:
         return {"status": "error", "message": "Text is required"}
-    
-    from core.dao import ChecklistDAO
-    
-    def _add():
-        return ChecklistDAO.add_item(text)
-        
+
     loop = asyncio.get_running_loop()
-    item = await loop.run_in_executor(None, _add)
-    
+    item = await loop.run_in_executor(None, ChecklistDAO.add_item, text)
+
     if item:
-        return {"status": "ok", "data": {"id": item.id, "text": item.text, "is_done": item.is_done}}
+        return {"status": "ok", "data": item} # item is now a dict
     return {"status": "error", "message": "Failed to save to DB"}
 
 @app.post("/api/checklist/{item_id}/toggle")
@@ -474,16 +460,13 @@ async def update_checklist_item(request: Request):
     data = await request.json()
     item_id = data.get("id")
     is_done = data.get("is_done")
-    
-    from core.dao import ChecklistDAO
-    
+
     loop = asyncio.get_running_loop()
     success = await loop.run_in_executor(None, ChecklistDAO.update_status, item_id, is_done)
     return {"status": "ok" if success else "error"}
 
 @app.delete("/api/checklist/{item_id}")
 async def delete_checklist_item(item_id: int):
-    from core.dao import ChecklistDAO
     loop = asyncio.get_running_loop()
     success = await loop.run_in_executor(None, ChecklistDAO.delete_item, item_id)
     return {"status": "ok" if success else "error"}
@@ -526,11 +509,11 @@ async def inject_trades(request: Request):
             import random
 
             # Default symbol for testing
-            symbol = "005930" 
-            
+            symbol = "005930"
+
             # Generate 5 events
             base_time = datetime.now()
-            
+
             new_events = []
             for i in range(5):
                 # Random time within last 60 minutes
@@ -538,7 +521,7 @@ async def inject_trades(request: Request):
                 side = random.choice(["BUY", "SELL"])
                 price = 60000 + random.randint(-1000, 1000)
                 qty = random.randint(1, 10)
-                
+
                 event = TradeEvent(
                     event_id=str(uuid.uuid4()),
                     timestamp=event_time,
@@ -552,7 +535,7 @@ async def inject_trades(request: Request):
                     meta={"type": "LIMIT"}
                 )
                 new_events.append(event)
-            
+
             # DB Insert
             TradeDAO.insert_trade({
                 "event_id": event.event_id,
@@ -566,11 +549,11 @@ async def inject_trades(request: Request):
                 "order_id": event.order_id,
                 "meta": event.meta
             })
-            
+
             # Update memory
             engine_instance.trade_history.append(event)
             logger.info(f"DEBUG: Injected {len(new_events)} dummy trades for {symbol}")
-            
+
             return {"status": "ok", "message": f"Injected {len(new_events)} trades", "count": len(new_events)}
         except Exception as e:
             logger.error(f"Failed to inject trades: {e}")
@@ -600,7 +583,7 @@ async def check_data(request: Request):
     symbol = data.get("symbol")
     start = data.get("start")
     end = data.get("end")
-    
+
     loader = DataLoader()
     exists = loader.check_availability(symbol, start, end)
     return {"status": "ok", "exists": exists}
@@ -611,7 +594,7 @@ async def download_data(request: Request):
     symbol = data.get("symbol")
     start = data.get("start")
     end = data.get("end")
-    
+
     loader = DataLoader()
     try:
         df = loader.download_data(symbol, start, end)
@@ -628,16 +611,16 @@ async def export_backtest_data(request: Request):
         end_date = body.get("end")
         strategy_id = body.get("strategy_id")
         initial_cash = int(body.get("initial_cash", 100000000))
-        
+
         # 1. Load Data & Calculate Indicators
         data_loader = DataLoader()
-        
+
         st_conf = {}
         if engine_instance:
              st_conf = engine_instance.config.get(strategy_id, {})
-        
+
         tf = st_conf.get("timeframe", "D")
-        
+
         try:
              import datetime
              from datetime import timedelta
@@ -646,15 +629,15 @@ async def export_backtest_data(request: Request):
              buffer_date = (s_dt - timedelta(days=buffer_days)).strftime("%Y%m%d")
         except:
              buffer_date = start_date
-             
+
         # Try loading local data first to avoid API rate limits
         df = data_loader.load_data(symbol, buffer_date, end_date, timeframe=tf)
-        
+
         # Only download if local data is missing
         if df.empty:
             logger.info(f"Local data missing for export, attempting download: {symbol}")
             df = data_loader.download_data(symbol, buffer_date, end_date, timeframe=tf)
-        
+
         if df.empty:
             return {"status": "error", "message": "No data found"}
 
@@ -672,27 +655,27 @@ async def export_backtest_data(request: Request):
 
         if "error" in result:
              return {"status": "error", "message": result["error"]}
-             
+
         history = result.get("history", [])
-        
+
         # 3. Merge History into DataFrame
         df['action'] = ""
         df['trade_qty'] = 0
         df['trade_price'] = 0
-        
+
         # Map history to dict keyed by timestamp
         for trade in history:
             ts = trade['timestamp']
             parts = ts.split(" ")
             DATE = parts[0]
             TIME = parts[1] if len(parts) > 1 else None
-            
+
             # Simple matching for Daily
             mask = (df['date'] == DATE)
             if TIME and 'time' in df.columns:
                  # Intraday match: ensure time column exists and matches
                  mask = mask & (df['time'] == TIME)
-            
+
             if mask.any():
                 idx = df[mask].index[0]
                 existing_action = df.at[idx, 'action']
@@ -701,7 +684,7 @@ async def export_backtest_data(request: Request):
                     df.at[idx, 'action'] = f"{existing_action},{new_action}"
                 else:
                     df.at[idx, 'action'] = new_action
-                    
+
                 df.at[idx, 'trade_qty'] = trade['qty']
                 df.at[idx, 'trade_price'] = trade['price']
 
@@ -709,22 +692,22 @@ async def export_backtest_data(request: Request):
         import io
         import pandas as pd
         from fastapi.responses import StreamingResponse
-        
+
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, sheet_name='Backtest_Data', index=False)
-            
+
             metrics = result.get("metrics", {})
             m_df = pd.DataFrame([metrics])
             m_df.to_excel(writer, sheet_name='Metrics', index=False)
-            
+
         output.seek(0)
-        
+
         filename = f"backtest_{symbol}_{strategy_id}_{start_date}_{end_date}.xlsx"
         headers = {
             'Content-Disposition': f'attachment; filename="{filename}"'
         }
-        
+
         return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     except Exception as e:
@@ -739,14 +722,14 @@ async def get_backtest_data(request: Request):
     symbol = data.get("symbol")
     start = data.get("start")
     end = data.get("end")
-    
+
     try:
         loader = DataLoader()
-        
+
         # Determine timeframe from strategy config if provided
         strategy_id = data.get("strategy_id")
         timeframe = "D" # default
-        
+
         if strategy_id:
             try:
                 import yaml
@@ -759,20 +742,20 @@ async def get_backtest_data(request: Request):
             except Exception as e:
                 logging.warning(f"Failed to load strategy config: {e}")
 
-        # Load with a bit of buffer for accurate MAs if possible? 
+        # Load with a bit of buffer for accurate MAs if possible?
         # But UI usually requests specific range. calculate MA on visible range is fine for now.
         # Or load calculation buffer? DataLoader.load_data filters by date.
         # Standard practice: Load extra, calc MA, slice.
         # But DataLoader doesn't support "load extra" easily without knowing dates.
         # We will just calc on what we have. First 20 rows might have invalid MAs.
         df = loader.load_data(symbol, start, end, timeframe=timeframe)
-        
+
         if not df.empty:
             # Calculate MAs
             df['ma5'] = df['close'].rolling(window=5).mean().fillna(0)
             df['ma20'] = df['close'].rolling(window=20).mean().fillna(0)
             df['vol_ma20'] = df['volume'].rolling(window=20).mean().fillna(0)
-            
+
             # Convert to records (handle NaNs? fillna(0) done)
             # Replace NaN/Info with None for JSON standard compliance if needed, but to_dict handles it.
             # Handle Timestamp objects if any (to_dist 'records' keeps them?)
@@ -780,13 +763,13 @@ async def get_backtest_data(request: Request):
             # DataLoader usually returns 'date' column as string or datetime?
             # We need to ensure it's JSON serializable.
             # Assuming loader returns standardized dataframe.
-            
+
             # Drop NaN rows at the start if necessary or keep them as 0
             df = df.fillna(0)
-            
+
             records = df.to_dict('records')
             return {"status": "ok", "data": records}
-        
+
         return {"status": "error", "message": "No data found"}
 
     except Exception as e:
@@ -803,29 +786,29 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
     if engine_instance:
         try:
             # Check DB Connection state via simple count
-            
+
             # Check DB Connection state via simple count
             # total = TradeDAO.get_all_trades_count()
-            
+
             # Convert date strings to datetime objects for DAO
             s_dt = None
             e_dt = None
             if start:
-                try: 
+                try:
                     s_dt = datetime.strptime(start.replace("-", ""), "%Y%m%d")
                 except: pass
             if end:
-                try: 
+                try:
                     e_dt_base = datetime.strptime(end.replace("-", ""), "%Y%m%d")
                     e_dt = e_dt_base.replace(hour=23, minute=59, second=59)
                 except: pass
-                
+
 
             # Use In-Memory Cache for Speed
             # Filter and sort in memory
             # This is much faster than DB query for small datasets (1000 items)
             trades = engine_instance.trade_history
-            
+
             # Apply filters if needed
             if symbol or start or end:
                 filtered = []
@@ -836,7 +819,7 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
                         t_name = ""
                         if engine_instance.market_data:
                             t_name = engine_instance.market_data.get_stock_name(t.symbol)
-                        
+
                         # Check partial match for Symbol OR Name
                         # user input 'symbol' is the query
                         if (symbol not in t.symbol) and (symbol not in t_name):
@@ -849,12 +832,12 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
                         continue
                     filtered.append(t)
                 trades = filtered
-            
+
             # Sort by Timestamp DESC? (Already sorted in load?)
             # Usually memory list is sorted by time (newest first or last?)
             # engine.trade_history is prepended (newest at index 0).
             # So it is already sorted DESC.
-            
+
             data = []
             for t in trades:
                 # [FIX] Filter out Order Submission events (Duplicates)
@@ -880,25 +863,25 @@ async def get_journal_trades(start: str = None, end: str = None, symbol: str = N
                     "order_id": t.order_id,
                     "meta": t.meta
                 }
-                
+
                 # Format Timestamp
                 if isinstance(item['timestamp'], datetime):
                     item['timestamp'] = item['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
                 else:
                     item['timestamp'] = str(item['timestamp'])
-                    
+
                 # Inject Name
                 if engine_instance.market_data:
                     item['name'] = engine_instance.market_data.get_stock_name(t.symbol)
-                    
+
                 data.append(item)
-                
+
             return {"status": "ok", "data": data}
-            
+
         except Exception as e:
             logger.error(f"Journal Error: {e}")
             return {"status": "error", "message": str(e)}
-            
+
     return {"status": "error", "message": "Engine not initialized"}
 
 @app.post("/api/journal/sync")
@@ -906,17 +889,17 @@ async def sync_journal(request: Request):
     data = await request.json()
     start = data.get("start")
     end = data.get("end")
-    
+
     if engine_instance:
         try:
             # Run in executor to avoid blocking
             loop = asyncio.get_running_loop()
             count = await loop.run_in_executor(None, lambda: engine_instance.sync_trade_history(start, end))
-            
+
             return {"status": "ok", "message": f"Synced {count} trades.", "count": count}
         except Exception as e:
             return {"status": "error", "message": str(e)}
-            
+
     return {"status": "error", "message": "Engine not initialized"}
 
 @app.websocket("/ws/backtest")
@@ -925,13 +908,13 @@ async def backtest_websocket(websocket: WebSocket):
     try:
         # 1. Receive Configuration
         data = await websocket.receive_json()
-        
+
         strategy_id = data.get("strategy_id")
         symbol = data.get("symbol")
         start = data.get("start")
         end = data.get("end")
         initial_cash = int(data.get("initial_cash", 100000000))
-        
+
         if not engine_instance:
              await websocket.send_json({"type": "error", "message": "Engine not initialized"})
              return
@@ -940,18 +923,18 @@ async def backtest_websocket(websocket: WebSocket):
         def progress_callback(event_type, payload):
             # Run in main loop
             asyncio.run_coroutine_threadsafe(
-                websocket.send_json({"type": event_type, "data": payload}), 
+                websocket.send_json({"type": event_type, "data": payload}),
                 server_loop
             )
 
         # 2. Run Backtest (Blocking, so run in Executor)
         # engine_instance.run_backtest is synchronous
         loop = asyncio.get_running_loop()
-        
+
         result = await loop.run_in_executor(
-            None, 
+            None,
             lambda: engine_instance.run_backtest(
-                strategy_id, symbol, start, end, initial_cash, 
+                strategy_id, symbol, start, end, initial_cash,
                 progress_callback=progress_callback
             )
         )
@@ -961,7 +944,7 @@ async def backtest_websocket(websocket: WebSocket):
              await websocket.send_json({"type": "error", "message": result["error"]})
         else:
              await websocket.send_json({"type": "result", "result": result})
-             
+
     except WebSocketDisconnect:
         logger.info("Backtest WebSocket disconnected")
     except Exception as e:
