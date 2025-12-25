@@ -184,8 +184,12 @@ async def get_market_data_batch(request: Request):
         md = engine_instance.market_data
 
         def _fetch_batch_data():
+            import time
             results = []
             for symbol in symbols:
+                # [Throttle] Pace requests to prevent "Global Rate Limit" bursts
+                time.sleep(0.2)
+
                 try:
                     # 1. Basic Info (Name, Price)
                     name = md.get_stock_name(symbol)
