@@ -40,6 +40,7 @@ class DatabaseManager:
             connect_args = {}
             if self.db_url.startswith('sqlite'):
                 connect_args['check_same_thread'] = False
+                connect_args['timeout'] = 10 # Increase timeout to 10s to reduce locking errors
                 
             self.engine = create_engine(self.db_url, pool_pre_ping=True, connect_args=connect_args)
             
