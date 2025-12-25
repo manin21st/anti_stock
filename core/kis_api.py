@@ -186,10 +186,8 @@ class RateLimiter:
             is_expired_token = False
 
             try:
-                # Suppress external library prints
-                with open(os.devnull, 'w') as devnull:
-                    with contextlib.redirect_stdout(devnull):
-                            result = func(*args, **kwargs)
+                # Do NOT suppress output to avoid I/O on closed file in threads
+                result = func(*args, **kwargs)
 
                 # Check for Rate Limit Error (EGW00201)
                 if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
@@ -235,7 +233,7 @@ class RateLimiter:
             if is_rate_limit:
                 # [Strict Mode] Infinite Retry for Rate Limits
                 backoff_time = 2.0 + random.uniform(0.0, 1.0)
-                logger.warning(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s and retrying...")
+                logger.debug(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s and retrying...")
                 time.sleep(backoff_time)
                 # Do NOT increment attempt count to prevent exhaustion for Rate Limit
                 continue
