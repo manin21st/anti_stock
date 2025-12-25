@@ -1,7 +1,7 @@
 import os
 import yaml
 import logging
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, scoped_session
 from core.models import Base
 
@@ -40,14 +40,23 @@ class DatabaseManager:
             connect_args = {}
             if self.db_url.startswith('sqlite'):
                 connect_args['check_same_thread'] = False
-                connect_args['timeout'] = 10 # Increase timeout to 10s to reduce locking errors
+                connect_args['timeout'] = 15 # Increase timeout to 15s
                 
             self.engine = create_engine(self.db_url, pool_pre_ping=True, connect_args=connect_args)
             
+            # Enable WAL Mode for SQLite (High Concurrency)
+            if self.db_url.startswith('sqlite'):
+                @event.listens_for(self.engine, "connect")
+                def set_sqlite_pragma(dbapi_connection, connection_record):
+                    cursor = dbapi_connection.cursor()
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.execute("PRAGMA synchronous=NORMAL")
+                    cursor.close()
+
             # Create Session Factory
             self.Session = scoped_session(sessionmaker(bind=self.engine))
             
-            logger.info(f"DatabaseManager initialized with {self.db_url.split('@')[-1]}")
+            logger.info(f"DatabaseManager initialized with {self.db_url.split('@')[-1]} (WAL Mode Enabled)")
             
         except Exception as e:
             logger.error(f"Database Initialization Failed: {e}")

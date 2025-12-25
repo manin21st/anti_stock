@@ -37,26 +37,26 @@ class RateLimiter:
             self.tps_limit = float(os.environ.get("TPS_LIMIT", 2.0))
         except ValueError:
             self.tps_limit = 2.0
-            
+
         self.min_interval = 1.0 / max(self.tps_limit, 0.1)  # Prevent division by zero
         self.last_call_time = 0.0
         self.lock = threading.Lock()
-        
+
         # TPS Server Config
         self.server_url = os.environ.get("TPS_SERVER_URL", "http://localhost:9000")
-        self.use_server = False 
-        self.server_alive = True 
-        self.server_fail_count = 0 
-        self.logged_server_error = False 
-        
+        self.use_server = False
+        self.server_alive = True
+        self.server_fail_count = 0
+        self.logged_server_error = False
+
         # Generate Client ID (Hostname + PID)
         import socket
         self.client_id = f"{socket.gethostname()}-{os.getpid()}"
-        
+
         logger.debug(f"[RateLimiter] Initialized with TPS_LIMIT={self.tps_limit} (Interval: {self.min_interval:.3f}s)")
         # Check if we should try to use server (if explicitly set or default)
         # We will try lazily in execute
-        
+
     def set_limit(self, tps_limit: float):
         """Update TPS Limit dynamically"""
         with self.lock:
@@ -86,7 +86,7 @@ class RateLimiter:
             headers = {"X-Client-ID": self.client_id}
             # Increased timeout to 1.0s to prevent flapping during burst requests (e.g. Watchlist load)
             resp = requests.get(f"{self.server_url}/token", headers=headers, timeout=1.0)
-            
+
             if resp.status_code == 200:
                 if not self.server_alive:
                      self.server_alive = True
@@ -97,7 +97,7 @@ class RateLimiter:
                 return False
             else:
                 return False # Treat other codes as limit exceeded or error? Let's say False to backoff.
-                
+
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
             if not self.logged_server_error:
                 logger.warning(f"[RateLimiter] TPS Server Unreachable ({self.server_url}). Switching to Local Mode.")
@@ -111,7 +111,7 @@ class RateLimiter:
         """Fetch statistics from TPS Server"""
         if not self.use_server and self.server_url == "http://localhost:9000":
              return {"status": "local", "current_tps": self.tps_limit}
-             
+
         try:
             headers = {"X-Client-ID": self.client_id}
             resp = requests.get(f"{self.server_url}/stats", headers=headers, timeout=1.0)
@@ -141,19 +141,23 @@ class RateLimiter:
         Executes the function with Rate Limiting Lock held.
         STRICT MODE: Only execute if TPS Server facilitates it.
         """
-        max_retries = 3 
-        attempt = 0 
-        
+        max_retries = 3
+        attempt = 0
+
         should_retry = True
         while should_retry:
-            
+
             # Phase 1: Acquire Token from Server (Blocking until success)
             token_granted = False
-            
+
             while not token_granted:
-                with self.lock:
-                    server_status = self._request_token_from_server()
-                
+                # IMPORTANT: DO NOT SLEEP INSIDE LOCK
+                # Request token logic should be fast.
+                # If server connection hangs, requests.get timeout handles it.
+
+                # Removed lock here to allow concurrent token requests
+                server_status = self._request_token_from_server()
+
                 if server_status is True:
                     token_granted = True
                 elif server_status is False:
@@ -165,108 +169,94 @@ class RateLimiter:
                      if not self.logged_server_error:
                          logger.warning("[RateLimiter] TPS 서버 연결 끊김. 대기 중...")
                          self.logged_server_error = True
-                     
+
                      time.sleep(1.0)
-            
+
             # Token Granted. Reset error flag if we recovered
             if self.logged_server_error:
                 logger.info("[RateLimiter] TPS 서버 재연결됨.")
                 self.logged_server_error = False
-                
+
             # Phase 2: Execute
-            # We don't necessarily need the lock during execution if server handles rate limiting.
-            # But the 'func' itself used to be protected by lock in original code to sequentialize.
-            # If TPS server gives tokens concurrently, we might run concurrently.
-            # Assuming 'func' is thread-safe or we accept concurrency (TPS server's job to limit rate).
-            # The original code re-acquired lock. Let's keep it safe.
-            
-            with self.lock:
-                try:
-                    # Suppress external library prints
-                    with open(os.devnull, 'w') as devnull:
-                        with contextlib.redirect_stdout(devnull):
-                             result = func(*args, **kwargs)
-                    
-                    # Check for Rate Limit Error (EGW00201) just in case server logic was loose
-                    is_rate_limit = False
-                    if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
-                        is_rate_limit = True
-                    elif hasattr(result, 'getErrorMessage'):
-                         msg = result.getErrorMessage()
-                         if msg and "EGW00201" in msg:
-                             is_rate_limit = True
+            # Removed lock around execution to allow concurrency
 
-                    if is_rate_limit:
-                        # [Strict Mode] Infinite Retry for Rate Limits
-                        # If Broker rejects us, we MUST wait. No failing allowed.
-                        backoff_time = 2.0 + random.uniform(0.0, 1.0)
-                        logger.warning(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s and retrying...")
-                        time.sleep(backoff_time)
-                        # Do NOT increment attempt count to prevent exhaustion
-                        continue
-                            
-                    # 4. Check for Expired Token (EGW00123)
-                    is_expired_token = False
-                    if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00123":
-                        is_expired_token = True
-                    elif hasattr(result, 'getErrorMessage'):
+            result = None
+            exception = None
+            is_rate_limit = False
+            is_expired_token = False
+
+            try:
+                # Suppress external library prints
+                with open(os.devnull, 'w') as devnull:
+                    with contextlib.redirect_stdout(devnull):
+                            result = func(*args, **kwargs)
+
+                # Check for Rate Limit Error (EGW00201)
+                if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
+                    is_rate_limit = True
+                elif hasattr(result, 'getErrorMessage'):
                         msg = result.getErrorMessage()
-                        if msg and "EGW00123" in msg:
-                            is_expired_token = True
-                            
-                    if is_expired_token:
-                        if attempt < max_retries:
-                            logger.debug(f"[RateLimiter] Token expired (EGW00123). Re-authenticating...")
-                            try:
-                                if hasattr(ka, 'token_tmp') and os.path.exists(ka.token_tmp):
-                                    os.remove(ka.token_tmp)
-                            except Exception:
-                                pass
+                        if msg and "EGW00201" in msg:
+                            is_rate_limit = True
 
-                            svr = "vps" if ka.isPaperTrading() else "prod"
-                            ka.auth(svr=svr)
-                            self.last_call_time = time.time()
-                            # Loop back
-                        else:
-                            logger.error("[RateLimiter] Max retries exceeded for token expiration.")
+                # Check for Expired Token (EGW00123)
+                if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00123":
+                    is_expired_token = True
+                elif hasattr(result, 'getErrorMessage'):
+                    msg = result.getErrorMessage()
+                    if msg and "EGW00123" in msg:
+                        is_expired_token = True
 
-                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                    if attempt < max_retries:
-                         # Connection error -> Retry
-                         is_rate_limit = True # Force retry path
-                         pass
-                    else:
-                        raise e
-                except Exception as e:
+                if is_expired_token and attempt < max_retries:
+                    # Re-auth needs locking to prevent race conditions
+                    with self.lock:
+                        logger.debug(f"[RateLimiter] Token expired (EGW00123). Re-authenticating...")
+                        try:
+                            if hasattr(ka, 'token_tmp') and os.path.exists(ka.token_tmp):
+                                os.remove(ka.token_tmp)
+                        except Exception:
+                            pass
+
+                        svr = "vps" if ka.isPaperTrading() else "prod"
+                        ka.auth(svr=svr)
+                        self.last_call_time = time.time()
+
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                exception = e
+                if attempt < max_retries:
+                        is_rate_limit = True # Treat connection error as reason to retry
+                else:
                     raise e
-            
-            # Post-Execution: Handle Retries (Sleep OUTSIDE lock)
-            if 'is_rate_limit' in locals() and is_rate_limit and attempt < max_retries:
-                if 'backoff_time' not in locals(): # Connection error backoff
-                    backoff_time = 1.0 * (attempt + 1)
+            except Exception as e:
+                raise e
+
+            # Phase 3: Handle Results & Retries
+
+            if is_rate_limit:
+                # [Strict Mode] Infinite Retry for Rate Limits
+                backoff_time = 2.0 + random.uniform(0.0, 1.0)
+                logger.warning(f"[RateLimiter] Rate limit exceeded (EGW00201). Backing off {backoff_time:.2f}s and retrying...")
                 time.sleep(backoff_time)
-                attempt += 1 # Increment attempt
-                continue
-                
-            if 'is_expired_token' in locals() and is_expired_token and attempt < max_retries:
-                attempt += 1 # Increment attempt
+                # Do NOT increment attempt count to prevent exhaustion for Rate Limit
                 continue
 
-            # Return success
-            if 'result' in locals():
-                return result
-            
-            # If we fell through due to retries running out without result?
-            if attempt >= max_retries:
-                 # Last result might be available if it was rate limit error
-                 if 'result' in locals():
-                     return result
-                 return None
-            
-            should_retry = False # Should not happen unless logic bug
-        
+            if is_expired_token:
+                attempt += 1
+                continue
+
+            if exception:
+                if attempt < max_retries:
+                    time.sleep(1.0 * (attempt + 1))
+                    attempt += 1
+                    continue
+                else:
+                    raise exception
+
+            # Return success or failure result
+            return result
+
         return None
-                    
+
 # Global Instance
 rate_limiter = RateLimiter()
 
@@ -279,7 +269,7 @@ def auth(svr="prod", product=None, url=None, force=False):
         kwargs["product"] = product
     if url is not None:
         kwargs["url"] = url
-    
+
     if force:
         try:
             token_file = ka.token_tmp
@@ -287,9 +277,9 @@ def auth(svr="prod", product=None, url=None, force=False):
                 os.remove(token_file)
         except Exception:
             pass
-        
+
     ka.auth(**kwargs)
-    
+
     if rate_limiter:
         rate_limiter.last_call_time = time.time()
 
@@ -347,9 +337,9 @@ def fetch_price(symbol: str) -> Dict[str, Any]:
         "FID_COND_MRKT_DIV_CODE": "J",
         "FID_INPUT_ISCD": symbol
     }
-    
+
     res = rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params)
-    
+
     if res.isOK():
         return res.getBody().output
     else:
@@ -370,7 +360,7 @@ def fetch_daily_chart(symbol: str, start_dt: str, end_dt: str, lookback: int = 1
         "FID_PERIOD_DIV_CODE": "D",
         "FID_ORG_ADJ_PRC": "1"
     }
-    
+
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params)
 
 def fetch_minute_chart(symbol: str, current_time: str) -> Any:
@@ -386,7 +376,7 @@ def fetch_minute_chart(symbol: str, current_time: str) -> Any:
         "FID_PW_DATA_INCU_YN": "Y",
         "FID_ETC_CLS_CODE": ""
     }
-    
+
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params)
 
 def fetch_past_minute_chart(symbol: str, date: str, time: str, period_code: str = "N") -> Any:
@@ -402,12 +392,12 @@ def fetch_past_minute_chart(symbol: str, date: str, time: str, period_code: str 
         "FID_INPUT_HOUR_1": time,     # HHMMSS
         "FID_INPUT_DATE_1": date,     # YYYYMMDD
         "FID_PW_DATA_INCU_YN": period_code, # N: Current, Y: Past? No, this TR uses N usually.
-        # Actually API docs say: FID_PW_DATA_INCU_YN: Past data include Y/N. 
+        # Actually API docs say: FID_PW_DATA_INCU_YN: Past data include Y/N.
         # But for this specific TR FHKST03010230, it iterates backwards from the given time/date?
         # Let's verify parameter names from the example.
         "FID_FAKE_TICK_INCU_YN": ""
     }
-    
+
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", tr_id, "", params)
 
 def send_order(tr_id: str, params: Dict[str, str]) -> Any:
@@ -434,16 +424,16 @@ def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "", ctx_area_fk: 
     # Determine Environment and TR_ID
     # Simplified logic: Assuming 'inner' period (within 3 months) which is standard usage
     # For 'real' env: TTTC0081R, For 'paper' env: VTTC0081R
-    
+
     is_paper = is_paper_trading()
     tr_id = "VTTC0081R" if is_paper else "TTTC0081R"
-    
+
     # We need account info. In kis_auth, it's stored in global vars, but better to fetch or pass.
     # Assuming ka.getTREnv() has account details
     env = ka.getTREnv()
     cano = env.my_acct
     acnt_prdt_cd = env.my_prod
-    
+
     params = {
         "CANO": cano,
         "ACNT_PRDT_CD": acnt_prdt_cd,
@@ -461,7 +451,7 @@ def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "", ctx_area_fk: 
         "CTX_AREA_FK100": ctx_area_fk,
         "CTX_AREA_NK100": ctx_area_nk
     }
-    
+
     # Use _url_fetch directly via rate_limiter
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-daily-ccld", tr_id, "", params)
 
@@ -474,11 +464,11 @@ def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_a
     is_paper = is_paper_trading()
     tr_id = "VTTC8708R" if is_paper else "TTTC8708R"
     # tr_id = "TTTC8708R"
-    
+
     env = ka.getTREnv()
     cano = env.my_acct
     acnt_prdt_cd = env.my_prod
-    
+
     params = {
         "CANO": cano,
         "ACNT_PRDT_CD": acnt_prdt_cd,
@@ -490,9 +480,9 @@ def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_a
         "CTX_AREA_FK100": ctx_area_fk,
         "CTX_AREA_NK100": ctx_area_nk
     }
-    
+
     # PDNO is optional, some APIs error if sent as empty string
     # But domestic_stock_functions.py sends it.
     # Let's try sending it ONLY if not empty.
-    
+
     return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-period-profit", tr_id, "", params)

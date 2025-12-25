@@ -129,10 +129,6 @@ async def logout(request: Request):
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
 # Watchlist & Stock Master APIs
 @app.get("/api/stocks")
 async def get_all_stocks():
@@ -157,7 +153,8 @@ async def update_watchlist(request: Request):
     data = await request.json()
     new_list = data.get("watchlist", [])
     if engine_instance:
-        engine_instance.update_watchlist(new_list)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, engine_instance.update_watchlist, new_list)
         return {"status": "ok", "count": len(new_list)}
     return {"status": "error", "message": "Engine not initialized"}
 
@@ -166,7 +163,8 @@ async def import_watchlist():
     """Import from Broker"""
     if engine_instance:
         try:
-            total, added = engine_instance.import_broker_watchlist()
+            loop = asyncio.get_running_loop()
+            total, added = await loop.run_in_executor(None, engine_instance.import_broker_watchlist)
             return {"status": "ok", "total": total, "added": added}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -182,91 +180,78 @@ async def get_market_data_batch(request: Request):
     data = await request.json()
     symbols = data.get("symbols", [])
 
-    results = []
     if engine_instance and engine_instance.market_data:
         md = engine_instance.market_data
 
-        for symbol in symbols:
-            try:
-                # 1. Basic Info (Name, Price)
-                name = md.get_stock_name(symbol)
-                # Fetch current price via API or Cache?
-                # Using get_last_price uses cache if simulation or API fetch
-                # For batch list, calling fetch_price sequentially is slow (approx 0.1-0.2s per call)
-                # If polling is active, we might have it in memory?
-                # md doesn't cache 'last_price' globally except for real-time tick subscribers.
-                # However, get_last_price calls API.
-                # Use a lightweight fetch?
-                # Optimization: Should we rely on client to get price from websocket?
-                # The user wants "Grid" with data. Initial load needs REST.
+        def _fetch_batch_data():
+            results = []
+            for symbol in symbols:
+                try:
+                    # 1. Basic Info (Name, Price)
+                    name = md.get_stock_name(symbol)
 
-                # Fetch Daily Bars for MA20 & Sparkline (Cached)
-                # Lookback 30 days
-                df = md.get_bars(symbol, timeframe="1d", lookback=30)
+                    # Fetch Daily Bars for MA20 & Sparkline (Cached)
+                    # Lookback 30 days
+                    # This is the heavy part (DB/API I/O)
+                    df = md.get_bars(symbol, timeframe="1d", lookback=30)
 
-                current_price = 0
-                change_rate = 0
-                ma20 = 0
-                sparkline = []
+                    current_price = 0
+                    change_rate = 0
+                    ma20 = 0
+                    sparkline = []
 
-                # Check Holding Status
-                is_held = False
-                if engine_instance and engine_instance.portfolio:
-                    if symbol in engine_instance.portfolio.positions:
-                        is_held = True
+                    # Check Holding Status
+                    is_held = False
+                    if engine_instance and engine_instance.portfolio:
+                        if symbol in engine_instance.portfolio.positions:
+                            is_held = True
 
-                if not df.empty:
-                    # Sparkline: Close prices
-                    # Ensure JSON serializable
-                    sparkline = df['close'].tolist()
+                    if not df.empty:
+                        # Sparkline: Close prices
+                        sparkline = df['close'].tolist()
 
-                    # MA20: Calculate from last 20 close prices
-                    if len(df) >= 20:
-                        ma20 = df['close'].tail(20).mean()
-                    else:
-                        ma20 = df['close'].mean() # Approx
+                        # MA20: Calculate from last 20 close prices
+                        if len(df) >= 20:
+                            ma20 = df['close'].tail(20).mean()
+                        else:
+                            ma20 = df['close'].mean() # Approx
 
-                    # Get Current Price from latest bar?
-                    # If market is open, latest bar might be yesterday's close if get_bars doesn't include today?
-                    # get_bars logic: daily chart usually includes today if market open.
+                        last_bar = df.iloc[-1]
+                        current_price = float(last_bar['close'])
 
-                    last_bar = df.iloc[-1]
-                    current_price = float(last_bar['close'])
+                        # Calculate change rate (vs prev day)
+                        if len(df) >= 2:
+                            prev_close = float(df.iloc[-2]['close'])
+                            if prev_close > 0:
+                                change_rate = (current_price - prev_close) / prev_close * 100
 
-                    # Calculate change rate (vs prev day)
-                    if len(df) >= 2:
-                        prev_close = float(df.iloc[-2]['close'])
-                        if prev_close > 0:
-                            change_rate = (current_price - prev_close) / prev_close * 100
+                    item = {
+                        "no": 0, # Frontend will assign
+                        "name": name,
+                        "code": symbol,
+                        "price": current_price,
+                        "change_rate": round(change_rate, 2),
+                        "ma20": round(ma20, 0),
+                        "sparkline": sparkline,
+                        "is_held": is_held
+                    }
+                    results.append(item)
 
-                # If real-time price is needed (and faster/newer than daily bar), fetch it?
-                # For "Watchlist", user expects real-time.
-                # But calling API for 20 stocks take 2-4 seconds.
-                # Ideally we rely on WebSocket for updates, and this API for initial state.
-                # Let's rely on Daily Bar for 'History' (Sparkline/MA20)
-                # and try to get Real-time price if possible, or just use Daily Close.
+                except Exception as e:
+                    logger.error(f"Error fetching data for {symbol}: {e}")
+                    results.append({
+                        "code": symbol,
+                        "error": str(e),
+                        "name": md.get_stock_name(symbol)
+                    })
+            return results
 
-                item = {
-                    "no": 0, # Frontend will assign
-                    "name": name,
-                    "code": symbol,
-                    "price": current_price,
-                    "change_rate": round(change_rate, 2),
-                    "ma20": round(ma20, 0),
-                    "sparkline": sparkline,
-                    "is_held": is_held
-                }
-                results.append(item)
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(None, _fetch_batch_data)
 
-            except Exception as e:
-                logger.error(f"Error fetching data for {symbol}: {e}")
-                results.append({
-                    "code": symbol,
-                    "error": str(e),
-                    "name": md.get_stock_name(symbol)
-                })
+        return {"status": "ok", "data": results}
 
-    return {"status": "ok", "data": results}
+    return {"status": "ok", "data": []}
 
 @app.get("/api/config")
 async def get_config():
@@ -416,8 +401,6 @@ async def control_engine(action: dict):
         elif cmd == "restart":
             # Restart triggers re-init in the main loop
             engine_instance.restart()
-    return {"status": "ok"}
-
     return {"status": "ok"}
 
 @app.get("/api/checklist")
