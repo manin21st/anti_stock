@@ -18,6 +18,7 @@ from core.dao import TradeDAO, WatchlistDAO
 from utils.telegram import TelegramBot
 from core.config_manager import ConfigManager
 from core.trade_manager import TradeManager
+from core.universe_manager import UniverseManager
 from core.backtester import Backtester
 from datetime import datetime
 
@@ -61,6 +62,7 @@ class Engine:
         
         # 4. Managers
         self.trade_manager = TradeManager(telegram_bot=self.telegram)
+        self.universe_manager = UniverseManager(self.system_config, self.market_data, self.scanner, self.portfolio)
         self.backtester = Backtester(self.config, {}) # strategy_classes will be filled later
 
         self.strategies = {} # strategy_id -> Strategy Instance
@@ -72,7 +74,6 @@ class Engine:
         self.is_running = False
         self.is_trading = False
         self.restart_requested = False
-        self.last_scan_time = 0
         self.last_sync_time = 0
         self._last_wait_log_time = 0
         
@@ -85,8 +86,8 @@ class Engine:
         self.portfolio.on_position_change.append(lambda x: self.trade_manager.record_position_event(x, self.market_data))
 
         # Watchlist Management
-        self.watchlist = []
-        self._load_watchlist() 
+        self.universe_manager.load_watchlist()
+
         # Database Warm-up
         self._warmup_db()
 
@@ -94,6 +95,11 @@ class Engine:
     def trade_history(self):
         """Proxy to trade_manager.trade_history for backward compatibility"""
         return self.trade_manager.trade_history
+
+    @property
+    def watchlist(self):
+        """Proxy to universe_manager.watchlist"""
+        return self.universe_manager.watchlist
 
     def _warmup_db(self):
         """Force DB connection establishment to avoid lazy loading delay on first UI request"""
@@ -113,77 +119,13 @@ class Engine:
         except Exception as e:
             logger.warning(f"Database Warm-up failed (will retry on demand): {e}")
 
-    def _load_watchlist(self):
-        """Load watchlist from Database"""
-        try:
-            self.watchlist = WatchlistDAO.get_all_symbols()
-            logger.debug(f"Loaded Watchlist: {len(self.watchlist)} items from Database")
-        except Exception as e:
-            logger.error(f"Failed to load watchlist: {e}")
-            self.watchlist = []
-
-    def _migrate_legacy_universe(self):
-        """Migrate legacy 'universe' config to watchlist.json"""
-        legacy_universe = self.system_config.get("universe", [])
-        if legacy_universe:
-            logger.info(f"Migrating legacy universe ({len(legacy_universe)} items) to Watchlist...")
-            
-            current_set = set(self.watchlist)
-            for code in legacy_universe:
-                current_set.add(str(code).zfill(6))
-            
-            self.watchlist = list(current_set)
-            
-            # DB Sync
-            for s in self.watchlist:
-                WatchlistDAO.add_symbol(s)
-                
-            # Clear legacy config
-            self.update_system_config({"universe": []})
-            logger.info("Legacy universe migration completed.")
-
     def import_broker_watchlist(self):
-        """Import watchlist from Broker (HTS Groups)"""
-        try:
-            logger.info("Importing Broker Watchlist...")
-            imported = self.scanner.get_watchlist() # Fetches from API
-            if imported:
-                current_set = set(self.watchlist)
-                count_before = len(current_set)
-                for code in imported:
-                    current_set.add(str(code).zfill(6))
-                
-                self.watchlist = list(current_set)
-                
-                for s in self.watchlist:
-                    WatchlistDAO.add_symbol(s)
-                
-                added = len(current_set) - count_before
-                logger.info(f"Imported {len(imported)} items from Broker. (New: {added})")
-                return len(imported), added
-            return 0, 0
-        except Exception as e:
-            logger.error(f"Failed to import broker watchlist: {e}")
-            raise e
+        """Import watchlist from Broker"""
+        return self.universe_manager.import_broker_watchlist()
 
     def update_watchlist(self, new_list: List[str]):
         """Update entire watchlist"""
-        self.watchlist = [str(x).zfill(6) for x in new_list]
-        
-        # DB Sync (Full Replace)
-        current_db = set(WatchlistDAO.get_all_symbols())
-        new_set = set(self.watchlist)
-        
-        to_add = new_set - current_db
-        to_remove = current_db - new_set
-        
-        for s in to_add:
-            WatchlistDAO.add_symbol(s)
-        for s in to_remove:
-            WatchlistDAO.remove_symbol(s)
-
-        # Trigger subscription update immediately
-        self._update_universe()
+        self.universe_manager.update_watchlist(new_list)
         # If trading is active, ensure polling is updated
         if self.is_trading and not self.market_data.is_polling:
              self.market_data.start_polling()
@@ -318,7 +260,7 @@ class Engine:
 
                         # 3. Initial Universe Scan (Only if Market is Open)
                         if self._is_trading_hour():
-                            self._update_universe()
+                            self.universe_manager.update_universe()
                             
                             # Log Initial Universe
                             if hasattr(self.market_data, 'polling_symbols'):
@@ -369,8 +311,8 @@ class Engine:
 
                     # Periodic Scanner Update
                     if self.system_config.get("use_auto_scanner", False):
-                        if time.time() - self.last_scan_time > 60: 
-                            self._update_universe()
+                        if time.time() - self.universe_manager.last_scan_time > 60:
+                            self.universe_manager.update_universe()
                             # Check if polling is needed
                             if self.is_trading and not self.market_data.is_polling:
                                 self.market_data.start_polling()
@@ -443,74 +385,6 @@ class Engine:
             
         return True
 
-    def _update_universe(self):
-        """Update stock universe based on config or scanner"""
-        universe = []
-        
-        # Increase scanner interval check to 120s to be safe
-        if self.system_config.get("use_auto_scanner", False):
-            # Also check if we just scanned recently (double check timestamp)
-            if time.time() - self.last_scan_time < 60:
-                return
-
-            mode = self.system_config.get("scanner_mode", "volume")
-            logger.info(f"Auto-Scanner running... Mode: {mode}")
-            
-            try:
-                if mode == "volume":
-                    items = self.scanner.get_trading_value_leaders(limit=50)
-                else:
-                    items = self.scanner.get_top_gainers(limit=50)
-                
-                scanned_symbols = []
-                if items:
-                    for item in items:
-                        if isinstance(item, dict) and "symbol" in item:
-                            scanned_symbols.append(item["symbol"])
-                        else:
-                            logger.warning(f"Scanner returned invalid item: {item}")
-
-                logger.info(f"Scanner found {len(scanned_symbols)} stocks: {scanned_symbols}")
-                
-                api_watchlist = getattr(self, 'cached_watchlist', [])
-                
-                if self.watchlist:
-                    full_watchlist = set(self.watchlist)
-                else:
-                    full_watchlist = set(api_watchlist)
-                
-                watchlist = list(full_watchlist)
-                
-                if watchlist:
-                    watchlist = [str(x).zfill(6) for x in watchlist]
-                    universe = [s for s in scanned_symbols if s in watchlist]
-                    logger.info(f"Filtered by Watchlist: {len(universe)} stocks selected {universe}")
-                else:
-                    logger.warning("Auto-Scanner is on, but Watchlist is empty. No stocks selected.")
-                    universe = []
-
-            except Exception as e:
-                logger.error(f"Scanner failed: {e}")
-                universe = []
-        else:
-            universe = self.watchlist
-            logger.info(f"Using manual universe (Watchlist): {universe}")
-            
-        subscription_list = set(universe) if universe else set()
-        
-        if self.watchlist:
-            subscription_list.update(self.watchlist)
-        
-        if self.portfolio.positions:
-            holdings = [str(s).zfill(6) for s in self.portfolio.positions.keys()]
-            subscription_list.update(holdings)
-            logger.info(f"Added {len(holdings)} holdings to subscription list: {holdings}")
-            
-        if subscription_list:
-            final_list = [str(x).zfill(6) for x in subscription_list]
-            self.market_data.subscribe_market_data(final_list)
-        
-        self.last_scan_time = time.time()
 
     def register_strategy(self, strategy_class, strategy_id: str):
         """Register a strategy class"""

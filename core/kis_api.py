@@ -155,8 +155,8 @@ class RateLimiter:
                 # Request token logic should be fast.
                 # If server connection hangs, requests.get timeout handles it.
 
-                with self.lock:
-                    server_status = self._request_token_from_server()
+                # Removed lock here to allow concurrent token requests
+                server_status = self._request_token_from_server()
 
                 if server_status is True:
                     token_granted = True
@@ -178,39 +178,38 @@ class RateLimiter:
                 self.logged_server_error = False
 
             # Phase 2: Execute
-            # Execute with Lock to ensure sequential requests if needed by underlying lib?
-            # KIS Auth lib relies on global vars somewhat, but requests are stateless mostly.
-            # However, to be safe and prevent race conditions in token renewal logic inside kis_auth:
+            # Removed lock around execution to allow concurrency
 
             result = None
             exception = None
             is_rate_limit = False
             is_expired_token = False
 
-            with self.lock:
-                try:
-                    # Suppress external library prints
-                    with open(os.devnull, 'w') as devnull:
-                        with contextlib.redirect_stdout(devnull):
-                             result = func(*args, **kwargs)
+            try:
+                # Suppress external library prints
+                with open(os.devnull, 'w') as devnull:
+                    with contextlib.redirect_stdout(devnull):
+                            result = func(*args, **kwargs)
 
-                    # Check for Rate Limit Error (EGW00201)
-                    if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
-                        is_rate_limit = True
-                    elif hasattr(result, 'getErrorMessage'):
-                         msg = result.getErrorMessage()
-                         if msg and "EGW00201" in msg:
-                             is_rate_limit = True
-
-                    # Check for Expired Token (EGW00123)
-                    if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00123":
-                        is_expired_token = True
-                    elif hasattr(result, 'getErrorMessage'):
+                # Check for Rate Limit Error (EGW00201)
+                if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
+                    is_rate_limit = True
+                elif hasattr(result, 'getErrorMessage'):
                         msg = result.getErrorMessage()
-                        if msg and "EGW00123" in msg:
-                            is_expired_token = True
+                        if msg and "EGW00201" in msg:
+                            is_rate_limit = True
 
-                    if is_expired_token and attempt < max_retries:
+                # Check for Expired Token (EGW00123)
+                if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00123":
+                    is_expired_token = True
+                elif hasattr(result, 'getErrorMessage'):
+                    msg = result.getErrorMessage()
+                    if msg and "EGW00123" in msg:
+                        is_expired_token = True
+
+                if is_expired_token and attempt < max_retries:
+                    # Re-auth needs locking to prevent race conditions
+                    with self.lock:
                         logger.debug(f"[RateLimiter] Token expired (EGW00123). Re-authenticating...")
                         try:
                             if hasattr(ka, 'token_tmp') and os.path.exists(ka.token_tmp):
@@ -221,19 +220,17 @@ class RateLimiter:
                         svr = "vps" if ka.isPaperTrading() else "prod"
                         ka.auth(svr=svr)
                         self.last_call_time = time.time()
-                        # Retry immediately (loop back) but we need to release lock first
-                        # Set flag to retry
 
-                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                    exception = e
-                    if attempt < max_retries:
-                         is_rate_limit = True # Treat connection error as reason to retry
-                    else:
-                        raise e
-                except Exception as e:
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                exception = e
+                if attempt < max_retries:
+                        is_rate_limit = True # Treat connection error as reason to retry
+                else:
                     raise e
+            except Exception as e:
+                raise e
 
-            # Phase 3: Handle Results & Retries (OUTSIDE LOCK)
+            # Phase 3: Handle Results & Retries
 
             if is_rate_limit:
                 # [Strict Mode] Infinite Retry for Rate Limits
