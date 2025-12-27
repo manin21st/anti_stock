@@ -10,9 +10,12 @@
                     과정</a>
             </div>
             <form id="backtest-form" class="config-grid">
-                <div class="form-group">
-                    <label>종목 코드</label>
-                    <input type="text" id="bt-symbol" value="005930" placeholder="예: 005930">
+                <div class="form-group" style="position: relative;"> <!-- Added relative for absolute child -->
+                    <label>종목 코드 (검색)</label>
+                    <div class="autocomplete-wrapper">
+                        <input type="text" id="bt-symbol" value="005930" placeholder="종목명/코드 검색" autocomplete="off">
+                        <div id="bt-symbol-list" class="autocomplete-items" style="display: none;"></div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>시작일</label>

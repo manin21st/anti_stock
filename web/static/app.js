@@ -521,6 +521,9 @@ function initBacktest() {
     const statusDiv = document.getElementById("bt-status"); // Changed ID in HTML
     const strategySelect = document.getElementById("bt-strategy-select");
 
+    // Load Stock Master List for Autocomplete
+    loadStockMasterList();
+
     // Populate Strategy Select
     Object.keys(strategyNames).forEach(key => {
         if (key === "common" || key === "system") return;
@@ -667,6 +670,117 @@ function initBacktest() {
             statusDiv.textContent = text;
             statusDiv.style.color = color || "inherit";
         }
+    }
+
+    async function loadStockMasterList() {
+        try {
+            const res = await fetch(`${API_BASE}/stocks`);
+            const stocks = await res.json();
+            // stocks: [{code, name}, ...]
+
+            // Init Autocomplete for Backtest
+            setupAutocomplete("bt-symbol", "bt-symbol-list", stocks);
+
+            // Init Autocomplete for Journal
+            setupAutocomplete("journal-symbol", "journal-symbol-list", stocks);
+
+            console.log(`Loaded ${stocks.length} stocks for search.`);
+        } catch (e) {
+            console.error("Failed to load stock list:", e);
+        }
+    }
+
+    function setupAutocomplete(inpId, listId, stockData) {
+        const inp = document.getElementById(inpId);
+        const listDiv = document.getElementById(listId);
+
+        if (!inp || !listDiv) return;
+
+        let currentFocus = -1;
+
+        inp.addEventListener("input", function (e) {
+            const val = this.value;
+            closeAllLists();
+            if (!val) return false;
+
+            currentFocus = -1;
+            listDiv.style.display = "block";
+
+            let count = 0;
+            const maxItems = 50;
+
+            for (let i = 0; i < stockData.length; i++) {
+                if (count >= maxItems) break;
+
+                const code = stockData[i].code;
+                const name = stockData[i].name;
+
+                if (code.includes(val) || name.toUpperCase().includes(val.toUpperCase())) {
+                    const item = document.createElement("div");
+                    item.innerHTML = `<strong>${name}</strong> <span style='font-size:0.9em; color:#888;'>(${code})</span>`;
+                    item.innerHTML += `<input type='hidden' value='${code}'>`;
+
+                    item.addEventListener("click", function (e) {
+                        inp.value = this.getElementsByTagName("input")[0].value;
+                        closeAllLists();
+                    });
+                    listDiv.appendChild(item);
+                    count++;
+                }
+            }
+
+            if (count === 0) {
+                const empty = document.createElement("div");
+                empty.textContent = "검색 결과 없음";
+                empty.style.color = "#aaa";
+                empty.style.padding = "10px";
+                listDiv.appendChild(empty);
+            }
+        });
+
+        inp.addEventListener("keydown", function (e) {
+            let x = listDiv.getElementsByTagName("div");
+            if (e.keyCode == 40) { // Down
+                currentFocus++;
+                addActive(x);
+            } else if (e.keyCode == 38) { // Up
+                currentFocus--;
+                addActive(x);
+            } else if (e.keyCode == 13) { // Enter
+                e.preventDefault();
+                if (currentFocus > -1) {
+                    if (x) x[currentFocus].click();
+                } else {
+                    closeAllLists();
+                }
+            }
+        });
+
+        function addActive(x) {
+            if (!x) return false;
+            removeActive(x);
+            if (currentFocus >= x.length) currentFocus = 0;
+            if (currentFocus < 0) currentFocus = (x.length - 1);
+            x[currentFocus].classList.add("autocomplete-active");
+            x[currentFocus].scrollIntoView({ block: "nearest" });
+        }
+
+        function removeActive(x) {
+            for (let i = 0; i < x.length; i++) {
+                x[i].classList.remove("autocomplete-active");
+            }
+        }
+
+        function closeAllLists(elmnt) {
+            listDiv.innerHTML = "";
+            listDiv.style.display = "none";
+        }
+
+        document.addEventListener("click", function (e) {
+            if (e.target !== inp) {
+                closeAllLists();
+            }
+        });
     }
 }
 

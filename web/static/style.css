@@ -451,7 +451,8 @@ a.btn-success {
     /* Allow shrink */
     max-height: 140px;
     /* Reduced fixed height */
-    overflow-y: hidden;
+    overflow-y: visible;
+    /* Changed from hidden to visible */
     /* No scroll needed if compact */
     display: flex;
     flex-direction: column;
@@ -506,6 +507,8 @@ a.btn-success {
 .config-grid input,
 .config-grid select {
     width: 100%;
+    box-sizing: border-box;
+    /* Fix for padding increasing width */
 }
 
 /* Span-2 override/removal implicitly handled by flex */
@@ -798,6 +801,49 @@ a.btn-success {
 }
 
 /* Checklist Popup */
+/* ... (existing checklist styles) ... */
+
+/* Custom Autocomplete Dropdown */
+.autocomplete-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.autocomplete-items {
+    position: absolute;
+    border: 1px solid #d4d4d4;
+    border-bottom: none;
+    border-top: none;
+    z-index: 1000;
+    /* Position the autocomplete items to be the same width as the container: */
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: #fff;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.autocomplete-items div {
+    padding: 10px;
+    cursor: pointer;
+    background-color: #fff;
+    border-bottom: 1px solid #d4d4d4;
+    font-size: 13px;
+    color: #333;
+}
+
+.autocomplete-items div:hover {
+    background-color: #e9e9e9;
+}
+
+.autocomplete-active {
+    background-color: DodgerBlue !important;
+    color: #ffffff;
+}
+
 .floating-popup {
     position: fixed;
     top: 100px;
