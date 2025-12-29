@@ -4,13 +4,7 @@ import time
 
 class MovingAverageTrendStrategy(BaseStrategy):
     def log_monitor(self, msg):
-        # Optimization: Only log if debug enabled or in backtest, OR every Nth call?
-        # Logging every bar for every symbol is heavy.
-        if not getattr(self.market_data, 'simulation_date', None):
-             # For real trading, log info to track progress but maybe throttle?
-             self.logger.info(msg)
-        else:
-             self.logger.debug(msg)
+        self.logger.info(msg)
 
     def on_bar(self, symbol, bar):
         # 1. Check Position & Exit Logic FIRST (Prioritize Selling)

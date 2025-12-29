@@ -18,6 +18,7 @@ class RiskManager:
 
     def can_open_new_position(self, symbol: str, qty: int, price: float) -> bool:
         """Check if new position can be opened safely"""
+        
         # 1. Daily Loss Check
         if not self.check_daily_loss():
             logger.warning("Risk Check Failed: Daily Loss Limit Reached")
@@ -30,11 +31,14 @@ class RiskManager:
             return False
 
         # 3. Financial Check (D+2 Deposit)
+        # RiskManager checks "Buying Power" (Deposit D+2)
+        # Broker might also check, but this is a pre-flight safety check.
         estimated_cost = qty * price * 1.0025
+        
         buying_power = self.portfolio.deposit_d2
 
         if buying_power < estimated_cost:
-            logger.warning(f"[매수 거부] {symbol} | 필요금액: {int(estimated_cost):,}원 | 가용 D+2: {int(buying_power):,}원")
+            logger.warning(f"[매수 거부] {symbol} | 필요금액: {int(estimated_cost):,}원 | D+2예수금: {int(buying_power):,}원")
             return False
 
         return True
@@ -45,8 +49,7 @@ class RiskManager:
         Returns True if SAFE (loss within limit), False if BREACHED.
         """
         if self.daily_start_equity <= 0:
-            # If not initialized, assume safe or try to fetch from portfolio if it looks like start of day?
-            # For now, safe default.
+            # If not initialized, assume safe.
             return True
 
         current_equity = self.portfolio.total_asset

@@ -49,6 +49,7 @@ system:
     chat_id: '7692999971'
     enable_system_alert: false
     enable_trade_alert: false
+  tps_limit: 2.0
   tps_server_url: https://tps.bhsong.org
   universe: []
   use_auto_scanner: true

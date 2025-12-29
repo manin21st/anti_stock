@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime
 from typing import List, Dict, Optional
 from core.dao import WatchlistDAO
 from core.scanner import Scanner
@@ -89,8 +90,42 @@ class UniverseManager:
         # Trigger subscription update immediately
         self.update_universe()
 
+    def _is_trading_hour(self) -> bool:
+        """Check if current time is within trading hours"""
+        # Dev mode bypass
+        if self.system_config.get("env_type") == "dev":
+            return True
+            
+        market_type = self.system_config.get("market_type", "KRX")
+        now = datetime.now()
+        
+        if market_type == "KRX":
+            # Weekend Check
+            if now.weekday() >= 5: return False
+            
+            # Time Check (09:00 ~ 15:30)
+            current_time = now.time()
+            start = now.replace(hour=9, minute=0, second=0, microsecond=0).time()
+            end = now.replace(hour=15, minute=30, second=0, microsecond=0).time()
+            return start <= current_time <= end
+        
+        elif market_type == "NXT":
+            # NXT Time (08:00 ~ 20:00)
+            current_time = now.time()
+            start = now.replace(hour=8, minute=0, second=0, microsecond=0).time()
+            end = now.replace(hour=20, minute=0, second=0, microsecond=0).time()
+            return start <= current_time <= end
+            
+        return True # Default open
+
     def update_universe(self):
         """Update stock universe based on config or scanner"""
+        
+        # [User Request] Strict Market Hour Check for Scanner Logic
+        if not self._is_trading_hour():
+            logger.info("장 운영 시간이 아니므로 스캐너 실행을 건너뜁니다.")
+            return
+
         universe = []
 
         # Increase scanner interval check to 120s to be safe

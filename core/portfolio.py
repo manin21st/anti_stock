@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import json
 import os
 import time
@@ -23,13 +23,19 @@ class Position:
     first_acquired_at: float = 0.0 # Timestamp of first acquisition
 
 class Portfolio:
-    def __init__(self):
+    def __init__(self, state_file: Optional[str] = "portfolio_state.json"):
+        """
+        Initialize Portfolio.
+        state_file: Path to save state. If None, persistence is disabled (for Backtesting).
+        """
         self.positions: Dict[str, Position] = {}
         self.cash: float = 0.0
         self.deposit_d1: float = 0.0 # Next Day Deposit
         self.deposit_d2: float = 0.0 # D+2 Deposit
         self.total_asset: float = 0.0
         self.on_position_change = [] # List of callbacks (change_info: dict)
+        
+        self.state_file = state_file
 
         # State Cache (In-Memory)
         self._state_cache = {}
@@ -37,6 +43,9 @@ class Portfolio:
 
         # Backfill check cache
         self._checked_backfill = set()
+        
+        if not self.state_file:
+            logger.info("Portfolio initialized in NON-PERSISTENT mode.")
 
     def update_position(self, symbol: str, qty: int, price: float, tag: str = ""):
         """Update position from order execution"""
@@ -70,25 +79,40 @@ class Portfolio:
     def get_account_value(self) -> float:
         return self.total_asset
 
-    def sync_with_broker(self, broker_balance: Dict, notify: bool = True, tag_lookup_fn=None):
+    def sync_with_broker(self, broker_balance: Dict, notify: bool = True, tag_lookup_fn=None, allow_clear: bool = False):
         """Sync internal state with actual broker balance"""
         if not broker_balance:
             return
 
         self._update_balance(broker_balance.get("summary", []))
-        self._sync_positions(broker_balance.get("holdings", []), notify, tag_lookup_fn)
+        # Handle dict or list for holdings/summary to be safe? Broker ensures it's list.
+        self._sync_positions(broker_balance.get("holdings", []), notify, tag_lookup_fn, allow_clear)
         self.save_state()
 
     def _update_balance(self, summary: list):
         if summary:
-            self.cash = float(summary[0].get("dnca_tot_amt", 0))
-            self.deposit_d1 = float(summary[0].get("nxdy_excc_amt", 0))
-            self.deposit_d2 = float(summary[0].get("prvs_rcdl_excc_amt", 0))
-            self.total_asset = float(summary[0].get("tot_evlu_amt", 0))
+            # Safely handle if summary is missing keys (e.g. unexpected API change or mock deficiency)
+            # Default to 0
+            def get_float(d, k): return float(d.get(k, 0))
+            
+            s = summary[0]
+            self.cash = get_float(s, "dnca_tot_amt")
+            self.deposit_d1 = get_float(s, "nxdy_excc_amt")
+            self.deposit_d2 = get_float(s, "prvs_rcdl_excc_amt")
+            self.total_asset = get_float(s, "tot_evlu_amt")
+            
+            # Fallback for Backtest Mock if deposit fields are missing
+            if self.deposit_d2 == 0 and self.cash > 0 and not self.state_file:
+                 # In backtest mode (inferred by no state_file), treat cash as buying power
+                 self.deposit_d2 = self.cash
+                 self.deposit_d1 = self.cash
 
-    def _sync_positions(self, holdings: list, notify: bool, tag_lookup_fn):
-        if not holdings and self.positions:
+    def _sync_positions(self, holdings: list, notify: bool, tag_lookup_fn, allow_clear: bool):
+        if not holdings and self.positions and not allow_clear:
             logger.warning(f"Broker returned 0 holdings while local has {len(self.positions)}. Ignoring sync to prevent data loss.")
+            # In backtest, allow_clear should be True if we want to confirm clearing? 
+            # Or if broker intentionally returns empty.
+            # Usually keep this safety.
             return
 
         current_symbols = set()
@@ -106,7 +130,9 @@ class Portfolio:
             if not saved_tag and tag_lookup_fn:
                 saved_tag = tag_lookup_fn(symbol) or ""
 
-            self._check_backfill_acquired_time(symbol, saved_data.get("first_acquired_at", 0.0))
+            # Only check backfill in Real Mode (Persistence enabled)
+            if self.state_file:
+                self._check_backfill_acquired_time(symbol, saved_data.get("first_acquired_at", 0.0))
 
             if symbol in self.positions:
                 self._update_existing_position(symbol, name, qty, avg_price, current_price, saved_tag, notify)
@@ -122,8 +148,7 @@ class Portfolio:
                  if last_entry:
                      ft_ts = last_entry.timestamp()
                      if saved_acquired_at == 0.0 or abs(ft_ts - saved_acquired_at) > 10.0:
-                         logger.info(f"Correction: Backfilling acquired time for {symbol}: {saved_acquired_at} -> {ft_ts}")
-                         # Ideally we should update cache/state here, but Position obj update handles it
+                         logger.debug(f"Correction: Backfilling acquired time for {symbol}: {saved_acquired_at} -> {ft_ts}")
                  self._checked_backfill.add(symbol)
              except Exception as e:
                  logger.warning(f"Failed to backfill acquired time for {symbol}: {e}")
@@ -210,7 +235,6 @@ class Portfolio:
                         "old_avg_price": old_pos.avg_price,
                         "total_asset": self.total_asset
                     })
-                logger.info(f"Removing {sym} (broker sync missing). Old Qty: {old_pos.qty}")
                 del self.positions[sym]
 
     def _notify_change(self, info: Dict):
@@ -222,6 +246,9 @@ class Portfolio:
 
     def save_state(self):
         """Save portfolio state to file and memory"""
+        if not self.state_file:
+            return
+
         state = {}
         for symbol, pos in self.positions.items():
             state[symbol] = {
@@ -231,28 +258,25 @@ class Portfolio:
                 "first_acquired_at": pos.first_acquired_at
             }
 
-        # Optimization: Only save if state changed?
-        # Comparing dicts might be as expensive as dumping.
-        # But dumping involves I/O.
         if state == self._state_cache:
             return
 
         self._state_cache = state
 
         try:
-            with open("portfolio_state.json", "w", encoding="utf-8") as f:
+            with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=4)
         except Exception as e:
             logger.error(f"Failed to save portfolio state: {e}")
 
     def _load_state_to_cache(self):
         """Load portfolio state into memory cache once"""
-        if not os.path.exists("portfolio_state.json"):
+        if not self.state_file or not os.path.exists(self.state_file):
             self._state_cache = {}
             return
 
         try:
-            with open("portfolio_state.json", "r", encoding="utf-8") as f:
+            with open(self.state_file, "r", encoding="utf-8") as f:
                 self._state_cache = json.load(f)
         except Exception as e:
             logger.error(f"Failed to load portfolio state: {e}")

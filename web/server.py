@@ -19,10 +19,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.visualization import TradeVisualizationService
 from core.dao import TradeDAO, WatchlistDAO, ChecklistDAO
+from core import kis_api as ka
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+@app.get("/api/tps_status")
+async def get_tps_status():
+    """Get Real-time TPS Status"""
+    if ka.rate_limiter:
+        return ka.rate_limiter.get_server_stats()
+    return {"status": "offline", "message": "RateLimiter not initialized"}
 
 # Security: Session Middleware moved to after auth_middleware
 
@@ -570,9 +578,24 @@ async def check_data(request: Request):
     symbol = data.get("symbol")
     start = data.get("start")
     end = data.get("end")
+    strategy_id = data.get("strategy_id")
+
+    # Enable Timeframe detection
+    timeframe = "D"
+    if strategy_id:
+        try:
+             import yaml
+             config_path = os.path.join(os.getcwd(), "config", "strategies.yaml")
+             if os.path.exists(config_path):
+                 with open(config_path, "r", encoding="utf-8") as f:
+                     config = yaml.safe_load(f)
+                     if config and strategy_id in config:
+                         timeframe = config[strategy_id].get("timeframe", "D")
+        except:
+             pass
 
     loader = DataLoader()
-    exists = loader.check_availability(symbol, start, end)
+    exists = loader.check_availability(symbol, start, end, timeframe=timeframe)
     return {"status": "ok", "exists": exists}
 
 @app.post("/api/backtest/download")
@@ -581,10 +604,25 @@ async def download_data(request: Request):
     symbol = data.get("symbol")
     start = data.get("start")
     end = data.get("end")
+    strategy_id = data.get("strategy_id")
+    
+    # Enable Timeframe detection
+    timeframe = "D"
+    if strategy_id:
+        try:
+             import yaml
+             config_path = os.path.join(os.getcwd(), "config", "strategies.yaml")
+             if os.path.exists(config_path):
+                 with open(config_path, "r", encoding="utf-8") as f:
+                     config = yaml.safe_load(f)
+                     if config and strategy_id in config:
+                         timeframe = config[strategy_id].get("timeframe", "D")
+        except:
+             pass
 
     loader = DataLoader()
     try:
-        df = loader.download_data(symbol, start, end)
+        df = loader.download_data(symbol, start, end, timeframe=timeframe)
         return {"status": "ok", "count": len(df)}
     except Exception as e:
         return {"status": "error", "message": str(e)}

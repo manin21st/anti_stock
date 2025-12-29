@@ -117,7 +117,7 @@ class BaseStrategy(ABC):
         Returns True if safe to proceed, False if we should skip.
         """
         # 1. Bypass checks in simulation mode
-        if getattr(self.market_data, 'simulation_date', None):
+        if self.config.get("is_simulation", False):
             return True
             
         # 2. Check real-time rate limit

@@ -118,99 +118,89 @@ class DataLoader:
         existing_df = self.load_data(symbol, timeframe="1m")
         all_df_list = []
         
-        # We need to iterate day by day or optimize range
-        # inquire-time-dailychartprice takes Date + Hour
-        # It returns 30 (or 120) bars backwards from the specified time.
-        # Efficient strategy: Iterate DAYS from end_date down to start_date.
-        # For each day, request from 153000 backwards until 090000.
-        
         try:
             s_dt = datetime.strptime(start_date, "%Y%m%d")
             e_dt = datetime.strptime(end_date, "%Y%m%d")
         except:
-             return pd.DataFrame()
+            return pd.DataFrame()
              
         current_date_obj = e_dt
+        
+        # Retry Configuration
+        max_retries = 3
         
         while current_date_obj >= s_dt:
             target_date = current_date_obj.strftime("%Y%m%d")
             
-            # Skip weekends (Simple check, API handles it but saves calls)
             if current_date_obj.weekday() >= 5:
                 current_date_obj -= timedelta(days=1)
                 continue
 
             logger.info(f"Fetching minute data for {target_date}...")
             
-            # Fetch full day (Start from Market Close 15:30:00)
             target_time = "153000" 
-            
-            # We might need multiple calls per day if response limit is small
-            # Docs say max 120 count for Real env. 
-            # Trading day 9:00~15:30 is 6.5 hours = 390 minutes.
-            # So we need ~4 calls per day.
-            
             day_df_list = []
             
             while True:
-                res = ka.fetch_past_minute_chart(symbol, target_date, target_time)
+                # Retry Loop
+                retry_count = 0
+                res = None
                 
-                if res.isOK():
-                    o2 = res.getBody().output2
-                    if not o2: break # No more data
-                    
-                    chunk = pd.DataFrame(o2)
-                    chunk = chunk.rename(columns={
-                        "stck_bsop_date": "date",
-                        "stck_cntg_hour": "time",
-                        "stck_prpr": "close", "stck_oprc": "open", "stck_hgpr": "high", "stck_lwpr": "low", "cntg_vol": "volume"
-                    })
-                    
-                    # Filter invalid time/dates just in case
-                    # Fix time format HHMMSS
-                    
-                    chunk = chunk[["date", "time", "open", "high", "low", "close", "volume"]]
-                    cols = ["open", "high", "low", "close", "volume"]
-                    chunk[cols] = chunk[cols].apply(pd.to_numeric)
-                    
-                    day_df_list.append(chunk)
-                    
-                    # Next request time = oldest time in this chunk - 1 minute?
-                    # API logic: Returns N records BEFORE input time.
-                    oldest_time = chunk['time'].min() # e.g. "150000"
-                    
-                    # Setup next target time
-                    if oldest_time <= "090000":
+                while retry_count < max_retries:
+                    res = ka.fetch_past_minute_chart(symbol, target_date, target_time)
+                    if res.isOK():
                         break
-                        
-                    # Decrement 1 minute from oldest_time to avoid duplicate? 
-                    # Or does API exclude the input time? 
-                    # Usually "Included" or "Excluded". Let's try passing oldest_time.
-                    # If we get duplicate, we drop it.
-                    # Safest is to subtract 1 minute.
-                    # But string math is hard. 
-                    # Actually, if we pass 150000, and it returns 150000~..., 
-                    # we should pass 145959? 
-                    # Let's assume input is inclusive limit. 
-                    
-                    # Simple time decrement logic
-                    t_obj = datetime.strptime(oldest_time, "%H%M%S")
-                    next_t_obj = t_obj - timedelta(minutes=1)
-                    target_time = next_t_obj.strftime("%H%M%S")
-                    
-                    if target_time < "090000":
-                        break
-                        
-                    time.sleep(0.05) # Small buffer
-                else:
-                    logger.error(f"Minute API Error: {res.getErrorMessage()}")
+                    else:
+                        msg = res.getErrorMessage()
+                        if "EGW00201" in msg or "초과" in msg:
+                            logger.warning(f"TPS Limit Exceeded. Retrying ({retry_count+1}/{max_retries})...")
+                            time.sleep(1.0 * (retry_count + 1)) # Backoff
+                            retry_count += 1
+                        else:
+                            # Other error
+                            break
+                            
+                if not res or not res.isOK():
+                     logger.error(f"Minute API Error after retries: {res.getErrorMessage() if res else 'No Response'}")
+                     break
+
+                o2 = res.getBody().output2
+                if not o2: break # No more data
+                
+                chunk = pd.DataFrame(o2)
+                chunk = chunk.rename(columns={
+                    "stck_bsop_date": "date",
+                    "stck_cntg_hour": "time",
+                    "stck_prpr": "close", "stck_oprc": "open", "stck_hgpr": "high", "stck_lwpr": "low", "cntg_vol": "volume"
+                })
+                
+                chunk = chunk[["date", "time", "open", "high", "low", "close", "volume"]]
+                cols = ["open", "high", "low", "close", "volume"]
+                chunk[cols] = chunk[cols].apply(pd.to_numeric)
+                
+                day_df_list.append(chunk)
+                
+                oldest_time = chunk['time'].min() # e.g. "150000"
+                
+                if oldest_time <= "090000":
                     break
+                    
+                t_obj = datetime.strptime(oldest_time, "%H%M%S")
+                next_t_obj = t_obj - timedelta(minutes=1)
+                target_time = next_t_obj.strftime("%H%M%S")
+                
+                if target_time < "090000":
+                    break
+                    
+                # Strict TPS Control: Minimum 0.2s sleep between calls
+                time.sleep(0.3) 
             
             if day_df_list:
                 day_all = pd.concat(day_df_list)
                 all_df_list.append(day_all)
             
             current_date_obj -= timedelta(days=1)
+            time.sleep(0.1) # Day boundary breathing room
             
         return self._save_and_merge(symbol, existing_df, all_df_list, "1m", start_date, end_date)
 
@@ -238,9 +228,9 @@ class DataLoader:
         return pd.DataFrame()
 
 
-    def check_availability(self, symbol: str, start_date: str, end_date: str) -> bool:
+    def check_availability(self, symbol: str, start_date: str, end_date: str, timeframe: str = "D") -> bool:
         """Check if local data covers the requested range"""
-        df = self.load_data(symbol, start_date, end_date)
+        df = self.load_data(symbol, start_date, end_date, timeframe=timeframe)
         if df.empty:
             return False
         

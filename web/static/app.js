@@ -557,19 +557,21 @@ function initBacktest() {
 
             try {
                 // 1. Check existence
+                const strategy_id = document.getElementById("bt-strategy-select").value;
                 const resCheck = await fetch(`${API_BASE}/backtest/check_data`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ symbol, start: startStr, end: endStr })
+                    body: JSON.stringify({ symbol, start: startStr, end: endStr, strategy_id })
                 });
                 const dataCheck = await resCheck.json();
 
                 if (!dataCheck.exists) {
                     updateStatusText("데이터 다운로드 중...", "#f59e0b");
+                    // strategy_id already declared
                     const resDown = await fetch(`${API_BASE}/backtest/download`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ symbol, start: startStr, end: endStr })
+                        body: JSON.stringify({ symbol, start: startStr, end: endStr, strategy_id })
                     });
                     const dataDown = await resDown.json();
                     if (dataDown.status !== "ok") {
@@ -579,7 +581,7 @@ function initBacktest() {
 
                 // 2. Fetch Data for Table
                 updateStatusText("데이터 로딩 중...", "#3b82f6");
-                const strategy_id = document.getElementById("bt-strategy-select").value;
+                // strategy_id already declared
                 const resData = await fetch(`${API_BASE}/backtest/data`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },

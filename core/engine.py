@@ -396,6 +396,14 @@ class Engine:
         self.is_running = False
         if hasattr(self, 'market_data'):
             self.market_data.stop_polling()
+            
+        try:
+            from core import kis_api as ka
+            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
+                ka.rate_limiter.stop()
+        except:
+            pass
+            
         logger.info("Engine stopped")
 
     def _resolve_strategy_tag(self, symbol: str) -> str:
@@ -407,6 +415,9 @@ class Engine:
 
     def on_market_data(self, data: Dict):
         """Handle real-time market data"""
+        if not self.is_running:
+            return
+
         if not self._is_trading_hour():
             return
 

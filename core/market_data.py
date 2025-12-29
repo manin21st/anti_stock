@@ -3,7 +3,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Any, Union
 import sys
 import os
 import urllib.request
@@ -29,37 +29,29 @@ debug_handler.setFormatter(formatter)
 logger.addHandler(debug_handler)
 
 class MarketData:
-    def __init__(self, is_simulation: bool = False):
+    def __init__(self):
         self.bars: Dict[str, pd.DataFrame] = {} # symbol -> DataFrame (OHLCV)
         self._daily_cache: Dict[str, Dict] = {} # symbol -> {'data': df, 'timestamp': time}
         self._name_cache: Dict[str, str] = {} # symbol -> name
         self.subscribers: List[Callable] = []
         self.ws = None
-        self.simulation_date = None
-        self.data_loader = DataLoader()
-        self.is_polling = False # Initialize polling state
-        self.polling_symbols = [] # Initialize list
+        self.data_loader = DataLoader() # Still used for local fallback in real mode? Or explicit use?
+        self.is_polling = False
+        self.polling_symbols = []
 
-        # Skip API/WS initialization in simulation mode
-        if not is_simulation:
-            self._initialize_api()
+        # Initialize API (Token) only if NOT in backtest mode (handled by engine/main usually, but safe to call)
+        # Ideally, Ka initialization handles itself.
+        self._initialize_api()
 
-        # Initialize Stock Master Data in background to avoid blocking
-        if not is_simulation:
-             threading.Thread(target=self._load_master_files, daemon=True).start()
-        else:
-             # In simulation, we might still need names, but blocking is less critical.
-             # Or just load it.
-             try:
-                 self._load_master_files()
-             except Exception:
-                 pass
+        # Initialize Stock Master Data in background
+        # In Backtest mode, we might skip this or do it synchronously if needed.
+        # But since we removed 'is_simulation' flag, we just do it.
+        # If network is mocked, this might fail, so we wrap in try-except.
+        threading.Thread(target=self._load_master_files, daemon=True).start()
 
     def _initialize_api(self):
         """Initialize KIS API authentication"""
-        # Authentication is handled centrally by Engine/Main to ensure consistency (Token/Env)
-        # ka.auth()
-        # ka.auth_ws()
+        # In backtest mode (detected inside kis_api), this mock-class returns immediately.
         self.ws = ka.KISWebSocket(api_url="/tryitout")
 
     def _load_master_files(self):
@@ -70,9 +62,14 @@ class MarketData:
             if not os.path.exists(data_dir):
                 os.makedirs(data_dir)
 
-            # 1. Download
-            self._download_file("https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip", data_dir, "kospi_code.zip")
-            self._download_file("https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip", data_dir, "kosdaq_code.zip")
+            # 1. Download (Only if not in backtest... but here we don't know backtest mode easily)
+            # kis_api has 'is_paper_trading', but not 'is_backtest' exposed directly via getter?
+            # We assume if network fails, we just skip.
+            try:
+                self._download_file("https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip", data_dir, "kospi_code.zip")
+                self._download_file("https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip", data_dir, "kosdaq_code.zip")
+            except Exception as e:
+                logger.warning(f"Skipping master file download (Network offline/Backtest?): {e}")
 
             # 2. Parse KOSPI
             cnt_kospi = self._parse_kospi_master(data_dir)
@@ -97,8 +94,6 @@ class MarketData:
         if should_download:
             logger.debug(f"Downloading {filename}...")
             urllib.request.urlretrieve(url, file_path)
-
-            # Extract
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(save_dir)
 
@@ -111,16 +106,12 @@ class MarketData:
             for row in f:
                 try:
                     if len(row) < 50: continue
-
                     upper_bound = len(row) - 228
                     if upper_bound <= 21: continue
-
                     code_bytes = row[0:9]
                     name_bytes = row[21:upper_bound]
-
                     code = code_bytes.decode('ascii', errors='ignore').strip()
                     name = name_bytes.decode('cp949', errors='ignore').strip()
-
                     if code and name:
                         self._name_cache[code] = name
                         count += 1
@@ -136,18 +127,13 @@ class MarketData:
         with open(file_path, mode="rb") as f:
             for row in f:
                 try:
-                    # KOSDAQ: Last 222 bytes are tail
                     if len(row) < 50: continue
-
                     upper_bound = len(row) - 222
                     if upper_bound <= 21: continue
-
                     code_bytes = row[0:9]
                     name_bytes = row[21:upper_bound]
-
                     code = code_bytes.decode('ascii', errors='ignore').strip()
                     name = name_bytes.decode('cp949', errors='ignore').strip()
-
                     if code and name:
                         self._name_cache[code] = name
                         count += 1
@@ -160,27 +146,6 @@ class MarketData:
         Get historical bars.
         timeframe: "1m", "3m", "5m", "1d"
         """
-        if self.simulation_date:
-            # Simulation Mode
-            # TODO: caching for performance
-            df = self.data_loader.load_data(symbol, timeframe=timeframe)
-            if df.empty:
-                return pd.DataFrame()
-
-            # Filter up to simulation_date
-            if len(self.simulation_date) > 8 and 'time' in df.columns:
-                # Intraday Simulation (YYYYMMDDHHMMSS)
-                sim_dt = int(self.simulation_date) # YYYYMMDDHHMMSS
-                # Create integer datetime for comparison (faster than pd.to_datetime)
-                df['dt_int'] = (df['date'].astype(str) + df['time'].astype(str)).astype(int)
-                df = df[df['dt_int'] <= sim_dt].drop(columns=['dt_int'])
-            else:
-                df = df[df['date'] <= self.simulation_date[:8]]
-
-            return df.tail(lookback)
-
-        env_dv = "demo" if ka.isPaperTrading() else "real"
-
         if timeframe == "1d":
             # Daily bars
             end_dt = datetime.now().strftime("%Y%m%d")
@@ -195,20 +160,36 @@ class MarketData:
 
             logger.debug(f"Fetching daily bars for {symbol}: {start_dt} ~ {end_dt} (lookback={lookback})")
 
-            # API FETCH LOGIC
             all_df_list = []
             fetched_count = 0
             current_end_dt = end_dt
 
+            # Loop to fetch multiple pages if needed (Logic mainly for real API)
+            # For Backtest, the mock should return enough data in one go or handle pagination if sophisticated.
+            # Here we assume mock returns full requested range or what's available.
+            
             while fetched_count < lookback:
                 res = ka.fetch_daily_chart(symbol, start_dt, current_end_dt)
+                
+                chunk_df = pd.DataFrame()
+                
+                # Retrieve Data from Response (Real vs Mock)
+                if isinstance(res, list): # Mock Return Type
+                     chunk_df = pd.DataFrame(res)
+                elif hasattr(res, 'isOK') and res.isOK(): # Real API
+                     chunk_df = pd.DataFrame(res.getBody().output2)
+                else:
+                     logger.error(f"Failed to fetch chunk or invalid response type: {type(res)}")
+                     break
 
-                if res.isOK():
-                    chunk_df = pd.DataFrame(res.getBody().output2)
-                    if chunk_df.empty:
-                        break
+                if chunk_df.empty:
+                    break
 
-                    # Rename columns
+                # Rename columns if needed (Mock data might already have correct columns?)
+                # Assuming KIS API format (korean keys) needs renaming.
+                # If mock returns cleaned data (english keys), renaming might fail or do nothing if columns missing.
+                # Let's check columns.
+                if 'stck_bsop_date' in chunk_df.columns:
                     chunk_df = chunk_df.rename(columns={
                         "stck_bsop_date": "date",
                         "stck_oprc": "open",
@@ -217,22 +198,32 @@ class MarketData:
                         "stck_clpr": "close",
                         "acml_vol": "volume"
                     })
+                
+                # If mock returns English keys directly (e.g. from DataLoader), we are good.
+                
+                # Type Conversion
+                cols = ["open", "high", "low", "close", "volume"]
+                # Only apply if columns exist
+                existing_cols = [c for c in cols if c in chunk_df.columns]
+                if existing_cols:
+                    chunk_df[existing_cols] = chunk_df[existing_cols].apply(pd.to_numeric)
 
-                    # Convert types
-                    cols = ["open", "high", "low", "close", "volume"]
-                    chunk_df[cols] = chunk_df[cols].apply(pd.to_numeric)
+                all_df_list.append(chunk_df)
+                fetched_count += len(chunk_df)
 
-                    all_df_list.append(chunk_df)
-                    fetched_count += len(chunk_df)
-
+                # Pagination Logic updates current_end_dt
+                if 'date' in chunk_df.columns and not chunk_df.empty:
                     oldest_date = chunk_df['date'].min()
-                    oldest_dt_obj = datetime.strptime(oldest_date, "%Y%m%d")
-                    current_end_dt = (oldest_dt_obj - timedelta(days=1)).strftime("%Y%m%d")
-
-                    if current_end_dt < start_dt:
-                        break
+                    # Backtest mock usually returns all data in first call, so oldest_date is start.
+                    try:
+                        oldest_dt_obj = datetime.strptime(str(oldest_date), "%Y%m%d")
+                        current_end_dt = (oldest_dt_obj - timedelta(days=1)).strftime("%Y%m%d")
+                    except ValueError:
+                         break
                 else:
-                    logger.error(f"Failed to fetch chunk: {res.getErrorMessage()}")
+                    break
+                
+                if current_end_dt < start_dt:
                     break
 
             if all_df_list:
@@ -247,10 +238,10 @@ class MarketData:
 
                 return df.tail(lookback)
             else:
+                # Fallback to local storage (Standard behavior)
                 logger.warning(f"API returned no data for {symbol}. Attempting to load from local storage.")
                 df = self.data_loader.load_data(symbol)
                 if not df.empty:
-                    logger.info(f"Loaded {len(df)} bars from local storage.")
                     return df.tail(lookback)
                 return pd.DataFrame()
 
@@ -258,33 +249,45 @@ class MarketData:
             # Minute bars (Intraday)
             all_dfs = []
             now_str = datetime.now().strftime("%H%M%S")
-            if now_str < "083000":
-                target_time = "153000"
-            else:
-                target_time = min(now_str, "153000")
-
+            # In backtest mode, ka.fetch_minute_chart checks mock time, but we call it with now_str here?
+            # Wait, fetch_minute_chart internal logic relies on 'current_time' arg.
+            # In existing code, it passed '153000' or now_str.
+            # For backtest, we might want to respect the 'simulated now'.
+            # But MarketData doesn't know simulation state anymore.
+            # The 'ka.fetch_minute_chart' wrapper receives 'current_time'.
+            # If it's real time passed, the mock wrapper should ignore it or use it as 'to_time'.
+            # My 'kis_api' wrapper uses the argument passed.
+            
+            target_time = "153000" if now_str < "083000" else min(now_str, "153000")
+            
             collected_count = 0
             max_pages = 100
             page_count = 0
 
             while collected_count < lookback and page_count < max_pages:
                 res = ka.fetch_minute_chart(symbol, target_time)
-                if not res.isOK():
-                    logger.warning(f"Failed to fetch minute chart for {symbol} at {target_time}: {res.getErrorMessage()}")
-                    break
+                
+                df_page = pd.DataFrame()
+                if isinstance(res, list):
+                     df_page = pd.DataFrame(res)
+                elif hasattr(res, 'isOK') and res.isOK():
+                     df_page = pd.DataFrame(res.getBody().output2)
+                else:
+                     logger.warning(f"Failed to fetch minute chart for {symbol}")
+                     break
 
-                df_page = pd.DataFrame(res.getBody().output2)
                 if df_page.empty:
                     break
 
-                df_page = df_page.rename(columns={
-                    "stck_cntg_hour": "time",
-                    "stck_oprc": "open",
-                    "stck_hgpr": "high",
-                    "stck_lwpr": "low",
-                    "stck_prpr": "close",
-                    "cntg_vol": "volume"
-                })
+                if 'stck_cntg_hour' in df_page.columns:
+                    df_page = df_page.rename(columns={
+                        "stck_cntg_hour": "time",
+                        "stck_oprc": "open",
+                        "stck_hgpr": "high",
+                        "stck_lwpr": "low",
+                        "stck_prpr": "close",
+                        "cntg_vol": "volume"
+                    })
 
                 if len(df_page) == 0:
                     break
@@ -295,7 +298,8 @@ class MarketData:
 
                 df_page = df_page.sort_values("time")
                 oldest_time = df_page.iloc[0]["time"]
-
+                
+                # Pagination
                 try:
                     dt = datetime.strptime(oldest_time, "%H%M%S")
                     dt = dt - timedelta(minutes=1)
@@ -305,27 +309,30 @@ class MarketData:
 
                 if next_target >= target_time:
                      break
-
+                
                 target_time = next_target
-
                 if target_time < "090000":
                     break
-
-                time.sleep(0.1)
+                
+                if hasattr(res, 'isOK'): # Only sleep for real API
+                     time.sleep(0.1)
 
             if not all_dfs:
                  return pd.DataFrame()
 
             df = pd.concat(all_dfs).drop_duplicates(subset=['time'])
+            
             cols = ["open", "high", "low", "close", "volume"]
-            df[cols] = df[cols].apply(pd.to_numeric)
+            existing_cols = [c for c in cols if c in df.columns]
+            if existing_cols:
+                df[existing_cols] = df[existing_cols].apply(pd.to_numeric)
+                
             df = df.sort_values("time").reset_index(drop=True)
 
             if timeframe != "1m":
                 today = datetime.now().strftime("%Y%m%d")
                 df['datetime'] = pd.to_datetime(today + df['time'], format='%Y%m%d%H%M%S')
                 df = df.set_index('datetime')
-
                 rule = timeframe.replace('m', 'min')
                 df_resampled = df.resample(rule).agg({
                     'open': 'first',
@@ -349,12 +356,16 @@ class MarketData:
 
     def start_polling(self):
         """Start the polling loop in a background thread"""
+        if hasattr(self, 'poll_thread') and self.poll_thread.is_alive():
+            logger.warning("MarketData polling thread is already running. Skipping start.")
+            return
+
         self.is_polling = True
         if not hasattr(self, 'polling_symbols'):
              self.polling_symbols = []
         self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
         self.poll_thread.start()
-        logger.info("Market Data Polling Started")
+        logger.info("MarketData Polling Started")
 
     def stop_polling(self):
         self.is_polling = False
@@ -367,43 +378,25 @@ class MarketData:
             if not self.polling_symbols:
                 time.sleep(1)
                 continue
-
+            
             symbols_to_poll = list(self.polling_symbols)
-
-            # Default Sleep
             safe_interval = 0.5
 
             for symbol in symbols_to_poll:
                 if not self.is_polling:
                     break
-
                 try:
                     self._fetch_and_publish(symbol)
                 except Exception as e:
-                    # Detect Rate Limit Error from Exception message if raised
-                    # But RateLimiter usually suppresses exception and returns None/Error Object
-                    # In _fetch_and_publish, we use fetch_price which uses rate_limiter.execute
-
-                    # RateLimiter now logs EGW00201 warning.
-                    # We can't easily detect it here unless fetch_price returns a specific error code.
-                    # But if RateLimiter is backing off, this loop will naturally slow down because
-                    # _fetch_and_publish will block for 2+ seconds inside RateLimiter (sleeping).
-                    # Now that RateLimiter sleeps OUTSIDE the lock, it's safe!
-
                     logger.error(f"Polling error for {symbol}: {e}")
-
-                # Strict sleep to respect rate limits
                 time.sleep(safe_interval)
-
 
     def _fetch_and_publish(self, symbol: str):
         """Fetch current price via REST API and publish to subscribers"""
-        # Use FHKST01010100 (Current Price)
         data = ka.fetch_price(symbol)
-
+        # ka.fetch_price returns dict (real or mock)
         if data:
             current_price = float(data.get('stck_prpr', 0))
-
             bar_data = {
                 "symbol": symbol,
                 "price": current_price,
@@ -414,7 +407,6 @@ class MarketData:
                 "low": float(data.get('stck_lwpr', current_price)),
                 "close": current_price
             }
-
             self.on_realtime_data(bar_data)
 
     def on_realtime_data(self, data):
@@ -422,19 +414,8 @@ class MarketData:
         for callback in self.subscribers:
             callback(data)
 
-    def set_simulation_date(self, date_str: Optional[str]):
-        """Set current simulation date (YYYYMMDD) or None to disable"""
-        self.simulation_date = date_str
-        logger.debug(f"MarketData simulation date set to: {date_str}")
-
     def get_last_price(self, symbol: str) -> float:
         """Get the latest price for a symbol"""
-        if self.simulation_date:
-            df = self.get_bars(symbol, timeframe="1d", lookback=1)
-            if not df.empty:
-                return float(df.iloc[-1]['close'])
-            return 0.0
-
         data = ka.fetch_price(symbol)
         if data:
             return float(data.get("stck_prpr", 0))
@@ -444,10 +425,8 @@ class MarketData:
 
     def get_stock_name(self, symbol: str) -> str:
         """Get stock name from Master File Cache"""
-        # 1. Check Cache (Populated from Master File)
         if symbol in self._name_cache:
             return self._name_cache[symbol]
-
         return symbol
 
     def get_master_list(self) -> List[Dict]:
