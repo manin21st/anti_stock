@@ -143,25 +143,10 @@ class DataLoader:
             
             while True:
                 # Retry Loop
-                retry_count = 0
-                res = None
+                res = ka.fetch_past_minute_chart(symbol, target_date, target_time)
                 
-                while retry_count < max_retries:
-                    res = ka.fetch_past_minute_chart(symbol, target_date, target_time)
-                    if res.isOK():
-                        break
-                    else:
-                        msg = res.getErrorMessage()
-                        if "EGW00201" in msg or "초과" in msg:
-                            logger.warning(f"TPS Limit Exceeded. Retrying ({retry_count+1}/{max_retries})...")
-                            time.sleep(1.0 * (retry_count + 1)) # Backoff
-                            retry_count += 1
-                        else:
-                            # Other error
-                            break
-                            
                 if not res or not res.isOK():
-                     logger.error(f"Minute API Error after retries: {res.getErrorMessage() if res else 'No Response'}")
+                     logger.error(f"Minute API Error: {res.getErrorMessage() if res else 'No Response'}")
                      break
 
                 o2 = res.getBody().output2
@@ -192,15 +177,15 @@ class DataLoader:
                 if target_time < "090000":
                     break
                     
-                # Strict TPS Control: Minimum 0.2s sleep between calls
-                time.sleep(0.3) 
+                # Pacing handled by RateLimiterService
+                pass 
             
             if day_df_list:
                 day_all = pd.concat(day_df_list)
                 all_df_list.append(day_all)
             
+            # Day boundary processing
             current_date_obj -= timedelta(days=1)
-            time.sleep(0.1) # Day boundary breathing room
             
         return self._save_and_merge(symbol, existing_df, all_df_list, "1m", start_date, end_date)
 

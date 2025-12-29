@@ -28,8 +28,7 @@ app = FastAPI()
 @app.get("/api/tps_status")
 async def get_tps_status():
     """Get Real-time TPS Status"""
-    if ka.rate_limiter:
-        return ka.rate_limiter.get_server_stats()
+    return ka.get_rate_limiter_stats()
     return {"status": "offline", "message": "RateLimiter not initialized"}
 
 # Security: Session Middleware moved to after auth_middleware
@@ -378,8 +377,7 @@ async def download_logs():
 @app.get("/api/tps/stats")
 async def get_tps_stats():
     from core import kis_api as ka
-    if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
-        return ka.rate_limiter.get_server_stats()
+    return ka.get_rate_limiter_stats()
     return {"status": "offline", "message": "Global RateLimiter not initialized"}
 
 @app.get("/api/chart/data")

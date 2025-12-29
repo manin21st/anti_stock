@@ -21,6 +21,7 @@ from core.trade_manager import TradeManager
 from core.universe_manager import UniverseManager
 from core.backtester import Backtester
 from datetime import datetime
+from core import kis_api as ka
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +37,14 @@ class Engine:
         svr = "vps" if env_type == "paper" else "prod"
         logger.debug(f"Authenticating for {env_type} ({svr})")
         
-        from core import kis_api as ka
+        # from core import kis_api as ka (Removed local import)
         try:
             # Apply TPS Config (Limit & URL)
             tps_limit = float(self.system_config.get("tps_limit", os.environ.get("TPS_LIMIT", 2.0)))
             tps_url = self.system_config.get("tps_server_url", os.environ.get("TPS_SERVER_URL", "http://localhost:9000"))
             
-            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
-                ka.rate_limiter.set_limit(tps_limit)
-                ka.rate_limiter.set_server_url(tps_url)
+            # Check if rate limiter configuration is available via new interface
+            ka.configure_rate_limiter(tps_limit, tps_url)
 
             ka.auth(svr=svr)
             ka.auth_ws(svr=svr)
@@ -82,6 +82,8 @@ class Engine:
         
         # Subscribe to Broker and Portfolio events via TradeManager
         self.broker.on_order_sent.append(self.trade_manager.record_order_event)
+        # Optimistic Update for Portfolio (Buying Power)
+        self.broker.on_order_sent.append(lambda x: self.portfolio.on_order_sent(x, self.market_data))
         # Pass market_data dynamically using lambda
         self.portfolio.on_position_change.append(lambda x: self.trade_manager.record_position_event(x, self.market_data))
 
@@ -139,13 +141,13 @@ class Engine:
             self.telegram.reload_config(self.system_config)
             
         # Apply TPS Config Dynamic Update
+        # Apply TPS Config Dynamic Update
         try:
-            from core import kis_api as ka
-            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
-                if "tps_limit" in new_config:
-                    ka.rate_limiter.set_limit(float(new_config["tps_limit"]))
-                if "tps_server_url" in new_config:
-                    ka.rate_limiter.set_server_url(new_config["tps_server_url"])
+            tps_limit = float(new_config["tps_limit"]) if "tps_limit" in new_config else None
+            tps_url = new_config["tps_server_url"] if "tps_server_url" in new_config else None
+            
+            if tps_limit or tps_url:
+                ka.configure_rate_limiter(tps_limit, tps_url)
         except Exception as e:
             logger.error(f"Failed to update TPS dynamic config: {e}")
 
@@ -160,14 +162,12 @@ class Engine:
         self.is_trading = False
         
         # Update TPS Limit on Restart
+        # Update TPS Limit on Restart
         try:
-            from core import kis_api as ka
             tps_limit = float(self.system_config.get("tps_limit", os.environ.get("TPS_LIMIT", 2.0)))
             tps_url = self.system_config.get("tps_server_url", os.environ.get("TPS_SERVER_URL", "http://localhost:9000"))
             
-            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
-                ka.rate_limiter.set_limit(tps_limit)
-                ka.rate_limiter.set_server_url(tps_url)
+            ka.configure_rate_limiter(tps_limit, tps_url)
         except Exception as e:
             logger.error(f"Failed to update TPS Config on restart: {e}")
 
@@ -188,9 +188,7 @@ class Engine:
         
         while self.is_running:
             # [Strict Mode] Block until TPS Server is confirmed
-            from core import kis_api as ka
-            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
-                ka.rate_limiter.wait_for_tps()
+            ka.wait_for_tps()
                 
             logger.info("Engine loop started")
             
@@ -398,9 +396,7 @@ class Engine:
             self.market_data.stop_polling()
             
         try:
-            from core import kis_api as ka
-            if hasattr(ka, 'rate_limiter') and ka.rate_limiter:
-                ka.rate_limiter.stop()
+            ka.stop_rate_limiter()
         except:
             pass
             

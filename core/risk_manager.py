@@ -35,7 +35,7 @@ class RiskManager:
         # Broker might also check, but this is a pre-flight safety check.
         estimated_cost = qty * price * 1.0025
         
-        buying_power = self.portfolio.deposit_d2
+        buying_power = self.portfolio.buying_power
 
         if buying_power < estimated_cost:
             logger.warning(f"[매수 거부] {symbol} | 필요금액: {int(estimated_cost):,}원 | D+2예수금: {int(buying_power):,}원")

@@ -389,7 +389,9 @@ class MarketData:
                     self._fetch_and_publish(symbol)
                 except Exception as e:
                     logger.error(f"Polling error for {symbol}: {e}")
-                time.sleep(safe_interval)
+                
+                 # Yield to other threads, but rely on RateLimiter for pacing
+                time.sleep(0.01)
 
     def _fetch_and_publish(self, symbol: str):
         """Fetch current price via REST API and publish to subscribers"""

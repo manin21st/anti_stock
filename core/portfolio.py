@@ -35,6 +35,9 @@ class Portfolio:
         self.total_asset: float = 0.0
         self.on_position_change = [] # List of callbacks (change_info: dict)
         
+        # Optimistic Update Tracking
+        self.pending_buy_amount: float = 0.0 # Amount reserved for pending orders
+        
         self.state_file = state_file
 
         # State Cache (In-Memory)
@@ -79,6 +82,37 @@ class Portfolio:
     def get_account_value(self) -> float:
         return self.total_asset
 
+    @property
+    def buying_power(self) -> float:
+        """Calculated Buying Power (Optimistic)"""
+        # Ensure we don't go negative
+        power = self.deposit_d2 - self.pending_buy_amount
+        return max(0.0, power)
+    
+    def on_order_sent(self, order_info: Dict, market_data: Any):
+        """Handle Order Sent Event for Optimistic Update"""
+        side = order_info.get("side")
+        qty = order_info.get("qty", 0)
+        
+        if side == "BUY" and qty > 0:
+            price = order_info.get("price", 0)
+            if price <= 0: # Market Order
+                symbol = order_info.get("symbol")
+                price = market_data.get_last_price(symbol)
+                if price <= 0:
+                    # Fallback to current price in position if exists, or rough estimate?
+                    # Since we can't estimate, we might skip or use a safety buffer.
+                    # But MarketData polling should have price.
+                    logger.warning(f"Optimistic Update: No price for {symbol}, assuming high cost protection.")
+                    price = 0 # Cannot estimate
+            
+            if price > 0:
+                # Estimate cost with fee/tax (BUY: 0.015% fee approx, no tax)
+                # Let's use 100.25% safely
+                 cost = qty * price * 1.0025
+                 self.pending_buy_amount += cost
+                 logger.info(f"[Optimistic Update] Pending Buy: +{int(cost):,} (Total Pending: {int(self.pending_buy_amount):,})")
+
     def sync_with_broker(self, broker_balance: Dict, notify: bool = True, tag_lookup_fn=None, allow_clear: bool = False):
         """Sync internal state with actual broker balance"""
         if not broker_balance:
@@ -100,6 +134,11 @@ class Portfolio:
             self.deposit_d1 = get_float(s, "nxdy_excc_amt")
             self.deposit_d2 = get_float(s, "prvs_rcdl_excc_amt")
             self.total_asset = get_float(s, "tot_evlu_amt")
+            
+            # Reset Pending Amount on Sync (Assume Broker Balance is authoritative)
+            if self.pending_buy_amount > 0:
+                 logger.debug(f"Resetting Pending Buy Amount (Prev: {int(self.pending_buy_amount):,}) due to Sync.")
+            self.pending_buy_amount = 0.0
             
             # Fallback for Backtest Mock if deposit fields are missing
             if self.deposit_d2 == 0 and self.cash > 0 and not self.state_file:
