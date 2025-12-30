@@ -3,159 +3,88 @@ import pandas as pd
 import time
 
 class MovingAverageTrendStrategy(BaseStrategy):
-    def log_monitor(self, msg):
-        self.logger.info(msg)
+    # 필수 설정 (User Config)
+    REQUIRED_KEYS = ['ma_short', 'ma_long', 'stop_loss_pct', 'timeframe']
+    
+    # 내부 상수 (Internal Constants) - 오버라이드 가능
+    CONSTANTS = {
+        'vol_k': 1.5,            # 거래량 급증 기준 (배수)
+        'prev_daily_vol_k': 1.5, # 전일 대비 거래량 기준
+        'cross_lookback': 1,     # 크로스 발생 감지 범위 (캔들 수)
+        'whipsaw_threshold': 0.0,# 휩쏘 방지 버퍼 (0.0 = 0%)
+        'take_profit1_pct': 0.05,# 1차 익절 (기본 5% - 설정 없을 시) -> REQUIRED로 옮길지 고민 필요하지만, 일단 상수로.
+        'trail_stop_pct': 0.03,  # 트레일링 스탑 낙폭
+        'trail_activation_pct': 0.03 # 트레일링 스탑 발동 수익률
+    }
+    
+    # *참고: take_profit1_pct 등도 사용자가 자주 바꾸면 REQUIRED로 올리는 게 좋지만, 
+    # 일단 기존 코드 흐름 상 Optional하게 처리되던 것들은 상수로 둡니다.
+    # 단, 코드 내에서 self.config.get(KEY, CONSTANTS[KEY]) 패턴을 사용해야 함.
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # self.daily_cache & self.last_log_state are now initialized in BaseStrategy
 
-    def on_bar(self, symbol, bar):
-        # 1. Check Position & Exit Logic FIRST (Prioritize Selling)
-        position = self.portfolio.get_position(symbol)
-        current_price = bar.get('close', 0.0)
-        stock_name = self.market_data.get_stock_name(symbol)
+    def execute(self, symbol, bar):
+        try:
+            # Preprocessing에서 이미 [전략 청산]과 [일봉 필터]를 통과함.
+            # 여기서는 오직 [진입 시그널]만 확인하고 매수 수행.            
+            stock_name = self.market_data.get_stock_name(symbol)
+            current_price = bar.get('close', 0.0)
 
-        if position is not None:
-            if current_price <= 0: return
+            # 분봉 시그널 확인 및 매수
+            if self._check_intraday_signal(symbol, stock_name, bar):
+                self._execute_entry(symbol, stock_name, current_price)
 
-            avg_price = position.avg_price
-            pnl_ratio = (current_price - avg_price) / avg_price if avg_price > 0 else 0.0
+        except Exception as e:
+            self.logger.error(f"[Error] {symbol} 전략 실행 중 예외 발생: {e}", exc_info=True)
 
-            # High Watermark Update
-            if current_price > position.max_price:
-                position.max_price = current_price
-                self.portfolio.save_state()
-
-            # 1. Stop Loss
-            if pnl_ratio <= -self.config["stop_loss_pct"]:
-                self.logger.info(f"[손절매] {symbol} {stock_name} | 현재가: {int(current_price):,} | 수익률: {pnl_ratio*100:.2f}%")
-                self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
-                return
-
-            # 2. Take Profit (Partial)
-            if (not position.partial_taken) and pnl_ratio >= self.config["take_profit1_pct"]:
-                half = position.qty // 2
-                if half > 0:
-                    self.logger.info(f"[익절] {symbol} {stock_name} | 현재가: {int(current_price):,} | 수익률: {pnl_ratio*100:.2f}% (1차)")
-                    self.broker.sell_market(symbol, half, tag=self.config["id"])
-                    position.partial_taken = True
-                    self.portfolio.save_state()
-
-            # 3. Trailing Stop
-            trail_activation_ratio = self.config.get("trail_activation_pct", 0.03)
-            activation_price = avg_price * (1 + trail_activation_ratio)
-
-            if position.max_price >= activation_price:
-                drawdown = (current_price - position.max_price) / position.max_price
-
-                if drawdown <= -self.config["trail_stop_pct"]:
-                     if current_price < avg_price: return
-                     self.logger.info(f"[트레일링 스탑] {symbol} {stock_name} | 현재가: {int(current_price):,} | 고점: {int(position.max_price):,} | 발동가: {int(activation_price):,}")
-                     self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
-                     return
-            pass
-
-        # 2. Entry Logic
-        if not self.check_rate_limit(symbol, interval_seconds=60):
-            return
-
-        current_time = bar.get('time', '')
-        if not self.can_enter_market(current_time):
-             return
-
-        # Optimization: Get daily bars first (usually cached) before intraday
-        daily = self.market_data.get_bars(symbol, timeframe="1d")
-        if daily is None or len(daily) < 22: return
-
-        # Daily Trend Filter
-        ma20_daily_now = daily.close.iloc[-20:].mean()
-        ma20_daily_prev = daily.close.iloc[-21:-1].mean()
-        current_daily_close = daily.close.iloc[-1]
-
-        if current_daily_close < ma20_daily_now:
-             self.log_monitor(f"[감시 제외] {symbol} {stock_name} | 하락 추세 (현재 < Daily MA20)")
-             return
-
-        if ma20_daily_now < ma20_daily_prev:
-             self.log_monitor(f"[감시 제외] {symbol} {stock_name} | Daily MA20 하락")
-             return
-
-        # Daily Relative Volume Filter
-        prev_daily_vol_k = self.config.get("prev_daily_vol_k", 1.5)
-        prev_vol = daily.volume.iloc[-2]
-        prev_avg_vol = daily.volume.iloc[-22:-2].mean()
-
-        if prev_avg_vol > 0 and prev_vol < (prev_avg_vol * prev_daily_vol_k):
-             self.log_monitor(f"[감시 제외] {symbol} {stock_name} | 전일 거래량 부족")
-             return
-
-        # Intraday Check
+    def _check_intraday_signal(self, symbol, stock_name, bar):
         bars = self.market_data.get_bars(symbol, timeframe=self.config["timeframe"])
-        if bars is None or len(bars) < 20: return
+        if bars is None or len(bars) < 20: return False
 
-        ma_short = self.config.get("ma_short", 5)
-        ma_long = self.config.get("ma_long", 20)
-
-        # Vectorized MA Calc is fast for small windows, simple mean is fine
-        ma_short_now = bars.close.iloc[-ma_short:].mean()
-        ma_long_now = bars.close.iloc[-ma_long:].mean()
+        ma_short_win = self.config["ma_short"]
+        ma_long_win = self.config["ma_long"]
+        
+        ma_short = bars.close.rolling(ma_short_win).mean().iloc[-1]
+        ma_long = bars.close.rolling(ma_long_win).mean().iloc[-1]
+        
         volume_now = bars.volume.iloc[-1]
         avg_vol20 = bars.volume.iloc[-20:].mean()
+        
+        vol_k = self.config.get("vol_k", self.CONSTANTS["vol_k"])
+        vol_ok = volume_now > (avg_vol20 * vol_k)
+        
+        in_uptrend = ma_short > ma_long
+        
+        # 크로스 확인
+        cross_lookback = self.config.get("cross_lookback", self.CONSTANTS["cross_lookback"])
+        recent_cross = False
+        
+        if in_uptrend:
+            shorts = bars.close.rolling(ma_short_win).mean().iloc[-(cross_lookback+1):]
+            longs = bars.close.rolling(ma_long_win).mean().iloc[-(cross_lookback+1):]
+            if (shorts <= longs).any():
+                recent_cross = True
 
-        whipsaw_threshold = self.config.get("whipsaw_threshold", 0.0)
-        cross_lookback = self.config.get("cross_lookback", 1)
-        vol_k = self.config.get("vol_k", 1.5)
+        log_msg = f"[감시 중] {stock_name} | 이평선: {'골든크로스' if recent_cross else ('정배열' if in_uptrend else '역배열')} | 거래량배수: {volume_now/avg_vol20:.1f}배"
+        self.log_state_once(symbol, log_msg)
 
-        # 1. Golden Cross Check (Loop optimized)
-        recent_cross_occurred = False
-        lookback_limit = min(cross_lookback, len(bars) - ma_long - 1)
+        if recent_cross and in_uptrend and vol_ok:
+            whipsaw_threshold = self.config.get("whipsaw_threshold", self.CONSTANTS["whipsaw_threshold"])
+            if bars.close.iloc[-1] < ma_long * (1 + whipsaw_threshold):
+                 self.logger.info(f"[진입 보류] {stock_name} | 휩쏘 필터 미달")
+                 return False
+            return True
+            
+        return False
 
-        if lookback_limit >= 1:
-            # Only check if strictly needed.
-            # If current status is not uptrend, cross implies it just happened or failed.
-            if ma_short_now > ma_long_now:
-                 # Check previous bars to confirm cross happened recently
-                 # Optimization: Only calculate MA for previous bar first
-                 m_s_prev = bars.close.iloc[-(ma_short+1):-1].mean()
-                 m_l_prev = bars.close.iloc[-(ma_long+1):-1].mean()
-
-                 if m_s_prev <= m_l_prev:
-                     recent_cross_occurred = True
-                 else:
-                     # Check further back if lookback > 1
-                     for i in range(1, lookback_limit):
-                        idx_end = -1 - i
-                        m_s = bars.close.iloc[idx_end-ma_short:idx_end].mean()
-                        m_l = bars.close.iloc[idx_end-ma_long:idx_end].mean()
-                        m_s_p = bars.close.iloc[idx_end-ma_short-1:idx_end-1].mean()
-                        m_l_p = bars.close.iloc[idx_end-ma_long-1:idx_end-1].mean()
-
-                        if m_s_p <= m_l_p and m_s > m_l:
-                             recent_cross_occurred = True
-                             break
-
-        in_uptrend = ma_short_now > ma_long_now
-        strong_breakout = bars.close.iloc[-1] >= ma_long_now * (1 + whipsaw_threshold)
-        vol_ok = volume_now > avg_vol20 * vol_k
-
-        # Periodic Log
-        if avg_vol20 > 0:
-             vol_ratio = (volume_now / avg_vol20)
-             ma_stat = "(골든크로스)" if recent_cross_occurred else ("(정배열)" if in_uptrend else "(대기)")
-             vol_stat = "(충족)" if vol_ok else "(부족)"
-             self.log_monitor(f"[감시 중] {symbol} {stock_name} | 추세: {ma_stat} | 거래량: {vol_ratio:.1f}배 {vol_stat}")
-
-        if recent_cross_occurred and in_uptrend and vol_ok:
-            if not strong_breakout:
-                 current_sep = ((bars.close.iloc[-1]/ma_long_now)-1)*100
-                 self.logger.info(f"[진입 보류] {symbol} {stock_name} | 휩쏘 필터 미달 ({current_sep:.2f}%)")
-                 return
-
-            buy_qty = self.calculate_buy_quantity(symbol, current_price)
-            if buy_qty > 0:
-                if self.risk.can_open_new_position(symbol, buy_qty, current_price):
-                    self.logger.info(f"[매수 진입] {symbol} {stock_name} | 조건 만족 | 수량: {buy_qty}")
-                    self.broker.buy_market(symbol, buy_qty, tag=self.config["id"])
-            else:
-                position = self.portfolio.get_position(symbol)
-                if position:
-                     self.logger.info(f"[진입 생략] {symbol} {stock_name} | 목표 비중 도달")
-                else:
-                     self.logger.warning(f"[매수 실패] {symbol} {stock_name} | 수량 0 (자산 부족/리스크)")
+    def _execute_entry(self, symbol, stock_name, current_price):
+        """매수 주문 실행"""
+        # calculate_buy_quantity는 BaseStrategy에 있음 (목표 비중/리스크 관리)
+        buy_qty = self.calculate_buy_quantity(symbol, current_price)
+        if buy_qty > 0:
+            if self.risk.can_open_new_position(symbol, buy_qty, current_price):
+                self.logger.info(f"[매수 진입] {symbol} {stock_name} | 수량: {buy_qty} | 가격: {int(current_price):,}")
+                self.broker.buy_market(symbol, buy_qty, tag=self.config["id"])
+        else:
+             self.logger.warning(f"[매수 실패] {symbol} {stock_name} | 자산 부족 또는 리스크 한도 초과 (목표 비중 달성)")

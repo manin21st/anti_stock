@@ -93,25 +93,40 @@ class Portfolio:
         """Handle Order Sent Event for Optimistic Update"""
         side = order_info.get("side")
         qty = order_info.get("qty", 0)
+        symbol = order_info.get("symbol")
+        tag = order_info.get("tag", "")
+        price = order_info.get("price", 0)
         
-        if side == "BUY" and qty > 0:
-            price = order_info.get("price", 0)
-            if price <= 0: # Market Order
-                symbol = order_info.get("symbol")
-                price = market_data.get_last_price(symbol)
-                if price <= 0:
-                    # Fallback to current price in position if exists, or rough estimate?
-                    # Since we can't estimate, we might skip or use a safety buffer.
-                    # But MarketData polling should have price.
-                    logger.warning(f"Optimistic Update: No price for {symbol}, assuming high cost protection.")
-                    price = 0 # Cannot estimate
+        # 0. Get Current Price if needed (for Market Order or Valuation)
+        if price <= 0:
+             price = market_data.get_last_price(symbol)
+             # If still 0, we can't estimate valuation accurately, but we can still update Qty.
+        
+        # 1. Optimistic Position Update (Fix for Duplicate Orders)
+        # Immediately reflect the change in local state so strategies don't fire duplicates.
+        if side == "SELL" and qty > 0:
+            # Deduct quantity immediately
+            # Note: update_position handles removal if qty <= 0
+            self.update_position(symbol, -qty, price, tag)
+            logger.info(f"[Optimistic] SELL {symbol}: -{qty} (Prevents Dup)")
             
+        elif side == "BUY" and qty > 0:
+            # Add quantity immediately (Assuming fill)
+            # This prevents firing multiple buys if strategy checks position count
+            if price > 0:
+                self.update_position(symbol, qty, price, tag)
+                logger.info(f"[Optimistic] BUY {symbol}: +{qty}")
+        
+        # 2. Buying Power Management (Cash Reservation)
+        if side == "BUY" and qty > 0:
             if price > 0:
                 # Estimate cost with fee/tax (BUY: 0.015% fee approx, no tax)
                 # Let's use 100.25% safely
                  cost = qty * price * 1.0025
                  self.pending_buy_amount += cost
-                 logger.info(f"[Optimistic Update] Pending Buy: +{int(cost):,} (Total Pending: {int(self.pending_buy_amount):,})")
+                 logger.info(f"[Optimistic] Pending Buy Amount: +{int(cost):,} (Total: {int(self.pending_buy_amount):,})")
+            else:
+                 logger.warning(f"Optimistic Update: No price for {symbol}, cannot estimate pending cash.")
 
     def sync_with_broker(self, broker_balance: Dict, notify: bool = True, tag_lookup_fn=None, allow_clear: bool = False):
         """Sync internal state with actual broker balance"""

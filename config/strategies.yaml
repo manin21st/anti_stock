@@ -18,7 +18,7 @@ breakout:
   vol_k: 2
 common:
   cross_lookback: 3
-  entry_start_time: '091000'
+  entry_start_time: 091000
   max_positions: 10
   risk_pct: 0.03
   target_weight: 0.1
@@ -29,14 +29,14 @@ database:
 ma_trend:
   enabled: true
   id: ma_trend
-  ma_long: 20
-  ma_short: 5
+  ma_long: 10
+  ma_short: 3
   max_positions: 10
   prev_daily_vol_k: 1.5
   risk_pct: 0.03
   stop_loss_pct: 0.02
   take_profit1_pct: 0.03
-  timeframe: 1m
+  timeframe: 5m
   trail_activation_pct: 0.03
   trail_stop_pct: 0.015
   vol_k: 1.5
@@ -47,8 +47,8 @@ system:
   telegram:
     bot_token: 7175981417:AAF58bvA9QvQ_Kpz3pd0PDbH5D79hgenSh8
     chat_id: '7692999971'
-    enable_system_alert: false
-    enable_trade_alert: false
+    enable_system_alert: true
+    enable_trade_alert: true
   tps_limit: 2.0
   tps_server_url: https://tps.bhsong.org
   universe: []

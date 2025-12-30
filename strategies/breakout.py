@@ -2,33 +2,27 @@ from .base import BaseStrategy
 import pandas as pd
 
 class PreviousHighBreakout(BaseStrategy):
-    def on_bar(self, symbol, bar):
-        # Rate Limit Check
-        if not self.check_rate_limit(symbol):
-            return
+    # 필수 설정
+    REQUIRED_KEYS = ['gap_pct', 'stop_loss_pct', 'take_profit1_pct', 'vol_k']
 
+    def execute(self, symbol, bar):
+        # Entry Logic Only
         daily = self.market_data.get_bars(symbol, timeframe="1d", lookback=2)
-        if len(daily) < 2:
-            return
+        if len(daily) < 2: return
 
         prev_high = daily.high.iloc[-2]
         prev_close = daily.close.iloc[-2]
         today_open = daily.open.iloc[-1]
 
         bars = self.market_data.get_bars(symbol, timeframe="1m", lookback=50)
-        if len(bars) < 20:
-            return
+        if len(bars) < 20: return
 
         stock_name = self.market_data.get_stock_name(symbol)
-
-        position = self.portfolio.get_position(symbol)
         close = bars.close.iloc[-1]
         volume_now = bars.volume.iloc[-1]
         avg_vol20 = bars.volume.iloc[-20:].mean()
 
-        # Entry
-        # Entry Logic (Combined New + Add-on)
-        # Config: 0.02 (2%)
+        # Entry Conditions
         gap_up = (today_open - prev_close) / prev_close >= self.config.get("gap_pct", 0.02)
         breakout = (bars.high.iloc[-1] > prev_high) and (close > prev_high)
         vol_ok = volume_now > avg_vol20 * self.config.get("vol_k", 2.0)
@@ -38,24 +32,22 @@ class PreviousHighBreakout(BaseStrategy):
             if qty > 0 and self.risk.can_open_new_position(symbol, qty, close):
                 self.logger.info(f"[{symbol} {stock_name}] 매수 진입 (전고점 돌파) | 수량: {qty}주 | 현재가: {int(close):,}원 > 전고점: {int(prev_high):,}원")
                 self.broker.buy_market(symbol, qty, tag=self.config["id"])
-        
-        if position is None:
-             return
 
-        # Exit
-        pnl_ratio = (close - position.avg_price) / position.avg_price
+    def manage_position(self, position, symbol, stock_name, current_price):
+        # 1. Base Strategy Logic (Stop Loss / Trail Stop / Partial TP)
+        if super().manage_position(position, symbol, stock_name, current_price):
+            return True
 
-        # Stop Loss: Below Prev High or Fixed % (Config: 0.02)
-        if close < prev_high or pnl_ratio <= -self.config["stop_loss_pct"]:
-            reason = "돌파 실패(전고점 하회)" if close < prev_high else "손절매 조건 도달"
-            self.logger.info(f"[{symbol} {stock_name}] 매도 실행 ({reason}) | 수익률: {pnl_ratio*100:.2f}%")
+        # 2. Strategy Specific Exit: Fall below Previous High
+        # We need prev_high data.
+        daily = self.market_data.get_bars(symbol, timeframe="1d", lookback=2)
+        if len(daily) < 2: return False
+        prev_high = daily.high.iloc[-2]
+
+        if current_price < prev_high:
+            pnl_ratio = (current_price - position.avg_price) / position.avg_price
+            self.logger.info(f"[{symbol} {stock_name}] 매도 실행 (돌파 실패-전고점 하회) | 수익률: {pnl_ratio*100:.2f}%")
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
-            return
-
-        # Take Profit (Config: 0.03)
-        if (not position.partial_taken) and pnl_ratio >= self.config["take_profit1_pct"]:
-            half = position.qty // 2
-            if half > 0:
-                self.logger.info(f"[{symbol} {stock_name}] 1차 수익 실현 (Partial TP) | 수익률: {pnl_ratio*100:.2f}% | 매도수량: {half}주")
-                self.broker.sell_market(symbol, half, tag=self.config["id"])
-                position.partial_taken = True
+            return True
+            
+        return False

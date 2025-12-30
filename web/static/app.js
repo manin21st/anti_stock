@@ -241,6 +241,12 @@ async function saveStrategyConfigField(input) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(fragment)
         });
+        
+        // Update local state to reflect change immediately
+        if (currentConfig && currentConfig[strategyName]) {
+            currentConfig[strategyName][key] = val;
+        }
+
         console.log(`Auto-saved strategy config: ${key}=${val}`);
     } catch (e) {
         console.error("Auto-save failed:", e);

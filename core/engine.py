@@ -428,8 +428,11 @@ class Engine:
 
         for strategy in self.strategies.values():
             try:
-                strategy.on_tick(symbol, data)
-                
+                # [Refactoring] 1. Preprocessing (Gateway)
+                # Performs Rate Limit, Time Check, etc.
+                if not strategy.preprocessing(symbol, data):
+                    continue
+
                 current_price = data.get('price', 0.0)
                 bar = {
                     'open': data.get('open', current_price),
@@ -439,7 +442,10 @@ class Engine:
                     'volume': data.get('volume', 0),
                     'time': data.get('time', '')
                 }
-                strategy.on_bar(symbol, bar)
+                
+                # [Refactoring] 2. Execution (Main Logic)
+                strategy.execute(symbol, bar)
+                
             except Exception as e:
                 logger.error(f"Error in strategy execution: {e}")
 
