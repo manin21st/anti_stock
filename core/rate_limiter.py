@@ -124,16 +124,46 @@ class RateLimiterService:
         [Synchronous Wrapper]
         Backward compatibility for legacy 'execute' calls.
         Blocks until result is available.
+        Includes handling for EGW00201 (Rate Limit) retries.
         """
-        # Extract priority if present in kwargs (not standard in legacy, but good to support)
+    def execute(self, func: Callable, *args, **kwargs) -> Any:
+        # Extract priority if present in kwargs
         priority = kwargs.pop('priority', PRIORITY_DATA)
         
-        future = self.submit(func, *args, priority=priority, **kwargs)
-        try:
-            return future.result()
-        except Exception as e:
-            # Legacy code expects exceptions to bubble up
-            raise e
+        max_retries = 10  # Increase retries for heavy startup load
+        for attempt in range(max_retries):
+            future = self.submit(func, *args, priority=priority, **kwargs)
+            try:
+                result = future.result()
+                
+                # Double-check for EGW00201 (Rate Limit Exceeded)
+                is_rate_limit = False
+                
+                # Check error code
+                if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
+                     is_rate_limit = True
+                else:
+                    # Scan all possible error message/content fields
+                    msg_content = str(getattr(result, 'error_text', '')) + " " + \
+                                  str(getattr(result, 'getErrorMessage', lambda: '')()) + " " + \
+                                  str(result)
+                    if "EGW00201" in msg_content:
+                        is_rate_limit = True
+
+                if is_rate_limit:
+                     logger.warning(f"[RateLimiter] EGW00201 Rate Limit hit. Retrying ({attempt+1}/{max_retries})...")
+                     time.sleep(1.0 + (attempt * 1.0)) # Exponential-ish backoff
+                     continue
+                
+                return result
+            except Exception as e:
+                if "EGW00201" in str(e):
+                     logger.warning(f"[RateLimiter] EGW00201 Exception. Retrying ({attempt+1}/{max_retries})...")
+                     time.sleep(1.0 + (attempt * 1.0))
+                     continue
+                raise e
+        
+        return future.result() 
 
     def submit(self, func: Callable, *args, priority: int = PRIORITY_DATA, **kwargs) -> Future:
         """
