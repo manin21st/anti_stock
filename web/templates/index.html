@@ -362,13 +362,19 @@
                                             !document.getElementById('tab-settings').classList.contains('active')) return;
 
                                         try {
-                                            const res = await fetch('/api/tps_status');
+                                            const res = await fetch('/api/tps/stats');
                                             const data = await res.json();
 
+                                            // Token Fallback
+                                            let tokens = data.tokens_left;
+                                            if (tokens === undefined) tokens = data.remaining_tokens;
+                                            if (tokens === undefined) tokens = data.estimated_local_tokens;
+                                            const tokenVal = tokens !== undefined ? parseFloat(tokens) : 0;
+
                                             // Update Info Boxes
-                                            document.getElementById('val-tps').innerText = data.current_tps || data.tps_limit || "--";
+                                            document.getElementById('val-tps').innerText = data.current_tps || "--";
                                             document.getElementById('val-clients').innerText = data.active_clients || (data.status === 'local' ? '1 (Me)' : '--');
-                                            document.getElementById('val-tokens').innerText = data.remaining_tokens !== undefined ? parseFloat(data.remaining_tokens).toFixed(2) : '--';
+                                            document.getElementById('val-tokens').innerText = tokens !== undefined ? tokenVal.toFixed(2) : '--';
 
                                             // Update Pending HUD
                                             const pending = data.pending || 0;
@@ -376,14 +382,19 @@
                                             pendingEl.innerText = pending;
                                             pendingEl.style.color = pending > 0 ? '#ff4444' : '#666';
 
+                                            document.getElementById('hud-tps').innerText = data.current_tps || "0.00";
+                                            document.getElementById('hud-processed').innerText = data.processed_1min || "0";
+
                                             // Update Status LED
                                             const led = document.getElementById('tps-status-led');
                                             const txt = document.getElementById('tps-status-text');
-                                            if (data.server_alive) {
-                                                led.className = 'led-green';
+
+                                            // Handle server_alive check robustly
+                                            if (data.server_alive || data.status === 'running') {
+                                                led.className = 'led-on';
                                                 txt.innerText = "정상 가동중";
                                             } else {
-                                                led.className = 'led-red';
+                                                led.className = 'led-off';
                                                 txt.innerText = "연결 끊김 / 로컬";
                                             }
 
@@ -393,7 +404,7 @@
 
                                             const now = new Date();
                                             tpsChart.data.labels.push(now.getSeconds());
-                                            tpsChart.data.datasets[0].data.push(pending);
+                                            tpsChart.data.datasets[0].data.push(pending); // Plot Pending
 
                                             tpsChart.update();
 

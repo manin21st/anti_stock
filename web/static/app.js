@@ -241,7 +241,7 @@ async function saveStrategyConfigField(input) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(fragment)
         });
-        
+
         // Update local state to reflect change immediately
         if (currentConfig && currentConfig[strategyName]) {
             currentConfig[strategyName][key] = val;
@@ -295,7 +295,14 @@ async function loadSystemConfig() {
     }
 
     // Telegram Alerts
-    // ... (omitted lines) ...
+    if (config.telegram) {
+        if (config.telegram.enable_trade_alert !== undefined) {
+            document.getElementById("enable_trade_alert").checked = config.telegram.enable_trade_alert;
+        }
+        if (config.telegram.enable_system_alert !== undefined) {
+            document.getElementById("enable_system_alert").checked = config.telegram.enable_system_alert;
+        }
+    }
 
     // Toggle Visibility
     const toggleScannerUI = () => {
@@ -1252,7 +1259,13 @@ function updateTpsStats() {
 
                 if (cur) cur.textContent = data.current_tps;
                 if (cli) cli.textContent = data.active_clients;
-                if (tok) tok.textContent = parseFloat(data.tokens_left).toFixed(2);
+
+                // Tokens: Try multiple keys
+                let tokens = data.tokens_left;
+                if (tokens === undefined) tokens = data.remaining_tokens;
+                if (tokens === undefined) tokens = data.estimated_local_tokens;
+
+                if (tok) tok.textContent = tokens !== undefined ? parseFloat(tokens).toFixed(2) : "--";
             } else {
                 if (led) led.className = 'led-off';
                 if (text) {

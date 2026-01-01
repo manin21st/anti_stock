@@ -1,307 +1,241 @@
 import threading
+import queue
 import time
 import logging
-import os
-import random
+import uuid
 import requests
-from collections import deque
-from typing import Dict, Any, Optional
+from concurrent.futures import Future, CancelledError
+from typing import Any, Callable, Dict, Optional, Tuple, Union
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# 우선순위 상수 (낮을수록 높음) - 외부 호환성을 위해 유지
+PRIORITY_ORDER = 0      # 매수/매도 주문
+PRIORITY_MANUAL = 1     # 수동 개입
+PRIORITY_ACCOUNT = 2    # 잔고/예수금 조회
+PRIORITY_DATA = 5       # 시세/차트 조회 (Default)
+PRIORITY_BACKGROUND = 9 # 백그라운드 데이터 수집
+
+@dataclass(order=True)
+class APIRequest:
+    priority: int
+    timestamp: float
+    request_id: str = field(compare=False)
+    func: Callable = field(compare=False)
+    args: tuple = field(compare=False, default_factory=tuple)
+    kwargs: dict = field(compare=False, default_factory=dict)
+    future: Future = field(compare=False, default_factory=Future)
+
 class RateLimiterService:
+    """
+    [New Distributed Core]
+    Replaces legacy logic with APIExecutor's Queue & TPS Server architecture.
+    Maintains 'RateLimiterService' name for compatibility.
+    """
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if not cls._instance:
             with cls._lock:
                 if not cls._instance:
                     cls._instance = super(RateLimiterService, cls).__new__(cls)
-                    cls._instance._initialize()
+                    cls._instance._initialized = False
         return cls._instance
 
-    def _initialize(self):
-        # Configurable TPS Limit (Default: 2.0)
-        try:
-            self.tps_limit = float(os.environ.get("TPS_LIMIT", 2.0))
-        except ValueError:
-            self.tps_limit = 2.0
-
-        # Pacing: Minimum interval between requests to prevent burst
-        # even if tokens are available.
-        self.min_interval = 1.0 / max(self.tps_limit, 0.1)
-        self.last_dispatch_time = 0.0
-
-        self.lock = threading.Lock()
-
-        # TPS Server Config
-        self.server_url = os.environ.get("TPS_SERVER_URL", "http://localhost:9000")
-        self.use_server = False # Will be determined by connection success
-        self.server_alive = True
-        self.server_fail_count = 0
-        self.logged_server_error = False
-        self.stopped = False # Shutdown flag
-
-        # Generate Client ID (Hostname + PID)
+    def __init__(self, tps_limit: float = 2.0, tps_server_url: Optional[str] = None):
+        if self._initialized: return
+        
+        self.tps_limit = tps_limit
+        self.tps_server_url = tps_server_url
+        # Client ID for Distributed TPS tracking
         import socket
         try:
             hostname = socket.gethostname()
         except:
             hostname = "unknown"
-        self.client_id = f"{hostname}-{os.getpid()}"
+        pid = 0
+        try:
+            import os
+            pid = os.getpid()
+        except:
+             pass
+        self.client_id = f"{hostname}-{pid}-{uuid.uuid4().hex[:4]}"
+        
+        self.min_interval = 1.0 / max(tps_limit, 0.1)
+        self.queue = queue.PriorityQueue()
+        self.running = False
+        self.thread = None
+        
+        # Pacing State
+        self.last_dispatch_time = 0.0
         
         # Metrics
-        self.pending_count = 0
-        self.request_history = deque(maxlen=600) # Store timestamps of processed requests
+        self.execution_history = []  # (timestamp, priority, elapsed_wait)
+        self.metrics_lock = threading.Lock()
 
-        logger.info(f"[RateLimiter] Service Initialized. TPS={self.tps_limit} (Min Interval: {self.min_interval:.4f}s)")
+        self._initialized = True
+        
+        # HTTP Session (Persistent Connection)
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=1, pool_maxsize=1, max_retries=1)
+        self.session.mount('http://', adapter)
+        
+        mode = f"Remote({tps_server_url})" if tps_server_url else "Local"
+        logger.info(f"[RateLimiter] Initialized ({mode}). Limit={self.tps_limit} TPS (Interval={self.min_interval:.4f}s)")
+
+        # Auto-start worker
+        self.start()
 
     def configure(self, tps_limit: float = None, server_url: str = None):
-        """Dynamic Configuration"""
-        with self.lock:
-            if tps_limit is not None:
-                self.tps_limit = float(tps_limit)
-                self.min_interval = 1.0 / max(self.tps_limit, 0.1)
-                logger.info(f"[RateLimiter] Limit updated to {self.tps_limit:.1f} TPS (Interval: {self.min_interval:.4f}s)")
+        """Update configuration dynamically"""
+        if tps_limit is not None:
+            self.tps_limit = float(tps_limit)
+            self.min_interval = 1.0 / self.tps_limit
+            logger.info(f"[RateLimiter] TPS Limit updated to {self.tps_limit}")
+        
+        if server_url:
+            self.tps_server_url = server_url.rstrip('/')
+            mode = f"Remote({self.tps_server_url})"
+            logger.info(f"[RateLimiter] Config updated: {mode}")
+
+    def start(self):
+        """Worker 스레드 시작"""
+        with self._lock:
+            if self.running: return
+            self.running = True
             
-            if server_url is not None and server_url != self.server_url:
-                self.server_url = server_url.rstrip('/')
-                self.server_alive = True 
-                self.logged_server_error = False
-                logger.info(f"[RateLimiter] Server URL updated to: {self.server_url}")
+            self.thread = threading.Thread(target=self._worker_loop, daemon=True, name="RateLimiterWorker")
+            self.thread.start()
+            logger.info("[RateLimiter] Worker Started.")
 
     def stop(self):
-        """Signal to stop accepting requests (Graceful Shutdown)"""
-        with self.lock:
-            self.stopped = True
-        logger.info("[RateLimiter] Service Stopping...")
+        """Worker 스레드 중지"""
+        with self._lock:
+            self.running = False
+        
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=2.0)
+            logger.info("[RateLimiter] Worker Stopped.")
 
-    def _request_token_from_server(self) -> Optional[bool]:
+    def execute(self, func: Callable, *args, **kwargs) -> Any:
         """
-        Request a token from the centralized server.
-        Returns: True (Granted), False (Denied/Wait), None (Error/Offline)
+        [Synchronous Wrapper]
+        Backward compatibility for legacy 'execute' calls.
+        Blocks until result is available.
         """
+        # Extract priority if present in kwargs (not standard in legacy, but good to support)
+        priority = kwargs.pop('priority', PRIORITY_DATA)
+        
+        future = self.submit(func, *args, priority=priority, **kwargs)
         try:
-            headers = {"X-Client-ID": self.client_id}
-            # Timeout should be short to avoid blocking too long on network jitter
-            resp = requests.get(f"{self.server_url}/token", headers=headers, timeout=1.0)
-
-            if resp.status_code == 200:
-                if not self.server_alive:
-                    self.server_alive = True
-                    logger.info(f"[RateLimiter] TPS Server Reconnected: {self.server_url}")
-                    self.logged_server_error = False
-                return True
-            elif resp.status_code == 429:
-                return False
-            else:
-                return False
-
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            if not self.logged_server_error:
-                logger.warning(f"[RateLimiter] TPS Server Unreachable ({self.server_url}). Waiting for reconnection...")
-                self.logged_server_error = True
-            self.server_alive = False
-            return None
-        except Exception:
-            return None
-
-    def wait_for_ready(self):
-        """Block until TPS Server is connected (Strict Mode)"""
-        if os.environ.get("SKIP_TPS_CHECK", "0") == "1":
-            logger.warning("[RateLimiter] Skipping TPS check (Env SKIP_TPS_CHECK=1)")
-            return
-
-        logger.info("[RateLimiter] TPS 서버 연결 대기 중... (Strict Mode)")
-        while not self.stopped:
-            # Try to fetch token just to check connectivity
-            status = self._request_token_from_server()
-            if status is not None:
-                logger.info("[RateLimiter] TPS 서버 연결 성공!")
-                return
-            time.sleep(1.0) 
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Fetch statistics"""
-        # Estimate local tokens
-        # Note: This is a loose estimation since we don't track tokens locally in centralized mode
-        elapsed = time.time() - self.last_dispatch_time
-        estimated_tokens = min(self.tps_limit, elapsed * self.tps_limit)
-
-        stats = {
-            "pending": self.pending_count,
-            "processed_1min": 0,
-            "current_tps": self.tps_limit,
-            "server_alive": self.server_alive,
-            "estimated_local_tokens": estimated_tokens
-        }
-
-        # Calculate RPM locally
-        now = time.time()
-        with self.lock:
-            while self.request_history and now - self.request_history[0] > 60:
-                self.request_history.popleft()
-            stats["processed_1min"] = len(self.request_history)
-
-        # Try to get server stats if online
-        try:
-            headers = {"X-Client-ID": self.client_id}
-            resp = requests.get(f"{self.server_url}/stats", headers=headers, timeout=0.5)
-            if resp.status_code == 200:
-                server_stats = resp.json()
-                stats.update(server_stats)
-                stats["status"] = "running"
-            else:
-                stats["status"] = "error"
-                stats["message"] = f"HTTP {resp.status_code}"
+            return future.result()
         except Exception as e:
-            stats["status"] = "offline"
-            stats["message"] = str(e)
+            # Legacy code expects exceptions to bubble up
+            raise e
 
-        return stats
-
-    def execute(self, func, *args, **kwargs):
+    def submit(self, func: Callable, *args, priority: int = PRIORITY_DATA, **kwargs) -> Future:
         """
-        Executes the function with Rate Limiting and Pacing.
+        [New Capability] Async submission
         """
-        # If stopped, reject immediate
-        if self.stopped:
-            logger.warning("[RateLimiter] Service is stopped. Request rejected.")
-            return None
-
-        # --- Backtest Bypass Hook ---
-        # If the caller provides a special flag or if we detect backtest mode otherwise.
-        # Ideally, kis_api wrapper handles backtest bypassing BEFORE calling this.
-        # But if we rely on this service, we assume we are in Real/Paper mode.
+        request_id = uuid.uuid4().hex
+        timestamp = time.time()
+        future = Future()
         
-        max_retries = 3
-        attempt = 0
-        should_retry = True
-        
-        with self.lock:
-             self.pending_count += 1
-        
-        try:
-            while should_retry:
-                # 1. Pacing Check (Local Throttling)
-                # Ensure we don't send requests faster than min_interval
-                with self.lock:
-                    now = time.time()
-                    elapsed = now - self.last_dispatch_time
-                    wait_time = self.min_interval - elapsed
-                
-                if wait_time > 0:
-                     # logger.debug(f"[RateLimiter] Pacing wait: {wait_time:.4f}s")
-                     time.sleep(wait_time)
+        req = APIRequest(priority, timestamp, request_id, func, args, kwargs, future)
+        self.queue.put(req)
+        return future
 
-                # 2. Token Acquisition (Server Authority)
-                token_granted = False
-                while not token_granted and not self.stopped:
-                    server_status = self._request_token_from_server()
-                    if server_status is True:
-                        token_granted = True
-                    elif server_status is False:
-                         # 429: Server has no tokens. Wait a bit.
-                         time.sleep(0.1)
-                    else:
-                         # Server offline.
-                         if not self.logged_server_error:
-                             logger.warning("[RateLimiter] Connection lost. Waiting...")
-                             self.logged_server_error = True
-                         time.sleep(1.0)
-                
-                if self.stopped:
-                    return None
-
-                # 3. Execution
-                # Update dispatch time immediately before execution
-                with self.lock:
-                    self.last_dispatch_time = time.time()
-
-                result = None
-                exception = None
-                is_rate_limit = False # EGW00201
-                is_expired_token = False # EGW00123
-
+    def _worker_loop(self):
+        while self.running:
+            try:
+                # 1. Fetch Request
                 try:
-                    result = func(*args, **kwargs)
-
-                    # Check for Rate Limit Error (EGW00201)
-                    if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
-                        is_rate_limit = True
-                    elif hasattr(result, 'getErrorMessage'):
-                        msg = result.getErrorMessage()
-                        if msg and "EGW00201" in msg:
-                            is_rate_limit = True
-
-                    # Check for Expired Token (EGW00123)
-                    # Note: We rely on caller to handle re-auth or we handle it here if we have access to auth logic?
-                    # Since RateLimiterService is decoupled, it shouldn't know about 'ka.auth'.
-                    # We will return the result and let the Wrapper handle re-auth, 
-                    # OR we define a callback for re-auth.
-                    # For now, let's keep the logic simple: decoupling means we might lose the auto-reauth 
-                    # unless we pass it as a callback or handle it in kis_api wrapper loop.
-                    # -> Decision: kis_api wrapper should handle EGW00123 retry loop? 
-                    # Actually, the original code handled it inside execute. 
-                    # To split cleanly, RateLimiter should only handle Rate.
-                    # But removing auto-reauth here breaks existing behavior.
-                    # For this refactor, I will support a 'retry_on_expired' callback if needed, 
-                    # or better: rely on the fact that result contains the error and the caller (kis_api) 
-                    # should check it.
-                    # HOWEVER, to minimize code changes in kis_api wrappers, 
-                    # I will allow passing an 'auth_callback' or similar? 
-                    # Or just return the error and let kis_api wrapper retry?
-                    # The original code did: catch EGW00123 -> ka.auth -> retry.
-                    # I'll stick to handling Pacing/Rate here. EGW00201 retry IS rate limiting logic.
-                    # EGW00123 is Auth logic.
-                    # I will leave EGW00123 handling to the caller or simply return the result.
-                    # But EGW00201 (Rate Limit) IS my job.
-                    pass
-
-                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                    exception = e
-                    # Network error -> might be rate limit or just floaty network
-                    if attempt < max_retries:
-                        is_rate_limit = True
-                    else:
-                        raise e
-                except Exception as e:
-                    raise e
-                
-                # Handling EGW00201 (Burst Leak)
-                # Even with Pacing, if we still hit EGW00201, we must backoff.
-                if is_rate_limit:
-                    if attempt >= max_retries:
-                        logger.error(f"[RateLimiter] Max retries ({max_retries}) exceeded for EGW00201.")
-                        # Return result as is (let caller see error)
-                        return result
-                    
-                    attempt += 1
-                    # Adaptive Throttling: Increase min_interval dynamically?
-                    # For now, just backoff
-                    backoff = 2.0 + random.uniform(0.0, 1.0)
-                    logger.warning(f"[RateLimiter] EGW00201 hit despite pacing. Backing off {backoff:.2f}s...")
-                    time.sleep(backoff)
+                    req: APIRequest = self.queue.get(timeout=1.0)
+                except queue.Empty:
                     continue
 
-                if exception:
-                     # If we got here, it's a network retry that wasn't strictly 00201 but failed
-                     if attempt < max_retries:
-                         time.sleep(1.0)
-                         attempt += 1
-                         continue
-                     else:
-                         raise exception
+                if req.future.cancelled():
+                    self.queue.task_done()
+                    continue
 
-                # Success
-                with self.lock:
-                    self.request_history.append(time.time())
-                return result
+                # 2. Pacing / Token Control
+                if self.tps_server_url:
+                    self._wait_for_server_token()
+                else:
+                    self._wait_local_pacing()
 
-        finally:
-             with self.lock:
-                  self.pending_count -= 1
+                # 3. Execution (Synchronous Call)
+                dispatch_start = time.time()
+                try:
+                    # Update dispatch time (Self-Update)
+                    self.last_dispatch_time = dispatch_start
+                    
+                    result = req.func(*req.args, **req.kwargs)
+                    
+                    if not req.future.cancelled():
+                        req.future.set_result(result)
+                        
+                except Exception as e:
+                    if not req.future.cancelled():
+                        req.future.set_exception(e)
+                finally:
+                    self.queue.task_done()
+                    
+                    # Metrics
+                    with self.metrics_lock:
+                        elapsed_wait = dispatch_start - req.timestamp
+                        self.execution_history.append((dispatch_start, req.priority, elapsed_wait))
+                        if len(self.execution_history) > 1000:
+                            self.execution_history.pop(0)
 
-# Singleton Instance
+            except Exception as e:
+                logger.error(f"[RateLimiter] Worker Logic Crash: {e}", exc_info=True)
+                time.sleep(1.0)
+
+    def _wait_local_pacing(self):
+        """Strict Local Token Bucket / Pacing"""
+        now = time.time()
+        elapsed = now - self.last_dispatch_time
+        wait_needed = self.min_interval - elapsed
+        
+        if wait_needed > 0:
+            time.sleep(wait_needed)
+
+    def _wait_for_server_token(self):
+        """
+        Communicates with centralized TPS server.
+        Blocks until a token is granted.
+        """
+        while self.running:
+            try:
+                resp = self.session.get(f"{self.tps_server_url}/token", 
+                                        headers={"X-Client-ID": self.client_id}, 
+                                        timeout=2.0)
+                
+                if resp.status_code == 200:
+                    return # Granted
+                elif resp.status_code == 429:
+                    # Remote limit hit
+                    time.sleep(0.1) # Short wait
+                    continue
+                else:
+                    logger.warning(f"[RateLimiter] Server error {resp.status_code}. Fallback local.")
+                    self._wait_local_pacing()
+                    return
+
+            except requests.exceptions.RequestException:
+                # logger.warning("[RateLimiter] Server unreachable. Fallback local.")
+                self._wait_local_pacing()
+                return
+
+    def get_stats(self) -> Dict[str, Any]:
+        return {
+            "queue_size": self.queue.qsize(),
+            "tps_limit": self.tps_limit,
+            "mode": "Remote" if self.tps_server_url else "Local"
+        }
+
+# Singleton Instance (Legacy Name)
 params_limiter = RateLimiterService()

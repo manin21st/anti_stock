@@ -112,8 +112,8 @@ class BaseStrategy(ABC):
 
         # 3. 일봉 추세 필터
         # 일봉 추세가 좋지 않으면 신규 진입을 하지 않습니다.
-        # (청산은 위에서 이미 처리되었으므로, 여기서는 '진입 금지' 역할만 수행)
-        if not self.check_daily_trend(symbol, stock_name):
+        # check_daily_trend returns DataFrame or None
+        if self.check_daily_trend(symbol, stock_name) is None:
             return False
 
         return True

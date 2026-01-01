@@ -480,17 +480,27 @@ class TradeManager:
                             sell_qty -= take_qty
 
                     if matched_qty > 0:
-                        avg_buy_price = cost_basis / matched_qty
+                        if matched_qty == 0:
+                            avg_buy_price = 0
+                        else:
+                            avg_buy_price = cost_basis / matched_qty
+
                         gross_pnl = (sell_price - avg_buy_price) * matched_qty
 
                         fee = (sell_price * matched_qty) * 0.0025
                         net_pnl = gross_pnl - fee
-                        pnl_pct = ((sell_price - avg_buy_price) / avg_buy_price) * 100
+                        
+                        if avg_buy_price > 0:
+                            pnl_pct = ((sell_price - avg_buy_price) / avg_buy_price) * 100
+                        else:
+                            pnl_pct = 0.0
 
                         if event.pnl is None or event.pnl == 0:
                             event.pnl = round(net_pnl, 0)
                             event.pnl_pct = round(pnl_pct, 2)
                             updated_count += 1
+                    else:
+                        logger.warning(f"Skipping PnL for {sym} (Sell {sell_qty}): No matching BUY history found locally.")
 
             if updated_count > 0:
                 for event in sorted_events:

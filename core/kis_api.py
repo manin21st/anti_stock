@@ -68,22 +68,35 @@ def set_data_provider(provider_func: Callable):
     global _data_provider
     _data_provider = provider_func
 
-from core.rate_limiter import params_limiter as _rate_limiter
+# --- API Executor Integration ---
+try:
+    from core.rate_limiter import params_limiter, PRIORITY_DATA, PRIORITY_ORDER, PRIORITY_ACCOUNT
+except ImportError:
+    params_limiter = None
+    logger.error("RateLimiterService Import Failed")
 
 def configure_rate_limiter(tps_limit: float = None, server_url: str = None):
-    _rate_limiter.configure(tps_limit, server_url)
+    # Dynamic Configuration via Refactored RateLimiterService
+    if params_limiter:
+        params_limiter.configure(tps_limit=tps_limit, server_url=server_url)
 
 def get_rate_limiter_stats() -> Dict:
-    return _rate_limiter.get_stats()
+    # Approximate stats from RateLimiterService
+    if params_limiter:
+        return params_limiter.get_stats()
+    return {"status": "error", "message": "RateLimiter not loaded"}
 
 def stop_rate_limiter():
-    _rate_limiter.stop()
+    if params_limiter:
+        params_limiter.stop()
 
 def wait_for_tps():
-    _rate_limiter.wait_for_ready()
+    # Executor doesn't need "Server Connect" wait.
+    pass
 
-# Legacy alias for internal use (if absolutely needed, but prefer service calls)
-rate_limiter = _rate_limiter
+# Legacy alias (deprecated but kept for safety if external access exists)
+rate_limiter = None 
+
 
 # --- Wrapper Functions ---
 
@@ -107,8 +120,7 @@ def auth(svr="prod", product=None, url=None, force=False):
             pass
 
     ka.auth(**kwargs)
-    if rate_limiter:
-        rate_limiter.last_call_time = time.time()
+    # Executor handles timing internally
 
 def auth_ws(svr="prod", product=None):
     if _backtest_mode:
@@ -157,7 +169,7 @@ def issue_request(api_url, ptr_id, tr_cont, params, appendHeaders=None, postFlag
             def getBody(self): return type('Body', (), {"output": []})()
         return MockResponse()
 
-    return rate_limiter.execute(ka._url_fetch, api_url, ptr_id, tr_cont, params, appendHeaders, postFlag, hashFlag)
+    return params_limiter.execute(ka._url_fetch, api_url, ptr_id, tr_cont, params, appendHeaders, postFlag, hashFlag, priority=PRIORITY_DATA)
 
 def fetch_price(symbol: str) -> Dict[str, Any]:
     """
@@ -180,7 +192,7 @@ def fetch_price(symbol: str) -> Dict[str, Any]:
         "FID_COND_MRKT_DIV_CODE": "J",
         "FID_INPUT_ISCD": symbol
     }
-    res = rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params)
+    res = params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params, priority=PRIORITY_DATA)
     if res and res.isOK():
         return res.getBody().output
     else:
@@ -204,7 +216,7 @@ def fetch_daily_chart(symbol: str, start_dt: str, end_dt: str, lookback: int = 1
         "FID_PERIOD_DIV_CODE": "D",
         "FID_ORG_ADJ_PRC": "1"
     }
-    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params)
+    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params, priority=PRIORITY_DATA)
 
 def fetch_minute_chart(symbol: str, current_time: str) -> Any:
     """Wrapper for inquire-time-itemchartprice"""
@@ -221,7 +233,7 @@ def fetch_minute_chart(symbol: str, current_time: str) -> Any:
         "FID_PW_DATA_INCU_YN": "Y",
         "FID_ETC_CLS_CODE": ""
     }
-    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params)
+    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params, priority=PRIORITY_DATA)
 
 def fetch_past_minute_chart(symbol: str, date: str, time: str, period_code: str = "N") -> Any:
     if _backtest_mode:
@@ -236,7 +248,7 @@ def fetch_past_minute_chart(symbol: str, date: str, time: str, period_code: str 
         "FID_PW_DATA_INCU_YN": period_code,
         "FID_FAKE_TICK_INCU_YN": ""
     }
-    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", tr_id, "", params)
+    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", tr_id, "", params, priority=PRIORITY_DATA)
 
 def send_order(tr_id: str, params: Dict[str, str]) -> Any:
     """
@@ -264,7 +276,7 @@ def send_order(tr_id: str, params: Dict[str, str]) -> Any:
         
         return MockOrderResponse()
 
-    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/order-cash", tr_id, "", params, postFlag=True)
+    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/order-cash", tr_id, "", params, postFlag=True, priority=PRIORITY_ORDER)
 
 def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
     """
@@ -312,7 +324,7 @@ def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
             "output2": holdings
         }
 
-    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params)
+    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params, priority=PRIORITY_ACCOUNT)
 
 def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "", ctx_area_fk: str = "", ctx_area_nk: str = "") -> Any:
     if _backtest_mode:
@@ -341,7 +353,7 @@ def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "", ctx_area_fk: 
         "CTX_AREA_FK100": ctx_area_fk,
         "CTX_AREA_NK100": ctx_area_nk
     }
-    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-daily-ccld", tr_id, "", params)
+    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-daily-ccld", tr_id, "", params, priority=PRIORITY_ACCOUNT)
 
 def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_area_nk: str = "") -> Any:
     if _backtest_mode:
@@ -365,4 +377,4 @@ def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_a
         "CTX_AREA_FK100": ctx_area_fk,
         "CTX_AREA_NK100": ctx_area_nk
     }
-    return rate_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-period-profit", tr_id, "", params)
+    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-period-profit", tr_id, "", params, priority=PRIORITY_ACCOUNT)
