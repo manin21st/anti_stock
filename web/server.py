@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -98,9 +98,18 @@ async def auth_middleware(request: Request, call_next):
     # Check session
     user = request.session.get("user")
     if not user:
-        return RedirectResponse(url="/login")
+        return RedirectResponse(url="/login", status_code=303)
 
     return await call_next(request)
+
+# PWA Static Routes
+@app.get("/manifest.json")
+async def get_manifest():
+    return FileResponse("web/static/manifest.json", media_type="application/manifest+json")
+
+@app.get("/sw.js")
+async def get_sw():
+    return FileResponse("web/static/sw.js", media_type="application/javascript")
 
 # Security: Session Middleware (Must be added last to be executed first)
 # In production, SECRET_KEY should be loaded from env vars

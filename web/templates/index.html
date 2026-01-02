@@ -6,6 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>안티-스톡 트레이딩 봇</title>
     <link rel="stylesheet" href="/static/style.css?v=12">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#3b82f6">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Anti-Stock">
+    <link rel="apple-touch-icon" href="/static/logo.png">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -297,9 +304,20 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=11"></script>
-    <script src="/static/chart.js?v=24"></script>
-    <script src="/static/watchlist.js?v=2"></script>
+    <script src="/static/chart.js"></script>
+    <script src="/static/watchlist.js"></script>
+    <script src="/static/app.js?v=2"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then(reg => {
+                    console.log('PWA ServiceWorker registered');
+                }).catch(err => {
+                    console.log('PWA ServiceWorker registration failed:', err);
+                });
+            });
+        }
+    </script>
 </body>
 
 </html>
