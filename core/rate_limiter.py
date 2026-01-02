@@ -68,8 +68,10 @@ class RateLimiterService:
         self.running = False
         self.thread = None
         
-        # Pacing State
+        # Pacing & Backoff State
         self.last_dispatch_time = 0.0
+        self.backoff_until = 0.0
+        self.backoff_lock = threading.Lock()
         
         # Metrics
         self.execution_history = []  # (timestamp, priority, elapsed_wait)
@@ -119,31 +121,35 @@ class RateLimiterService:
             self.thread.join(timeout=2.0)
             logger.info("[RateLimiter] Worker Stopped.")
 
+    def _check_backoff(self):
+        """Check if we are in global backoff and wait if needed"""
+        now = time.time()
+        if now < self.backoff_until:
+            wait_time = self.backoff_until - now
+            logger.info(f"[RateLimiter] Global Backoff active. Sleeping {wait_time:.2f}s...")
+            time.sleep(wait_time)
+
     def execute(self, func: Callable, *args, **kwargs) -> Any:
         """
         [Synchronous Wrapper]
-        Backward compatibility for legacy 'execute' calls.
-        Blocks until result is available.
         Includes handling for EGW00201 (Rate Limit) retries.
+        Implements Global Backoff to prevent 'Thundering Herd'.
         """
-    def execute(self, func: Callable, *args, **kwargs) -> Any:
-        # Extract priority if present in kwargs
         priority = kwargs.pop('priority', PRIORITY_DATA)
         
-        max_retries = 10  # Increase retries for heavy startup load
+        max_retries = 10
         for attempt in range(max_retries):
+            # 1. Global Backoff check (Client side pre-check)
+            self._check_backoff()
+            
             future = self.submit(func, *args, priority=priority, **kwargs)
             try:
                 result = future.result()
                 
-                # Double-check for EGW00201 (Rate Limit Exceeded)
                 is_rate_limit = False
-                
-                # Check error code
                 if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
                      is_rate_limit = True
                 else:
-                    # Scan all possible error message/content fields
                     msg_content = str(getattr(result, 'error_text', '')) + " " + \
                                   str(getattr(result, 'getErrorMessage', lambda: '')()) + " " + \
                                   str(result)
@@ -151,15 +157,24 @@ class RateLimiterService:
                         is_rate_limit = True
 
                 if is_rate_limit:
-                     logger.warning(f"[RateLimiter] EGW00201 Rate Limit hit. Retrying ({attempt+1}/{max_retries})...")
-                     time.sleep(1.0 + (attempt * 1.0)) # Exponential-ish backoff
+                     # TRIGGER GLOBAL BACKOFF
+                     with self.backoff_lock:
+                         # Set backoff until future (e.g., 2.0s from now)
+                         # This will block the worker thread and all subsequent execute calls
+                         self.backoff_until = time.time() + 2.0
+                     
+                     logger.warning(f"[RateLimiter] EGW00201 Hit. Global Backoff triggered (2s). Attempt ({attempt+1}/{max_retries})")
+                     time.sleep(2.1) # Wait slightly more than backoff in the calling thread
                      continue
                 
                 return result
             except Exception as e:
-                if "EGW00201" in str(e):
-                     logger.warning(f"[RateLimiter] EGW00201 Exception. Retrying ({attempt+1}/{max_retries})...")
-                     time.sleep(1.0 + (attempt * 1.0))
+                err_msg = str(e)
+                if "EGW00201" in err_msg:
+                     with self.backoff_lock:
+                         self.backoff_until = time.time() + 2.0
+                     logger.warning(f"[RateLimiter] EGW00201 Exception. Global Backoff triggered (2s). Attempt ({attempt+1}/{max_retries})")
+                     time.sleep(2.1)
                      continue
                 raise e
         
@@ -225,7 +240,11 @@ class RateLimiterService:
                 time.sleep(1.0)
 
     def _wait_local_pacing(self):
-        """Strict Local Token Bucket / Pacing"""
+        """Strict Local Token Bucket / Pacing with Backoff support"""
+        # 1. First check for Global Backoff
+        self._check_backoff()
+
+        # 2. Regular Pacing
         now = time.time()
         elapsed = now - self.last_dispatch_time
         wait_needed = self.min_interval - elapsed
@@ -239,6 +258,9 @@ class RateLimiterService:
         Blocks until a token is granted.
         """
         while self.running:
+            # 1. First check for Global Backoff
+            self._check_backoff()
+
             try:
                 resp = self.session.get(f"{self.tps_server_url}/token", 
                                         headers={"X-Client-ID": self.client_id}, 
@@ -247,8 +269,8 @@ class RateLimiterService:
                 if resp.status_code == 200:
                     return # Granted
                 elif resp.status_code == 429:
-                    # Remote limit hit
-                    time.sleep(0.1) # Short wait
+                    # Remote limit hit - Trigger local backoff briefly to avoid hammering server
+                    time.sleep(0.5) 
                     continue
                 else:
                     logger.warning(f"[RateLimiter] Server error {resp.status_code}. Fallback local.")
