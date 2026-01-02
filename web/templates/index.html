@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anti-Stock Trading Bot</title>
-    <link rel="stylesheet" href="/static/style.css?v=17">
+    <link rel="stylesheet" href="/static/style.css?v=20">
     <link rel="manifest" href="/manifest.json?v=110">
     <meta name="theme-color" content="#3b82f6">
     <meta name="mobile-web-app-capable" content="yes">
@@ -52,7 +52,6 @@
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="tab-portfolio">포트폴리오</button>
             <button class="tab-btn" data-tab="tab-watchlist">감시종목</button>
-            <button class="tab-btn" data-tab="tab-chart">차트</button>
             <button class="tab-btn" data-tab="tab-backtest">백테스트</button>
             <button class="tab-btn" data-tab="tab-journal">매매일지</button>
             <button class="tab-btn" data-tab="tab-settings">환경 설정</button>
@@ -113,88 +112,6 @@
 
             <!-- Tab: Watchlist (New) -->
             {% include 'watchlist.html' %}
-
-            <!-- Tab 2: Chart -->
-            <div id="tab-chart" class="tab-content">
-                <section class="card chart-card full-height">
-                    <div class="chart-controls">
-                        <input type="text" id="chart-symbol" placeholder="종목코드 (예: 005930)" value="005930">
-                        <select id="chart-timeframe">
-                            <option value="1m">1분</option>
-                            <option value="3m">3분</option>
-                            <option value="5m">5분</option>
-                            <option value="15m">15분</option>
-                            <option value="30m">30분</option>
-                            <option value="60m">60분</option>
-                            <option value="D">일봉</option>
-                        </select>
-                        <input type="number" id="chart-lookback" placeholder="건수" value="1000" min="10" max="2000"
-                            style="width: 60px; padding: 5px; border-radius: 4px; border: 1px solid #444; background: #fff; color: #000; margin-left: 5px;">
-                        <span style="font-size: 14px; margin-left: 2px; margin-right: 5px; color: #333;">건</span>
-                        <button id="btn-load-chart" class="btn-primary small-btn">조회</button>
-                    </div>
-                    <div id="chart-status"
-                        style="padding: 5px; color: #aaa; font-size: 12px; margin-bottom: 5px; border-bottom: 1px solid #333;">
-                        상태: 대기 중...</div>
-                    <div class="chart-overlays"
-                        style="padding: 5px 10px; display: flex; gap: 10px; align-items: center; background: #252525; border-bottom: 1px solid #333;">
-                        <span style="font-size: 12px; color: #aaa;">이동평균선:</span>
-                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-5" checked>
-                            5</label>
-                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-10" checked>
-                            10</label>
-                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-20" checked>
-                            20</label>
-                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-60" checked>
-                            60</label>
-                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-120">
-                            120</label>
-                        <label style="font-size: 12px; color: #d1d5db;"><input type="checkbox" id="ma-200">
-                            200</label>
-                    </div>
-                    <div id="chart-container"
-                        style="width: 100%; flex: 1; min-height: 400px; position: relative; overflow: hidden;">
-                    </div>
-
-                    <!-- Trade History List -->
-                    <div class="trade-history-section"
-                        style="margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
-                        <div
-                            style="display: flex; justify-content: flex-start; align-items: center; gap: 15px; margin-bottom: 5px;">
-                            <h3 style="font-size: 14px; color: #aaa; font-weight: bold; margin: 0;">매매 내역</h3>
-                            <button id="btn-inject-data" class="btn-primary small-btn"
-                                style="padding: 2px 8px; font-size: 11px;">테스트
-                                데이터</button>
-                            <button id="btn-debug-marker" class="btn-secondary small-btn"
-                                style="padding: 2px 8px; font-size: 11px; background-color: #555;">디버그 마커</button>
-                        </div>
-                        <div style="width: 100%; overflow-x: auto;">
-                            <table id="chart-trade-table"
-                                style="width: 100%; font-size: 12px; border-collapse: collapse;">
-                                <thead style="background: #252525;">
-                                    <tr>
-                                        <th style="padding: 5px; text-align: left;">시간</th>
-                                        <th style="padding: 5px; text-align: center;">유형</th>
-                                        <th style="padding: 5px; text-align: right;">가격</th>
-                                        <th style="padding: 5px; text-align: right;">수량</th>
-                                        <th style="padding: 5px; text-align: right;">금액</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="chart-trade-list">
-                                    <!-- Trade rows will be added here -->
-                                </tbody>
-                            </table>
-                        </div>
-                        <!-- Pagination Controls -->
-                        <div id="trade-pagination"
-                            style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 10px;">
-                            <button id="btn-prev-page" class="btn-secondary small-btn" disabled>&lt;</button>
-                            <span id="page-info" style="font-size: 12px; color: #aaa;">1 / 1</span>
-                            <button id="btn-next-page" class="btn-secondary small-btn" disabled>&gt;</button>
-                        </div>
-                    </div>
-                </section>
-            </div>
 
             <!-- Tab 3: Backtest -->
             {% include 'backtest.html' %}
@@ -287,6 +204,47 @@
     </div>
     </div>
     </div>
+    <!-- Chart Popup -->
+    <div id="chart-popup" class="chart-popup-overlay" style="display: none;">
+        <div class="chart-popup-content">
+            <div class="chart-popup-header">
+                <div class="chart-info">
+                    <span id="popup-symbol-name" style="font-weight: 700; font-size: 1.1rem;">-</span>
+                    <span id="popup-symbol-code" style="color: var(--text-secondary); margin-left: 8px;">-</span>
+                </div>
+                <div class="chart-popup-actions">
+                    <button onclick="closeChart()" class="close-btn">×</button>
+                </div>
+            </div>
+            <div class="chart-popup-body">
+                <div class="chart-controls">
+                    <div class="interval-selector">
+                        <button class="small-btn" onclick="updateInterval('1m')">1분</button>
+                        <button class="small-btn" onclick="updateInterval('3m')">3분</button>
+                        <button class="small-btn active" onclick="updateInterval('5m')">5분</button>
+                        <button class="small-btn" onclick="updateInterval('15m')">15분</button>
+                        <button class="small-btn" onclick="updateInterval('D')">일봉</button>
+                    </div>
+                    <div class="ma-selector">
+                        <label style="color: #FF9800"><input type="checkbox" checked
+                                onchange="toggleMA(5, this.checked)"> 5</label>
+                        <label style="color: #FFEB3B"><input type="checkbox" checked
+                                onchange="toggleMA(10, this.checked)"> 10</label>
+                        <label style="color: #4CAF50"><input type="checkbox" checked
+                                onchange="toggleMA(20, this.checked)"> 20</label>
+                        <label style="color: #2196F3"><input type="checkbox" checked
+                                onchange="toggleMA(60, this.checked)"> 60</label>
+                        <label style="color: #9C27B0"><input type="checkbox" checked
+                                onchange="toggleMA(120, this.checked)"> 120</label>
+                        <label style="color: #F44336"><input type="checkbox" checked
+                                onchange="toggleMA(200, this.checked)"> 200</label>
+                    </div>
+                </div>
+                <div id="chart-container" style="width: 100%; height: 450px;"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Checklist Popup -->
     <div id="checklist-popup" class="floating-popup" style="display: none;">
         <div class="popup-header" id="checklist-header">

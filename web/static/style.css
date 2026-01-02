@@ -107,47 +107,56 @@ h1 {
 /* Tabs */
 .tab-nav {
     display: flex;
-    gap: 5px;
+    gap: 10px;
     margin-bottom: 0;
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
     /* 모바일에서 탭이 많을 경우 줄바꿈 */
-    background: #fff;
+    background: #1e293b;
+    /* 짙은 네이비 배경으로 변경 */
     position: sticky;
     top: 0;
     z-index: 50;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    /* 그림자 더 깊게 */
+    padding: 12px 15px;
+    border-radius: 12px 12px 0 0;
+    margin: 0 10px;
+    border: none;
 }
 
 .tab-btn {
     white-space: nowrap;
     /* 탭 이름 줄바꿈 방지 */
     flex-shrink: 0;
-}
-
-.tab-btn {
-    background: transparent;
-    border: none;
-    padding: 10px 15px;
-    font-size: 15px;
+    background: rgba(255, 255, 255, 0.05);
+    /* 다크 배경에 어울리는 반투명 배경 */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px 18px;
+    font-size: 14px;
     font-weight: 500;
-    color: var(--text-secondary);
+    color: #94a3b8;
+    /* 차분한 글씨색 */
     cursor: pointer;
-    border-bottom: 2px solid transparent;
+    border-radius: 20px;
+    /* 둥근 캡슐 스타일 */
     transition: all 0.2s;
     width: auto;
-    /* Override default button width */
 }
 
 .tab-btn:hover {
-    color: var(--accent);
-    background: rgba(59, 130, 246, 0.05);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .tab-btn.active {
-    color: var(--accent);
-    border-bottom: 2px solid var(--accent);
+    background: var(--accent);
+    color: #fff !important;
+    border-color: var(--accent);
     font-weight: 600;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    /* 활성 탭 광채 효과 */
 }
 
 .tab-content {
@@ -1201,5 +1210,146 @@ a.btn-success {
     .stock-list-item {
         padding: 12px 10px;
         /* 터치 영역 확대 */
+    }
+}
+
+/* Chart Popup Overlay & Content */
+.chart-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.chart-popup-content {
+    background: var(--card-bg);
+    width: 90%;
+    max-width: 1000px;
+    height: 600px;
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.chart-popup-header {
+    padding: 15px 20px;
+    background: #1e293b;
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chart-popup-body {
+    flex: 1;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    background: #f8fafc;
+}
+
+.chart-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.interval-selector {
+    display: flex;
+    gap: 5px;
+}
+
+.interval-selector .small-btn {
+    background: #e2e8f0;
+    color: var(--text-primary);
+    border: 1px solid #cbd5e1;
+}
+
+.interval-selector .small-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+.ma-selector {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: #e2e8f0;
+    padding: 2px 12px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+}
+
+.ma-selector label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.ma-selector input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+}
+
+/* Hover Chart Badge */
+.symbol-cell-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    cursor: default;
+}
+
+.chart-icon-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: var(--accent);
+    color: white;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+    user-select: none;
+}
+
+.symbol-cell-wrapper:hover .chart-icon-badge {
+    opacity: 1;
+}
+
+.chart-icon-badge:hover {
+    background: #2563eb;
+}
+
+@media (max-width: 768px) {
+    .chart-popup-content {
+        width: 100%;
+        height: 80vh;
+        border-radius: 16px 16px 0 0;
+        position: absolute;
+        bottom: 0;
+    }
+
+    .chart-icon-badge {
+        opacity: 0.6;
+        /* Mobile: show slightly even without hover */
     }
 }

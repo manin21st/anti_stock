@@ -117,7 +117,12 @@ async function updateStatus() {
 
                     const tr = document.createElement("tr");
                     tr.innerHTML = `
-                        <td style="text-align: left;">${pos.name || pos.symbol}</td>
+                        <td style="text-align: left;">
+                            <div class="symbol-cell-wrapper">
+                                <span style="font-weight: 600;">${pos.name || pos.symbol}</span>
+                                <div class="chart-icon-badge" onclick="window.openChart('${pos.symbol}', '${pos.name || pos.symbol}')">📊</div>
+                            </div>
+                        </td>
                         <td style="text-align: center; color: var(--text-secondary); font-size: 0.9em;">${pos.symbol}</td>
                         <td style="text-align: right; font-weight: 600;">${pos.qty}</td>
                         <td>
@@ -614,6 +619,7 @@ function initBacktest() {
                     renderDataTable(jsonData.data, strategy_id);
                     updateStatusText("데이터 준비 완료", "#10b981");
                     btnRun.disabled = false;
+                    if (btnViewChart) btnViewChart.style.display = "inline-block";
                 } else {
                     throw new Error(jsonData.message);
                 }
@@ -630,6 +636,13 @@ function initBacktest() {
         btnRun.addEventListener("click", (e) => {
             e.preventDefault();
             runBacktestWebSocket();
+        });
+    }
+
+    if (btnViewChart) {
+        btnViewChart.addEventListener("click", () => {
+            const symbol = document.getElementById("bt-symbol").value;
+            if (symbol) window.openChart(symbol);
         });
     }
 
@@ -1157,9 +1170,13 @@ function renderJournalTable(data) {
         let strategyName = strategyNames[item.strategy_id] || item.strategy_id;
 
         // Format Stock Name/Symbol
-        const nameHtml = item.name
-            ? `<div style="font-weight: 500;">${item.name}</div><div style="font-size: 11px; color: #888;">${item.symbol}</div>`
-            : `<div style="font-weight: 500;">${item.symbol}</div>`;
+        const nameHtml = `
+            <div class="symbol-cell-wrapper">
+                <span style="font-weight: 500;">${item.name || item.symbol}</span>
+                <div class="chart-icon-badge" onclick="window.openChart('${item.symbol}', '${item.name || item.symbol}')">📊</div>
+            </div>
+            <div style="font-size: 11px; color: #888;">${item.symbol}</div>
+        `;
 
         tr.innerHTML = `
             <td>${item.timestamp.replace('T', ' ')}</td>

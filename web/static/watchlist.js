@@ -90,8 +90,10 @@ function renderStockSelectionList() {
 
         div.innerHTML = `
             <input type="checkbox" class="stock-select-cb" value="${stock.code}" data-name="${stock.name}" ${exists ? 'disabled checked' : ''}>
-            <span style="font-weight:500;">${stock.name}</span>
-            <span style="color:#888; font-size:12px;">${stock.code}</span>
+            <div class="symbol-cell-wrapper" style="flex: 1;">
+                <span style="font-weight:500;">${stock.name}</span>
+                <span style="color:#888; font-size:12px;">${stock.code}</span>
+            </div>
         `;
         container.appendChild(div);
     });
@@ -231,19 +233,19 @@ function renderWatchlistTable() {
         const changeClass = data.change_rate > 0 ? 'row-buy' : (data.change_rate < 0 ? 'row-sell' : '');
         const changeSign = data.change_rate > 0 ? '+' : '';
 
-        // Holding Badge
-        let nameHtml = `<span style="font-weight:600;">${name}</span>`;
-        if (data.is_held) {
-            nameHtml += ` <span style="background-color: #dcfce7; color: #166534; font-size: 11px; padding: 2px 4px; border-radius: 4px; font-weight: normal; margin-left: 5px;">보유</span>`;
-        }
-
         // Sparkline SVG
         const sparklineSvg = generateSparkline(data.sparkline, data.change_rate >= 0);
 
         tr.innerHTML = `
             <td style="text-align:center;"><input type="checkbox" class="wl-item-cb" value="${code}"></td>
             <td style="text-align:center; color: #888; font-size: 12px;">${idx + 1}</td>
-            <td style="text-align:left;">${nameHtml}</td>
+            <td style="text-align:left;">
+                <div class="symbol-cell-wrapper">
+                    <span style="font-weight:600;">${name}</span>
+                    <div class="chart-icon-badge" onclick="window.openChart('${code}', '${name}', 'D')">📊</div>
+                    ${data.is_held ? `<span style="background-color: #dcfce7; color: #166534; font-size: 11px; padding: 2px 4px; border-radius: 4px; font-weight: normal; margin-left: 5px;">보유</span>` : ''}
+                </div>
+            </td>
             <td style="text-align:center; color:#666;">${code}</td>
             <td style="text-align:right; font-weight:bold; color: #111;">${data.price.toLocaleString()}</td>
             <td style="text-align:right;" class="${changeClass}">${changeSign}${data.change_rate}%</td>
