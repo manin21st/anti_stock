@@ -179,8 +179,10 @@ class MarketData:
                 elif hasattr(res, 'isOK') and res.isOK(): # Real API
                      chunk_df = pd.DataFrame(res.getBody().output2)
                 else:
-                     logger.error(f"Failed to fetch chunk or invalid response type: {type(res)}")
-                     break
+                    err_msg = res.getErrorMessage() if hasattr(res, 'getErrorMessage') else 'Unknown error'
+                    err_code = res.getErrorCode() if hasattr(res, 'getErrorCode') else 'Unknown code'
+                    logger.error(f"Failed to fetch daily chunk for {symbol}: [{err_code}] {err_msg}")
+                    break
 
                 if chunk_df.empty:
                     break
@@ -238,11 +240,7 @@ class MarketData:
 
                 return df.tail(lookback)
             else:
-                # Fallback to local storage (Standard behavior)
-                logger.warning(f"API returned no data for {symbol}. Attempting to load from local storage.")
-                df = self.data_loader.load_data(symbol)
-                if not df.empty:
-                    return df.tail(lookback)
+                # API 실패 시 빈 프레임 반환 (잘못된 로컬 데이터 사용 차단)
                 return pd.DataFrame()
 
         elif timeframe in ["1m", "3m", "5m", "10m", "15m", "30m", "60m"]:
@@ -273,8 +271,10 @@ class MarketData:
                 elif hasattr(res, 'isOK') and res.isOK():
                      df_page = pd.DataFrame(res.getBody().output2)
                 else:
-                     logger.warning(f"Failed to fetch minute chart for {symbol}")
-                     break
+                    err_msg = res.getErrorMessage() if hasattr(res, 'getErrorMessage') else 'Unknown error'
+                    err_code = res.getErrorCode() if hasattr(res, 'getErrorCode') else 'Unknown code'
+                    logger.warning(f"Failed to fetch minute chart for {symbol}: [{err_code}] {err_msg}")
+                    break
 
                 if df_page.empty:
                     break
@@ -354,7 +354,7 @@ class MarketData:
         self.polling_symbols = list(current_symbols)
         logger.info(f"Updated polling list: {len(self.polling_symbols)} symbols")
 
-    def start_polling(self):
+    def start(self):
         """Start the polling loop in a background thread"""
         if hasattr(self, 'poll_thread') and self.poll_thread.is_alive():
             logger.warning("MarketData polling thread is already running. Skipping start.")
@@ -367,7 +367,7 @@ class MarketData:
         self.poll_thread.start()
         logger.info("MarketData Polling Started")
 
-    def stop_polling(self):
+    def stop(self):
         self.is_polling = False
         if hasattr(self, 'poll_thread'):
             self.poll_thread.join(timeout=2)

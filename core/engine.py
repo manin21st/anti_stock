@@ -37,15 +37,7 @@ class Engine:
         svr = "vps" if env_type == "paper" else "prod"
         logger.debug(f"Authenticating for {env_type} ({svr})")
         
-        # from core import kis_api as ka (Removed local import)
         try:
-            # Apply TPS Config (Limit & URL)
-            tps_limit = float(self.system_config.get("tps_limit", os.environ.get("TPS_LIMIT", 2.0)))
-            tps_url = self.system_config.get("tps_server_url", os.environ.get("TPS_SERVER_URL", "http://localhost:9000"))
-            
-            # Check if rate limiter configuration is available via new interface
-            ka.configure_rate_limiter(tps_limit, tps_url)
-
             ka.auth(svr=svr)
             ka.auth_ws(svr=svr)
         except Exception as e:
@@ -130,7 +122,7 @@ class Engine:
         self.universe_manager.update_watchlist(new_list)
         # If trading is active, ensure polling is updated
         if self.is_trading and not self.market_data.is_polling:
-             self.market_data.start_polling()
+             self.market_data.start()
 
     def update_system_config(self, new_config: Dict):
         """Update system configuration and save to appropriate files"""
@@ -140,16 +132,6 @@ class Engine:
         if hasattr(self, 'telegram'):
             self.telegram.reload_config(self.system_config)
             
-        # Apply TPS Config Dynamic Update
-        # Apply TPS Config Dynamic Update
-        try:
-            tps_limit = float(new_config["tps_limit"]) if "tps_limit" in new_config else None
-            tps_url = new_config["tps_server_url"] if "tps_server_url" in new_config else None
-            
-            if tps_limit or tps_url:
-                ka.configure_rate_limiter(tps_limit, tps_url)
-        except Exception as e:
-            logger.error(f"Failed to update TPS dynamic config: {e}")
 
     def update_strategy_config(self, new_config: Dict):
         """Update strategy configuration (Config only, applied on restart)"""
@@ -161,15 +143,6 @@ class Engine:
         self.restart_requested = True
         self.is_trading = False
         
-        # Update TPS Limit on Restart
-        # Update TPS Limit on Restart
-        try:
-            tps_limit = float(self.system_config.get("tps_limit", os.environ.get("TPS_LIMIT", 2.0)))
-            tps_url = self.system_config.get("tps_server_url", os.environ.get("TPS_SERVER_URL", "http://localhost:9000"))
-            
-            ka.configure_rate_limiter(tps_limit, tps_url)
-        except Exception as e:
-            logger.error(f"Failed to update TPS Config on restart: {e}")
 
     def start_trading(self):
         """Enable trading"""
@@ -187,8 +160,8 @@ class Engine:
         self.is_trading = True # Start in active mode by default
         
         while self.is_running:
-            # [Strict Mode] Block until TPS Server is confirmed
-            ka.wait_for_tps()
+            # Wait minimal time for connection stability
+            time.sleep(0.5)
                 
             logger.info("Engine loop started")
             
@@ -289,7 +262,7 @@ class Engine:
                     if not self._is_trading_hour():
                         if self.market_data.is_polling:
                             logger.info("장 운영 시간이 종료되었습니다. 감시를 중단합니다. (KRX: 09:00~15:30)")
-                            self.market_data.stop_polling()
+                            self.market_data.stop()
                             self._last_wait_log_time = int(time.time())
                         
                         if self._last_wait_log_time == 0:
@@ -305,7 +278,7 @@ class Engine:
                         if self.is_trading and not self.market_data.is_polling:
                              if hasattr(self.market_data, 'polling_symbols') and self.market_data.polling_symbols:
                                  logger.info("장 운영 시간입니다. 감시를 재개합니다.")
-                                 self.market_data.start_polling()
+                                 self.market_data.start()
 
                     # Periodic Scanner Update
                     if self.system_config.get("use_auto_scanner", False):
@@ -313,7 +286,7 @@ class Engine:
                             self.universe_manager.update_universe()
                             # Check if polling is needed
                             if self.is_trading and not self.market_data.is_polling:
-                                self.market_data.start_polling()
+                                self.market_data.start()
                             
                             if hasattr(self.market_data, 'polling_symbols'):
                                 symbols = self.market_data.polling_symbols
@@ -392,14 +365,11 @@ class Engine:
 
     def stop(self):
         self.is_running = False
-        if hasattr(self, 'market_data'):
-            self.market_data.stop_polling()
-            
-        try:
-            ka.stop_rate_limiter()
-        except:
-            pass
-            
+        if self.market_data:
+            self.market_data.stop()
+        
+        # Stop status loop
+        self.running = False
         logger.info("Engine stopped")
 
     def _resolve_strategy_tag(self, symbol: str) -> str:

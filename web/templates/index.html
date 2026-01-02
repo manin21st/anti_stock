@@ -82,16 +82,17 @@
                         <table id="positions-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 14%;">종목명</th>
-                                    <th style="width: 8%;">종목코드</th>
-                                    <th style="width: 6%;">수량</th>
-                                    <th style="width: 11%;">매입평균</th>
-                                    <th style="width: 11%;">매입금액</th>
-                                    <th style="width: 11%;">현재가</th>
-                                    <th style="width: 11%;">평가금액</th>
-                                    <th style="width: 11%;">평가손익</th>
-                                    <th style="width: 9%;">수익률</th>
-                                    <th style="width: 8%;">보유일수</th>
+                                    <th style="width: 12%; text-align: left;">종목명</th>
+                                    <th style="width: 8%; text-align: center;">종목코드</th>
+                                    <th style="width: 7%; text-align: right;">보유수량</th>
+                                    <th style="width: 14%; text-align: center;">매도수량 / 버튼</th>
+                                    <th style="width: 9%; text-align: right;">매입평균</th>
+                                    <th style="width: 10%; text-align: right;">매입금액</th>
+                                    <th style="width: 10%; text-align: right;">현재가</th>
+                                    <th style="width: 10%; text-align: right;">평가금액</th>
+                                    <th style="width: 10%; text-align: right;">평가손익</th>
+                                    <th style="width: 6%; text-align: center;">수익률</th>
+                                    <th style="width: 4%; text-align: right;">보유일수</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -238,182 +239,6 @@
                                 <label><input type="checkbox" id="enable_trade_alert"> 매매 알림</label>
                                 <label><input type="checkbox" id="enable_system_alert"> 시스템 알림</label>
                             </div>
-                            <!-- TPS Server Monitoring (Restored & Enhanced) -->
-                            <div class="tps-server-container">
-                                <div class="tps-header">
-                                    <div class="tps-title">
-                                        <span class="icon">⚡</span> TPS 서버 설정
-                                    </div>
-                                    <div class="tps-controls">
-                                        <div class="status-badge">
-                                            <div id="tps-status-led" class="led-off"></div>
-                                            <span id="tps-status-text">연결 대기중...</span>
-                                        </div>
-                                        <a href="/api/tps/logs" class="btn-secondary small-btn"
-                                            style="text-decoration:none; padding: 2px 8px; font-size: 11px;">로그 다운로드</a>
-                                    </div>
-                                </div>
-
-                                <div class="tps-body">
-                                    <div class="tps-input-group" style="margin-bottom: 15px;">
-                                        <span class="label">서버 URL</span>
-                                        <input type="text" id="tps_server_url" placeholder="http://localhost:9000">
-                                    </div>
-
-                                    <!-- Info Boxes (Restored Layout - High Visibility) -->
-                                    <div class="info-grid"
-                                        style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                                        <div class="box"
-                                            style="background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #ccc; text-align: center;">
-                                            <div
-                                                style="font-size: 11px; color: #666; margin-bottom: 4px; font-weight: bold;">
-                                                현재 TPS</div>
-                                            <div id="val-tps" style="font-size: 18px; font-weight: bold; color: #000;">
-                                                --</div>
-                                        </div>
-                                        <div class="box"
-                                            style="background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #ccc; text-align: center;">
-                                            <div
-                                                style="font-size: 11px; color: #666; margin-bottom: 4px; font-weight: bold;">
-                                                활성 클라이언트</div>
-                                            <div id="val-clients"
-                                                style="font-size: 18px; font-weight: bold; color: #000;">--</div>
-                                        </div>
-                                        <div class="box"
-                                            style="background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #ccc; text-align: center;">
-                                            <div
-                                                style="font-size: 11px; color: #666; margin-bottom: 4px; font-weight: bold;">
-                                                잔여 토큰</div>
-                                            <div id="val-tokens"
-                                                style="font-size: 18px; font-weight: bold; color: #000;">--</div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Pending Graph (Detailed HUD) -->
-                                    <div
-                                        style="background: #1a1a1a; padding: 10px; border-radius: 4px; border: 1px solid #333;">
-                                        <div
-                                            style="font-size: 11px; color: #aaa; margin-bottom: 5px; display:flex; justify-content:space-between; align-items: center;">
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <span>🔥 대기열: <span id="hud-pending"
-                                                        style="color: #fff; font-weight: bold;">0</span></span>
-                                            </div>
-                                            <div style="display: flex; gap: 10px;">
-                                                <span>TPS: <span id="hud-tps" style="color: #4ade80;">0.00</span></span>
-                                                <span>처리(1분): <span id="hud-processed"
-                                                        style="color: #fff;">0</span></span>
-                                            </div>
-                                        </div>
-                                        <div
-                                            style="height: 120px; width: 100%; max-width: 100%; position: relative; overflow: hidden;">
-                                            <canvas id="tpsChart"></canvas>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- TPS Chart Logic -->
-                            <script>
-                                document.addEventListener('DOMContentLoaded', () => {
-                                    const ctx = document.getElementById('tpsChart').getContext('2d');
-
-                                    const tpsChart = new Chart(ctx, {
-                                        type: 'line',
-                                        data: {
-                                            labels: Array(60).fill(''),
-                                            datasets: [{
-                                                label: 'Pending Requests (Queue)',
-                                                data: Array(60).fill(0),
-                                                backgroundColor: 'rgba(239, 68, 68, 0.2)', // Red Area logic for "Explosion"
-                                                borderColor: '#ef4444',
-                                                borderWidth: 2,
-                                                fill: true,
-                                                pointRadius: 0,
-                                                tension: 0.2, // Sharper for burst changes
-                                                yAxisID: 'y'
-                                            }]
-                                        },
-                                        options: {
-                                            responsive: true,
-                                            maintainAspectRatio: false,
-                                            animation: false,
-                                            interaction: { intersect: false, mode: 'index' },
-                                            plugins: { legend: { display: false } },
-                                            scales: {
-                                                x: { display: false },
-                                                y: {
-                                                    display: true,
-                                                    min: 0,
-                                                    suggestedMax: 5, // Auto-scale if exploded
-                                                    grid: { color: '#333' },
-                                                    ticks: {
-                                                        color: '#888',
-                                                        font: { size: 10 },
-                                                        stepSize: 1,
-                                                        precision: 0
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    });
-
-                                    setInterval(async () => {
-                                        if (!document.getElementById('tab-logs').classList.contains('active') &&
-                                            !document.getElementById('tab-settings').classList.contains('active')) return;
-
-                                        try {
-                                            const res = await fetch('/api/tps/stats');
-                                            const data = await res.json();
-
-                                            // Token Fallback
-                                            let tokens = data.tokens_left;
-                                            if (tokens === undefined) tokens = data.remaining_tokens;
-                                            if (tokens === undefined) tokens = data.estimated_local_tokens;
-                                            const tokenVal = tokens !== undefined ? parseFloat(tokens) : 0;
-
-                                            // Update Info Boxes
-                                            document.getElementById('val-tps').innerText = data.current_tps || "--";
-                                            document.getElementById('val-clients').innerText = data.active_clients || (data.status === 'local' ? '1 (Me)' : '--');
-                                            document.getElementById('val-tokens').innerText = tokens !== undefined ? tokenVal.toFixed(2) : '--';
-
-                                            // Update Pending HUD
-                                            const pending = data.pending || 0;
-                                            const pendingEl = document.getElementById('hud-pending');
-                                            pendingEl.innerText = pending;
-                                            pendingEl.style.color = pending > 0 ? '#ff4444' : '#666';
-
-                                            document.getElementById('hud-tps').innerText = data.current_tps || "0.00";
-                                            document.getElementById('hud-processed').innerText = data.processed_1min || "0";
-
-                                            // Update Status LED
-                                            const led = document.getElementById('tps-status-led');
-                                            const txt = document.getElementById('tps-status-text');
-
-                                            // Handle server_alive check robustly
-                                            if (data.server_alive || data.status === 'running') {
-                                                led.className = 'led-on';
-                                                txt.innerText = "정상 가동중";
-                                            } else {
-                                                led.className = 'led-off';
-                                                txt.innerText = "연결 끊김 / 로컬";
-                                            }
-
-                                            // Update Chart (Shift & Push)
-                                            tpsChart.data.labels.shift();
-                                            tpsChart.data.datasets[0].data.shift();
-
-                                            const now = new Date();
-                                            tpsChart.data.labels.push(now.getSeconds());
-                                            tpsChart.data.datasets[0].data.push(pending); // Plot Pending
-
-                                            tpsChart.update();
-
-                                        } catch (e) {
-                                            console.error("TPS Poll Error", e);
-                                        }
-                                    }, 1000);
-                                });
-                            </script>
                         </div>
                     </section>
 

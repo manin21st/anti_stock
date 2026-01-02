@@ -17,6 +17,10 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 
 import kis_auth as ka
 
+# 전역 API 제어를 위한 단순 장치
+_api_lock = threading.Lock()
+_last_api_call = time.time()
+
 logger = logging.getLogger(__name__)
 
 # --- Backtest State Management ---
@@ -68,30 +72,50 @@ def set_data_provider(provider_func: Callable):
     global _data_provider
     _data_provider = provider_func
 
-# --- API Executor Integration ---
-try:
-    from core.rate_limiter import params_limiter, PRIORITY_DATA, PRIORITY_ORDER, PRIORITY_ACCOUNT
-except ImportError:
-    params_limiter = None
-    logger.error("RateLimiterService Import Failed")
+# --- API Executor Integration (Simplified) ---
+def _execute_api(func, *args, **kwargs):
+    """
+    모든 API 호출의 단일 진입점. 
+    최소 1.5초 간격을 보장하며, EGW00201 발생 시 자동 재시도.
+    """
+    global _last_api_call
+    kwargs.pop('priority', None)
+    
+    for attempt in range(1, 4): # 최대 3번 시도
+        with _api_lock:
+            now = time.time()
+            elapsed = now - _last_api_call
+            interval = 1.1 # 정상 매매 가능 속도로 복구
+            
+            if elapsed < interval:
+                time.sleep(interval - elapsed)
+            
+            _last_api_call = time.time()
+            res = func(*args, **kwargs)
+            
+            # EGW00201 발생 시 로그 없이 조용히 1회 재시도 (사용자 방해 금지)
+            try:
+                msg = str(res.getErrorMessage() if hasattr(res, 'getErrorMessage') else '')
+                if 'EGW00201' in msg and attempt < 2:
+                    time.sleep(1.5)
+                    continue
+            except:
+                pass
+                
+            return res
+    return res
 
 def configure_rate_limiter(tps_limit: float = None, server_url: str = None):
-    # Dynamic Configuration via Refactored RateLimiterService
-    if params_limiter:
-        params_limiter.configure(tps_limit=tps_limit, server_url=server_url)
+    # 이제 설정이 필요 없으므로 무시
+    pass
 
 def get_rate_limiter_stats() -> Dict:
-    # Approximate stats from RateLimiterService
-    if params_limiter:
-        return params_limiter.get_stats()
-    return {"status": "error", "message": "RateLimiter not loaded"}
+    return {"status": "simple_lock", "interval": 1.1}
 
 def stop_rate_limiter():
-    if params_limiter:
-        params_limiter.stop()
+    pass
 
 def wait_for_tps():
-    # Executor doesn't need "Server Connect" wait.
     pass
 
 # Legacy alias (deprecated but kept for safety if external access exists)
@@ -119,7 +143,10 @@ def auth(svr="prod", product=None, url=None, force=False):
         except Exception:
             pass
 
-    ka.auth(**kwargs)
+    _execute_api(ka.auth, **kwargs)
+    
+    # 인증 직후 안정화를 위해 추가 대기
+    time.sleep(1.0)
     # Executor handles timing internally
 
 def auth_ws(svr="prod", product=None):
@@ -128,7 +155,7 @@ def auth_ws(svr="prod", product=None):
     kwargs = {"svr": svr}
     if product is not None:
         kwargs["product"] = product
-    ka.auth_ws(**kwargs)
+    _execute_api(ka.auth_ws, **kwargs)
 
 def is_paper_trading():
     if _backtest_mode:
@@ -169,7 +196,7 @@ def issue_request(api_url, ptr_id, tr_cont, params, appendHeaders=None, postFlag
             def getBody(self): return type('Body', (), {"output": []})()
         return MockResponse()
 
-    return params_limiter.execute(ka._url_fetch, api_url, ptr_id, tr_cont, params, appendHeaders, postFlag, hashFlag, priority=PRIORITY_DATA)
+    return _execute_api(ka._url_fetch, api_url, ptr_id, tr_cont, params, appendHeaders, postFlag, hashFlag)
 
 def fetch_price(symbol: str) -> Dict[str, Any]:
     """
@@ -192,7 +219,7 @@ def fetch_price(symbol: str) -> Dict[str, Any]:
         "FID_COND_MRKT_DIV_CODE": "J",
         "FID_INPUT_ISCD": symbol
     }
-    res = params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params, priority=PRIORITY_DATA)
+    res = _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-price", tr_id, "", params)
     if res and res.isOK():
         return res.getBody().output
     else:
@@ -216,7 +243,7 @@ def fetch_daily_chart(symbol: str, start_dt: str, end_dt: str, lookback: int = 1
         "FID_PERIOD_DIV_CODE": "D",
         "FID_ORG_ADJ_PRC": "1"
     }
-    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params, priority=PRIORITY_DATA)
+    return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", tr_id, "", params)
 
 def fetch_minute_chart(symbol: str, current_time: str) -> Any:
     """Wrapper for inquire-time-itemchartprice"""
@@ -233,7 +260,7 @@ def fetch_minute_chart(symbol: str, current_time: str) -> Any:
         "FID_PW_DATA_INCU_YN": "Y",
         "FID_ETC_CLS_CODE": ""
     }
-    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params, priority=PRIORITY_DATA)
+    return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", tr_id, "", params)
 
 def fetch_past_minute_chart(symbol: str, date: str, time: str, period_code: str = "N") -> Any:
     if _backtest_mode:
@@ -248,7 +275,7 @@ def fetch_past_minute_chart(symbol: str, date: str, time: str, period_code: str 
         "FID_PW_DATA_INCU_YN": period_code,
         "FID_FAKE_TICK_INCU_YN": ""
     }
-    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", tr_id, "", params, priority=PRIORITY_DATA)
+    return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", tr_id, "", params)
 
 def send_order(tr_id: str, params: Dict[str, str]) -> Any:
     """
@@ -276,7 +303,7 @@ def send_order(tr_id: str, params: Dict[str, str]) -> Any:
         
         return MockOrderResponse()
 
-    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/order-cash", tr_id, "", params, postFlag=True, priority=PRIORITY_ORDER)
+    return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/trading/order-cash", tr_id, "", params, postFlag=True)
 
 def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
     """
@@ -324,7 +351,7 @@ def get_balance(tr_id: str, params: Dict[str, str]) -> Any:
             "output2": holdings
         }
 
-    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params, priority=PRIORITY_ACCOUNT)
+    return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, "", params)
 
 def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "", ctx_area_fk: str = "", ctx_area_nk: str = "") -> Any:
     if _backtest_mode:
@@ -353,7 +380,7 @@ def fetch_daily_ccld(start_dt: str, end_dt: str, symbol: str = "", ctx_area_fk: 
         "CTX_AREA_FK100": ctx_area_fk,
         "CTX_AREA_NK100": ctx_area_nk
     }
-    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-daily-ccld", tr_id, "", params, priority=PRIORITY_ACCOUNT)
+    return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-daily-ccld", tr_id, "", params)
 
 def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_area_nk: str = "") -> Any:
     if _backtest_mode:
@@ -377,4 +404,4 @@ def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_a
         "CTX_AREA_FK100": ctx_area_fk,
         "CTX_AREA_NK100": ctx_area_nk
     }
-    return params_limiter.execute(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-period-profit", tr_id, "", params, priority=PRIORITY_ACCOUNT)
+    return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-period-profit", tr_id, "", params)

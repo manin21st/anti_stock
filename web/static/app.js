@@ -1,4 +1,5 @@
 const API_BASE = "/api";
+let userSellQty = {}; // Store manual input values to survive poll re-renders: { symbol: value }
 
 // Utils
 const formatCurrency = (val) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(val);
@@ -109,17 +110,31 @@ async function updateStatus() {
                     const pnl = evalAmt - investedAmt;
                     const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative'; // Red for profit, Blue for loss (KR style)
 
+                    // Decide input value: either user's current input or current held qty
+                    if (userSellQty[pos.symbol] === undefined) {
+                        userSellQty[pos.symbol] = pos.qty;
+                    }
+
                     const tr = document.createElement("tr");
                     tr.innerHTML = `
-                        <td>${pos.name || pos.symbol}</td>
-                        <td>${pos.symbol}</td>
-                        <td>${pos.qty}</td>
-                        <td>${formatCurrency(pos.avg_price)}</td>
-                        <td>${formatCurrency(investedAmt)}</td>
-                        <td>${formatCurrency(pos.current_price)}</td>
-                        <td>${formatCurrency(evalAmt)}</td>
-                        <td class="${pnlClass}">${formatCurrency(pnl)}</td>
-                        <td class="${pnlClass}">${pos.pnl_pct.toFixed(2)}%</td>
+                        <td style="text-align: left;">${pos.name || pos.symbol}</td>
+                        <td style="text-align: center; color: var(--text-secondary); font-size: 0.9em;">${pos.symbol}</td>
+                        <td style="text-align: right; font-weight: 600;">${pos.qty}</td>
+                        <td>
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                <input type="number" id="sell-qty-${pos.symbol}" value="${userSellQty[pos.symbol]}" min="1" max="${pos.qty}" 
+                                       oninput="userSellQty['${pos.symbol}'] = this.value"
+                                       style="width: 65px; height: 28px; padding: 0 5px; border-radius: 4px; border: 1px solid #ccc; background: #fff; color: #000; font-size: 14px; font-weight: 500; text-align: center;">
+                                <button onclick="sellImmediate('${pos.symbol}', event)" class="btn-danger" 
+                                        style="padding: 4px 8px; font-size: 13px; font-weight: 500; border-radius: 4px; height: 28px; line-height: 1;">매도</button>
+                            </div>
+                        </td>
+                        <td style="text-align: right;">${formatCurrency(pos.avg_price)}</td>
+                        <td style="text-align: right; color: var(--text-secondary);">${formatCurrency(investedAmt)}</td>
+                        <td style="text-align: right; font-weight: 500;">${formatCurrency(pos.current_price)}</td>
+                        <td style="text-align: right; font-weight: 500;">${formatCurrency(evalAmt)}</td>
+                        <td style="text-align: right;" class="${pnlClass}">${formatCurrency(pnl)}</td>
+                        <td style="text-align: center;" class="${pnlClass}">${pos.pnl_pct.toFixed(2)}%</td>
                         <td style="text-align: right;">${pos.holding_days}일</td>
                     `;
                     tbody.appendChild(tr);
@@ -322,16 +337,11 @@ async function loadSystemConfig() {
 
     // ... (omitted lines) ...
 
-    // TPS Server URL
-    if (config.tps_server_url) {
-        document.getElementById("tps_server_url").value = config.tps_server_url;
-    }
 
     // Text Inputs: Blur triggers save
     if (universeInput) {
         universeInput.addEventListener("blur", autoSaveSystem);
     }
-    document.getElementById("tps_server_url").addEventListener("blur", autoSaveSystem);
 
 
     document.getElementById("enable_trade_alert").addEventListener("change", autoSaveSystem);
@@ -357,7 +367,6 @@ async function saveSystemConfig() {
     const enable_trade_alert = document.getElementById("enable_trade_alert").checked;
     const enable_system_alert = document.getElementById("enable_system_alert").checked;
 
-    const tps_server_url = document.getElementById("tps_server_url").value;
 
     await fetch(`${API_BASE}/system_config`, {
         method: "POST",
@@ -368,7 +377,6 @@ async function saveSystemConfig() {
             use_auto_scanner,
             scanner_mode,
             universe,
-            tps_server_url,
             telegram: {
                 enable_trade_alert,
                 enable_system_alert
@@ -1446,5 +1454,49 @@ function initChecklist() {
 
     function setTranslate(xPos, yPos, el) {
         el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+    }
+}
+// Manual Trade Functions
+async function sellImmediate(symbol, event) {
+    const qtyInput = document.getElementById(`sell-qty-${symbol}`);
+    const qty = parseInt(qtyInput.value);
+    const btn = event.currentTarget; // 현재 클릭된 버튼
+
+    if (isNaN(qty) || qty <= 0) {
+        alert("올바른 수량을 입력해주세요.");
+        return;
+    }
+
+    if (!confirm(`${symbol} 종목을 ${qty}주 시장가로 매도하시겠습니까?`)) {
+        return;
+    }
+
+    try {
+        // 버튼 비활성화 및 텍스트 변경
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = "처리중...";
+
+        const res = await fetch(`${API_BASE}/order/sell_immediate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ symbol, qty })
+        });
+
+        const data = await res.json();
+        if (data.status === "ok") {
+            console.log(`Sell order placed: ${symbol} ${qty}`);
+            // 즉시 상태 갱신을 유도하기 위해 updateStatus를 기다릴 수도 있지만, 
+            // 2초 폴링이 있으므로 버튼 상태만 유지하다가 폴링 결과로 자연스럽게 버튼이 다시 그려짐
+        } else {
+            alert(`매도 실패: ${data.message}`);
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    } catch (e) {
+        console.error("Sell order error:", e);
+        alert(`오류가 발생했습니다: ${e.message}`);
+        btn.disabled = false;
+        btn.innerText = "매도";
     }
 }

@@ -139,6 +139,11 @@ When generating code:
 - 안정적인 최신 툴체인과의 호환성을 보장한다
 - 간결함보다 가독성과 유지보수를 우선한다
 
+
+### Testing & Debugging Rules
+- 모든 테스트 프로그램, 디버깅 스크립트, 임시 검증 코드는 반드시 루트 폴더가 아닌 `tests/` 폴더 내에 작성한다.
+- 테스트 완료 후 불필요해진 스크립트는 즉시 삭제하거나 `tests/` 폴더 내에 정리하여 프로젝트 루트의 청결을 유지한다.
+
 When generating documentation or explanations:
 - 줄바꿈을 활용한 명확한 섹션 구성을 사용한다
 - 애매하지 않고 결정적인 표현을 사용한다

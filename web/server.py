@@ -25,11 +25,6 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-@app.get("/api/tps_status")
-async def get_tps_status():
-    """Get Real-time TPS Status"""
-    return ka.get_rate_limiter_stats()
-    return {"status": "offline", "message": "RateLimiter not initialized"}
 
 # Security: Session Middleware moved to after auth_middleware
 
@@ -305,9 +300,6 @@ from fastapi.responses import JSONResponse
 async def get_system_settings():
     if engine_instance:
         cfg = engine_instance.system_config.copy()
-        # Ensure TPS URL is present (fallback to default)
-        if "tps_server_url" not in cfg:
-             cfg["tps_server_url"] = "http://localhost:9000"
         return JSONResponse(content=cfg)
     return JSONResponse(content={})
 
@@ -374,11 +366,6 @@ async def download_logs():
         return FileResponse(log_file, media_type='text/plain', filename="anti_stock.log")
     return {"status": "error", "message": "Log file not found"}
 
-@app.get("/api/tps/stats")
-async def get_tps_stats():
-    from core import kis_api as ka
-    return ka.get_rate_limiter_stats()
-    return {"status": "offline", "message": "Global RateLimiter not initialized"}
 
 @app.get("/api/chart/data")
 async def get_chart_data(symbol: str, timeframe: str = "1m", lookback: int = 300):
@@ -412,6 +399,30 @@ async def control_engine(action: dict):
             # Restart triggers re-init in the main loop
             engine_instance.restart()
     return {"status": "ok"}
+
+@app.post("/api/order/sell_immediate")
+async def sell_immediate(request: Request):
+    """Sell a stock immediately at market price"""
+    data = await request.json()
+    symbol = data.get("symbol")
+    qty = data.get("qty")
+    
+    if not symbol or not qty:
+        return {"status": "error", "message": "Symbol and quantity are required"}
+    
+    if engine_instance and engine_instance.broker:
+        try:
+            # qty can be passed as string from JS, so convert to int
+            success = engine_instance.broker.sell_market(symbol, int(qty), tag="manual_sell")
+            if success:
+                return {"status": "ok"}
+            else:
+                return {"status": "error", "message": "Order failed"}
+        except Exception as e:
+            logger.error(f"Manual sell failed: {e}")
+            return {"status": "error", "message": str(e)}
+            
+    return {"status": "error", "message": "Engine or Broker not initialized"}
 
 @app.get("/api/checklist")
 async def get_checklist():
@@ -558,15 +569,6 @@ async def inject_trades(request: Request):
 # TPS Server Proxy & Monitoring - Legacy implementations removed to avoid duplication
 # New implementation uses kis_api.rate_limiter directly
 
-@app.get("/api/tps/logs/download")
-async def download_tps_logs():
-    from fastapi.responses import FileResponse
-    log_file = os.path.join("logs", "tps_server.log")
-    if os.path.exists(log_file):
-        # Serve file
-        filename = f"tps_server_{datetime.now().strftime('%Y%m%d_%H%M')}.log"
-        return FileResponse(log_file, media_type='text/plain', filename=filename)
-    return {"status": "error", "message": "TPS Log file not found"}
 
 # Backtest APIs
 
