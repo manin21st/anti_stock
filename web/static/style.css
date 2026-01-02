@@ -1348,14 +1348,6 @@ a.btn-success {
         bottom: 0;
     }
 
-    .chart-icon-badge {
-        opacity: 1;
-        /* Always visible on mobile since no hover */
-        width: 28px;
-        /* Slightly larger for touch */
-        height: 28px;
-    }
-
     .chart-controls {
         flex-direction: column;
         align-items: flex-start;
