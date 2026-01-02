@@ -106,12 +106,12 @@ async def auth_middleware(request: Request, call_next):
 @app.get("/manifest.json")
 @app.get("/static/manifest.json")
 async def get_manifest():
-    return FileResponse("web/static/manifest.json", media_type="application/manifest+json")
+    return FileResponse("web/static/manifest.json", media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
 
 @app.get("/sw.js")
 @app.get("/static/sw.js")
 async def get_sw():
-    return FileResponse("web/static/sw.js", media_type="application/javascript")
+    return FileResponse("web/static/sw.js", media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
 # Security: Session Middleware (Must be added last to be executed first)
 # In production, SECRET_KEY should be loaded from env vars
