@@ -104,10 +104,12 @@ async def auth_middleware(request: Request, call_next):
 
 # PWA Static Routes
 @app.get("/manifest.json")
+@app.get("/static/manifest.json")
 async def get_manifest():
     return FileResponse("web/static/manifest.json", media_type="application/manifest+json")
 
 @app.get("/sw.js")
+@app.get("/static/sw.js")
 async def get_sw():
     return FileResponse("web/static/sw.js", media_type="application/javascript")
 
