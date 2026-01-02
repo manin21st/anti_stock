@@ -1349,7 +1349,35 @@ a.btn-success {
     }
 
     .chart-icon-badge {
-        opacity: 0.6;
-        /* Mobile: show slightly even without hover */
+        opacity: 1;
+        /* Always visible on mobile since no hover */
+        width: 28px;
+        /* Slightly larger for touch */
+        height: 28px;
+    }
+
+    .chart-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .interval-selector {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .ma-selector {
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+        padding: 8px 12px;
+        -webkit-overflow-scrolling: touch;
+        justify-content: flex-start;
+    }
+
+    .ma-selector label {
+        flex-shrink: 0;
+        padding-right: 5px;
     }
 }
