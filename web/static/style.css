@@ -128,7 +128,7 @@ h1 {
 .tab-btn {
     background: transparent;
     border: none;
-    padding: 12px 20px;
+    padding: 10px 15px;
     font-size: 15px;
     font-weight: 500;
     color: var(--text-secondary);
@@ -1171,8 +1171,27 @@ a.btn-success {
     .watchlist-right {
         flex: none;
         width: 100%;
+        box-sizing: border-box;
+        /* 패딩이 너비를 넘지 않도록 설정 */
         height: 500px;
         /* 모바일에서 각 영역에 충분한 높이 부여 */
+    }
+
+    /* 패널 헤더 버튼 줄바꿈 허용 */
+    .panel-header {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .panel-header h2 {
+        width: 100%;
+        margin-bottom: 5px !important;
+    }
+
+    .wl-controls {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
     }
 
     .watchlist-left {
