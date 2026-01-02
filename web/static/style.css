@@ -835,6 +835,18 @@ a.btn-success {
     gap: 10px;
 }
 
+.backtest-metrics {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+}
+
+.small-btn {
+    white-space: nowrap;
+    min-width: fit-content;
+    padding: 0 15px;
+}
+
 @media (max-width: 768px) {
     .journal-header {
         flex-direction: column;
@@ -863,12 +875,8 @@ a.btn-success {
         /* ~ 물결무늬 숨김 */
     }
 
-    .journal-metrics {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    /* Backtest Metrics on Mobile */
-    .backtest-container-vertical .metric-group.compact {
+    .journal-metrics,
+    .backtest-metrics {
         grid-template-columns: repeat(2, 1fr) !important;
     }
 }
