@@ -1,293 +1,48 @@
-import threading
-import queue
 import time
 import logging
-import uuid
-import requests
-from concurrent.futures import Future, CancelledError
-from typing import Any, Callable, Dict, Optional, Tuple, Union
-from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# 우선순위 상수 (낮을수록 높음) - 외부 호환성을 위해 유지
-PRIORITY_ORDER = 0      # 매수/매도 주문
-PRIORITY_MANUAL = 1     # 수동 개입
-PRIORITY_ACCOUNT = 2    # 잔고/예수금 조회
-PRIORITY_DATA = 5       # 시세/차트 조회 (Default)
-PRIORITY_BACKGROUND = 9 # 백그라운드 데이터 수집
-
-@dataclass(order=True)
-class APIRequest:
-    priority: int
-    timestamp: float
-    request_id: str = field(compare=False)
-    func: Callable = field(compare=False)
-    args: tuple = field(compare=False, default_factory=tuple)
-    kwargs: dict = field(compare=False, default_factory=dict)
-    future: Future = field(compare=False, default_factory=Future)
+# 인터페이스 호환성을 위한 우선순위 상수
+PRIORITY_ORDER = 0
+PRIORITY_MANUAL = 1
+PRIORITY_ACCOUNT = 2
+PRIORITY_DATA = 5
+PRIORITY_BACKGROUND = 9
 
 class RateLimiterService:
     """
-    [New Distributed Core]
-    Replaces legacy logic with APIExecutor's Queue & TPS Server architecture.
-    Maintains 'RateLimiterService' name for compatibility.
+    [Extremely Minimal Mode]
+    모든 요청을 0.5초 대기 후 즉시 실행합니다.
+    큐, 리트라이, 분산 제어 로직을 모두 제거했습니다.
     """
     _instance = None
-    _lock = threading.Lock()
-
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            with cls._lock:
-                if not cls._instance:
-                    cls._instance = super(RateLimiterService, cls).__new__(cls)
-                    cls._instance._initialized = False
+            cls._instance = super(RateLimiterService, cls).__new__(cls)
+            cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, tps_limit: float = 2.0, tps_server_url: Optional[str] = None):
+    def __init__(self, tps_limit=2.0, tps_server_url=None):
         if self._initialized: return
-        
-        self.tps_limit = tps_limit
-        self.tps_server_url = tps_server_url
-        # Client ID for Distributed TPS tracking
-        import socket
-        try:
-            hostname = socket.gethostname()
-        except:
-            hostname = "unknown"
-        pid = 0
-        try:
-            import os
-            pid = os.getpid()
-        except:
-             pass
-        self.client_id = f"{hostname}-{pid}-{uuid.uuid4().hex[:4]}"
-        
-        self.min_interval = 1.0 / max(tps_limit, 0.1)
-        self.queue = queue.PriorityQueue()
-        self.running = False
-        self.thread = None
-        
-        # Pacing & Backoff State
-        self.last_dispatch_time = 0.0
-        self.backoff_until = 0.0
-        self.backoff_lock = threading.Lock()
-        
-        # Metrics
-        self.execution_history = []  # (timestamp, priority, elapsed_wait)
-        self.metrics_lock = threading.Lock()
-
         self._initialized = True
+        logger.info("[RateLimiter] Minimal mode enabled. Fixed 0.5s interval.")
+
+    def execute(self, func, *args, **kwargs):
+        # 우선순위 파라미터가 있으면 제거 (동작에는 영향을 주지 않음)
+        kwargs.pop('priority', None)
         
-        # HTTP Session (Persistent Connection)
-        self.session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(pool_connections=1, pool_maxsize=1, max_retries=1)
-        self.session.mount('http://', adapter)
+        # 무조건 0.5초 대기
+        time.sleep(0.5)
         
-        mode = f"Remote({tps_server_url})" if tps_server_url else "Local"
-        logger.info(f"[RateLimiter] Initialized ({mode}). Limit={self.tps_limit} TPS (Interval={self.min_interval:.4f}s)")
+        # 즉시 실행 및 결과 반환
+        return func(*args, **kwargs)
 
-        # Auto-start worker
-        self.start()
+    def configure(self, *args, **kwargs): pass
+    def start(self): pass
+    def stop(self): pass
+    def get_stats(self):
+        return {"mode": "minimal", "status": "active", "fixed_interval": 0.5}
 
-    def configure(self, tps_limit: float = None, server_url: str = None):
-        """Update configuration dynamically"""
-        if tps_limit is not None:
-            self.tps_limit = float(tps_limit)
-            self.min_interval = 1.0 / self.tps_limit
-            logger.info(f"[RateLimiter] TPS Limit updated to {self.tps_limit}")
-        
-        if server_url:
-            self.tps_server_url = server_url.rstrip('/')
-            mode = f"Remote({self.tps_server_url})"
-            logger.info(f"[RateLimiter] Config updated: {mode}")
-
-    def start(self):
-        """Worker 스레드 시작"""
-        with self._lock:
-            if self.running: return
-            self.running = True
-            
-            self.thread = threading.Thread(target=self._worker_loop, daemon=True, name="RateLimiterWorker")
-            self.thread.start()
-            logger.info("[RateLimiter] Worker Started.")
-
-    def stop(self):
-        """Worker 스레드 중지"""
-        with self._lock:
-            self.running = False
-        
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=2.0)
-            logger.info("[RateLimiter] Worker Stopped.")
-
-    def _check_backoff(self):
-        """Check if we are in global backoff and wait if needed"""
-        now = time.time()
-        if now < self.backoff_until:
-            wait_time = self.backoff_until - now
-            logger.info(f"[RateLimiter] Global Backoff active. Sleeping {wait_time:.2f}s...")
-            time.sleep(wait_time)
-
-    def execute(self, func: Callable, *args, **kwargs) -> Any:
-        """
-        [Synchronous Wrapper]
-        Includes handling for EGW00201 (Rate Limit) retries.
-        Implements Global Backoff to prevent 'Thundering Herd'.
-        """
-        priority = kwargs.pop('priority', PRIORITY_DATA)
-        
-        max_retries = 10
-        for attempt in range(max_retries):
-            # 1. Global Backoff check (Client side pre-check)
-            self._check_backoff()
-            
-            future = self.submit(func, *args, priority=priority, **kwargs)
-            try:
-                result = future.result()
-                
-                is_rate_limit = False
-                if hasattr(result, 'getErrorCode') and result.getErrorCode() == "EGW00201":
-                     is_rate_limit = True
-                else:
-                    msg_content = str(getattr(result, 'error_text', '')) + " " + \
-                                  str(getattr(result, 'getErrorMessage', lambda: '')()) + " " + \
-                                  str(result)
-                    if "EGW00201" in msg_content:
-                        is_rate_limit = True
-
-                if is_rate_limit:
-                     # TRIGGER GLOBAL BACKOFF
-                     with self.backoff_lock:
-                         # Set backoff until future (e.g., 2.0s from now)
-                         # This will block the worker thread and all subsequent execute calls
-                         self.backoff_until = time.time() + 2.0
-                     
-                     logger.warning(f"[RateLimiter] EGW00201 Hit. Global Backoff triggered (2s). Attempt ({attempt+1}/{max_retries})")
-                     time.sleep(2.1) # Wait slightly more than backoff in the calling thread
-                     continue
-                
-                return result
-            except Exception as e:
-                err_msg = str(e)
-                if "EGW00201" in err_msg:
-                     with self.backoff_lock:
-                         self.backoff_until = time.time() + 2.0
-                     logger.warning(f"[RateLimiter] EGW00201 Exception. Global Backoff triggered (2s). Attempt ({attempt+1}/{max_retries})")
-                     time.sleep(2.1)
-                     continue
-                raise e
-        
-        return future.result() 
-
-    def submit(self, func: Callable, *args, priority: int = PRIORITY_DATA, **kwargs) -> Future:
-        """
-        [New Capability] Async submission
-        """
-        request_id = uuid.uuid4().hex
-        timestamp = time.time()
-        future = Future()
-        
-        req = APIRequest(priority, timestamp, request_id, func, args, kwargs, future)
-        self.queue.put(req)
-        return future
-
-    def _worker_loop(self):
-        while self.running:
-            try:
-                # 1. Fetch Request
-                try:
-                    req: APIRequest = self.queue.get(timeout=1.0)
-                except queue.Empty:
-                    continue
-
-                if req.future.cancelled():
-                    self.queue.task_done()
-                    continue
-
-                # 2. Pacing / Token Control
-                if self.tps_server_url:
-                    self._wait_for_server_token()
-                else:
-                    self._wait_local_pacing()
-
-                # 3. Execution (Synchronous Call)
-                dispatch_start = time.time()
-                try:
-                    # Update dispatch time (Self-Update)
-                    self.last_dispatch_time = dispatch_start
-                    
-                    result = req.func(*req.args, **req.kwargs)
-                    
-                    if not req.future.cancelled():
-                        req.future.set_result(result)
-                        
-                except Exception as e:
-                    if not req.future.cancelled():
-                        req.future.set_exception(e)
-                finally:
-                    self.queue.task_done()
-                    
-                    # Metrics
-                    with self.metrics_lock:
-                        elapsed_wait = dispatch_start - req.timestamp
-                        self.execution_history.append((dispatch_start, req.priority, elapsed_wait))
-                        if len(self.execution_history) > 1000:
-                            self.execution_history.pop(0)
-
-            except Exception as e:
-                logger.error(f"[RateLimiter] Worker Logic Crash: {e}", exc_info=True)
-                time.sleep(1.0)
-
-    def _wait_local_pacing(self):
-        """Strict Local Token Bucket / Pacing with Backoff support"""
-        # 1. First check for Global Backoff
-        self._check_backoff()
-
-        # 2. Regular Pacing
-        now = time.time()
-        elapsed = now - self.last_dispatch_time
-        wait_needed = self.min_interval - elapsed
-        
-        if wait_needed > 0:
-            time.sleep(wait_needed)
-
-    def _wait_for_server_token(self):
-        """
-        Communicates with centralized TPS server.
-        Blocks until a token is granted.
-        """
-        while self.running:
-            # 1. First check for Global Backoff
-            self._check_backoff()
-
-            try:
-                resp = self.session.get(f"{self.tps_server_url}/token", 
-                                        headers={"X-Client-ID": self.client_id}, 
-                                        timeout=2.0)
-                
-                if resp.status_code == 200:
-                    return # Granted
-                elif resp.status_code == 429:
-                    # Remote limit hit - Trigger local backoff briefly to avoid hammering server
-                    time.sleep(0.5) 
-                    continue
-                else:
-                    logger.warning(f"[RateLimiter] Server error {resp.status_code}. Fallback local.")
-                    self._wait_local_pacing()
-                    return
-
-            except requests.exceptions.RequestException:
-                # logger.warning("[RateLimiter] Server unreachable. Fallback local.")
-                self._wait_local_pacing()
-                return
-
-    def get_stats(self) -> Dict[str, Any]:
-        return {
-            "queue_size": self.queue.qsize(),
-            "tps_limit": self.tps_limit,
-            "mode": "Remote" if self.tps_server_url else "Local"
-        }
-
-# Singleton Instance (Legacy Name)
+# 싱글톤 인스턴스 (호환성 유지)
 params_limiter = RateLimiterService()
