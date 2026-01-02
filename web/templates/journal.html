@@ -3,15 +3,13 @@
         style="display: flex; flex-direction: column; padding: 20px; gap: 0;">
 
         <!-- Header & Filters -->
-        <div class="journal-header"
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <div class="filters" style="display: flex; gap: 10px; align-items: center;">
+        <div class="journal-header">
+            <div class="filters">
                 <input type="date" id="journal-start" class="date-input">
                 <span style="color: #aaa;">~</span>
                 <input type="date" id="journal-end" class="date-input">
-                <div class="autocomplete-wrapper" style="width: 150px;">
-                    <input type="text" id="journal-symbol" placeholder="종목코드/명" class="symbol-input" autocomplete="off"
-                        style="width: 100%;">
+                <div class="autocomplete-wrapper journal-symbol-wrapper">
+                    <input type="text" id="journal-symbol" placeholder="종목코드/명" class="symbol-input" autocomplete="off">
                     <div id="journal-symbol-list" class="autocomplete-items" style="display: none;"></div>
                 </div>
                 <button id="btn-journal-search" class="btn-primary small-btn">조회</button>
@@ -24,12 +22,11 @@
         </div>
 
         <!-- Summary Cards (Styled like Backtest Results) -->
-        <div class="results-section"
-            style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border);">
-            <div class="section-header" style="margin-bottom: 10px;">
-                <h3 style="margin: 0; font-size: 1.1em; color: var(--text-primary);">성과 요약</h3>
+        <div class="results-section">
+            <div class="section-header">
+                <h3>성과 요약</h3>
             </div>
-            <div class="metric-group compact" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+            <div class="metric-group journal-metrics">
                 <div class="metric">
                     <span class="label">총 실현손익</span>
                     <span class="value" id="j-total-pnl">₩0</span>
