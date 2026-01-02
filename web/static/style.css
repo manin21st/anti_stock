@@ -22,6 +22,8 @@ body {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
+    box-sizing: border-box;
+    /* 패딩이 너비에 포함되도록 설정 */
 }
 
 /* Header */
@@ -30,6 +32,26 @@ header {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
+    flex-wrap: wrap;
+    /* 모바일에서 요소가 넘칠 경우 줄바꿈 허용 */
+    gap: 15px;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 15px 10px;
+    }
+
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .header-right {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
 }
 
 .header-left {
@@ -88,6 +110,12 @@ h1 {
     gap: 5px;
     margin-bottom: 0;
     border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    /* 모바일에서 탭이 많을 경우 줄바꿈 */
+    background: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 50;
 }
 
 .tab-btn {
@@ -143,9 +171,22 @@ h2 {
 
 /* Portfolio Tab */
 .metric-group {
-    display: flex;
-    gap: 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
     margin-bottom: 20px;
+}
+
+@media (max-width: 600px) {
+    .metric-group {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 400px) {
+    .metric-group {
+        grid-template-columns: 1fr;
+    }
 }
 
 .metric {
@@ -175,7 +216,19 @@ table {
     width: 100%;
     border-collapse: collapse;
     min-width: 800px;
-    /* Ensure table doesn't squash too much */
+    /* 기존 PC 레이아웃 보호 */
+}
+
+/* 모바일 전용 컬럼 숨김 또는 크기 조정 */
+@media (max-width: 768px) {
+
+    /* 종목코드, 매입금액, 평가금액 등 상대적으로 덜 중요한 정보는 모바일에서 숨김 처리 가능 */
+    /* 현재는 가로 스크롤을 우선으로 하되, 폰트 크기 조정 */
+    th,
+    td {
+        padding: 8px 5px;
+        font-size: 13px;
+    }
 }
 
 th {
@@ -442,8 +495,19 @@ a.btn-success {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 140px);
-    /* Adjust based on header */
     gap: 15px;
+}
+
+@media (max-width: 768px) {
+    .backtest-container-vertical {
+        height: auto;
+        /* 모바일에서는 고정 높이 해제 */
+    }
+
+    .full-height {
+        height: auto;
+        min-height: 400px;
+    }
 }
 
 .config-section {
@@ -483,10 +547,16 @@ a.btn-success {
 .config-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 15px;
+    gap: 10px;
     align-items: flex-end;
-    /* Align bottoms */
     padding-bottom: 5px;
+}
+
+@media (max-width: 600px) {
+    .config-grid .form-group {
+        width: 100% !important;
+        margin-right: 0;
+    }
 }
 
 .config-grid .form-group {
@@ -849,6 +919,8 @@ a.btn-success {
     top: 100px;
     right: 20px;
     width: 390px;
+    max-width: calc(100vw - 40px);
+    /* 화면을 벗어나지 않도록 제한 */
     height: 400px;
     background: #fff;
     border: 1px solid #cbd5e1;
@@ -858,6 +930,24 @@ a.btn-success {
     flex-direction: column;
     z-index: 1000;
     overflow: hidden;
+}
+
+@media (max-width: 480px) {
+    .floating-popup {
+        right: 10px;
+        left: 10px;
+        width: auto;
+        top: 60px;
+        height: 70vh;
+    }
+}
+
+.table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* iOS 부드러운 스크롤 */
+    border-radius: 8px;
+    border: 1px solid var(--border);
 }
 
 .popup-header {
