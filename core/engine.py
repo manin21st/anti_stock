@@ -222,6 +222,9 @@ class Engine:
             
             try:
                 while not self.restart_requested and self.is_running:
+                    # [긴급] CPU 100% 점유 방지를 위한 1초 대기 (Busy Loop 방지)
+                    time.sleep(1)
+                    
                     # 3. 장 운영 시간 체크 및 대기 (Gating)
                     if not self._handle_market_gating():
                         continue # 장외 시간일 경우 아래 로직을 실행하지 않고 대기
