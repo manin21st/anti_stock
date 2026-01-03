@@ -9,7 +9,7 @@ from core.portfolio import Portfolio
 
 logger = logging.getLogger(__name__)
 
-class UniverseManager:
+class Universe:
     def __init__(self, system_config: Dict, market_data: MarketData, scanner: Scanner, portfolio: Portfolio):
         self.system_config = system_config
         self.market_data = market_data

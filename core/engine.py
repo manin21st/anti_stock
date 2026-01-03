@@ -12,13 +12,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.market_data import MarketData
 from core.broker import Broker
 from core.portfolio import Portfolio
-from core.risk_manager import RiskManager
+from core.risk import Risk
 from core.scanner import Scanner
 from core.dao import TradeDAO, WatchlistDAO
 from utils.telegram import TelegramBot
-from core.config_manager import ConfigManager
-from core.trade_manager import TradeManager
-from core.universe_manager import UniverseManager
+from core.config import Config
+from core.trade import Trader
+from core.universe import Universe
 from core.backtester import Backtester
 from datetime import datetime
 from core import kis_api as ka
@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 
 class Engine:
     def __init__(self, config_path: str = "config/strategies.yaml"):
-        # 1. Config Manager
-        self.config_manager = ConfigManager(strategies_path=config_path)
-        self.config = self.config_manager.config
-        self.system_config = self.config_manager.get_system_config()
+        # 1. Config (기존 ConfigManager)
+        self.config_actor = Config(strategies_path=config_path)
+        self.config = self.config_actor.config
+        self.system_config = self.config_actor.get_system_config()
         
         # 2. Authenticate
         env_type = self.system_config.get("env_type", "paper")
@@ -47,14 +47,14 @@ class Engine:
         self.market_data = MarketData()
         self.broker = Broker()
         self.portfolio = Portfolio()
-        self.risk_manager = RiskManager(self.portfolio, self.config)
+        self.risk = Risk(self.portfolio, self.config) # RiskManager -> Risk
         self.scanner = Scanner()
         self.telegram = TelegramBot(self.system_config)
         self.telegram.send_system_alert("🚀 <b>System Started</b>\nAnti-Stock Engine Initialized.")
         
-        # 4. Managers
-        self.trade_manager = TradeManager(telegram_bot=self.telegram)
-        self.universe_manager = UniverseManager(self.system_config, self.market_data, self.scanner, self.portfolio)
+        # 4. Actors (기존 Managers)
+        self.trader = Trader(telegram_bot=self.telegram) # TradeManager -> Trader
+        self.universe = Universe(self.system_config, self.market_data, self.scanner, self.portfolio) # UniverseManager -> Universe
         self.backtester = Backtester(self.config, {}) # strategy_classes will be filled later
 
         self.strategies = {} # strategy_id -> Strategy Instance
@@ -78,12 +78,12 @@ class Engine:
         # Subscribe to market data events
         self.market_data.subscribers.append(self.on_market_data)
         
-        # Subscribe to Broker and Portfolio events via TradeManager
-        self.broker.on_order_sent.append(self.trade_manager.record_order_event)
+        # Subscribe to Broker and Portfolio events via Trader
+        self.broker.on_order_sent.append(self.trader.record_order_event)
         # Optimistic Update for Portfolio (Buying Power)
         self.broker.on_order_sent.append(lambda x: self.portfolio.on_order_sent(x, self.market_data))
         # Pass market_data dynamically using lambda
-        self.portfolio.on_position_change.append(lambda x: self.trade_manager.record_position_event(x, self.market_data))
+        self.portfolio.on_position_change.append(lambda x: self.trader.record_position_event(x, self.market_data))
 
         # 5. 시스템 사전 준비 (Sync & Load)
         # 웹 서버가 켜지기 전에 데이터를 채워두기 위해 동기식으로 진행합니다.
@@ -122,7 +122,7 @@ class Engine:
             self.cached_watchlist = []
 
         # 3. 유니버스 점검
-        self.universe_manager.load_watchlist()
+        self.universe.load_watchlist()
         logger.info("시스템 기초 준비 완료.")
 
     def _update_market_status(self, target_date: str):
@@ -155,28 +155,28 @@ class Engine:
 
     @property
     def trade_history(self):
-        """Proxy to trade_manager.trade_history for backward compatibility"""
-        return self.trade_manager.trade_history
+        """Proxy to trader.trade_history for backward compatibility"""
+        return self.trader.trade_history
 
     @property
     def watchlist(self):
-        """Proxy to universe_manager.watchlist"""
-        return self.universe_manager.watchlist
+        """Proxy to universe.watchlist"""
+        return self.universe.watchlist
 
     def import_broker_watchlist(self):
         """Import watchlist from Broker"""
-        return self.universe_manager.import_broker_watchlist()
+        return self.universe.import_broker_watchlist()
 
     def update_watchlist(self, new_list: List[str]):
         """Update entire watchlist"""
-        self.universe_manager.update_watchlist(new_list)
+        self.universe.update_watchlist(new_list)
         # If trading is active, ensure polling is updated
         if self.is_trading and not self.market_data.is_polling:
              self.market_data.start()
 
     def update_system_config(self, new_config: Dict):
         """Update system configuration and save to appropriate files"""
-        self.config_manager.update_system_config(new_config)
+        self.config_actor.update_system_config(new_config)
         
         # Reload components
         if hasattr(self, 'telegram'):
@@ -185,7 +185,7 @@ class Engine:
 
     def update_strategy_config(self, new_config: Dict):
         """Update strategy configuration (Config only, applied on restart)"""
-        self.config_manager.update_strategy_config(new_config)
+        self.config_actor.update_strategy_config(new_config)
 
     def restart(self):
         """Restart the engine with new settings"""
@@ -253,9 +253,9 @@ class Engine:
             
             # 설정 및 전략 재로드
             self.strategies.clear()
-            self.config_manager.reload()
-            self.config = self.config_manager.config
-            self.system_config = self.config_manager.get_system_config()
+            self.config_actor.reload()
+            self.config = self.config_actor.config
+            self.system_config = self.config_actor.get_system_config()
             
             active_strategy_id = self.config.get("active_strategy")
             if active_strategy_id and active_strategy_id in self.strategy_classes:
@@ -268,7 +268,7 @@ class Engine:
                 self.strategies[active_strategy_id] = strategy_class(
                     config=strategy_config,
                     broker=self.broker,
-                    risk_manager=self.risk_manager,
+                    risk=self.risk,
                     portfolio=self.portfolio,
                     market_data=self.market_data
                 )
@@ -279,7 +279,7 @@ class Engine:
             # 초기 유니버스 설정 (장중일 경우)
             if self._is_trading_hour():
                 logger.info("장중 가동: 유니버스 스캔을 즉시 수행합니다.")
-                self.universe_manager.update_universe()
+                self.universe.update_universe()
             else:
                 logger.info("장외 가동: 모니터링을 일시 중단하고 대기합니다.")
 
@@ -312,7 +312,7 @@ class Engine:
              # 새로운 영업일 첫 진입 시 유니버스 갱신
              if not self._day_initialized:
                  logger.info("새로운 영업일 장이 시작되었습니다. 유니버스 스캔 수행.")
-                 self.universe_manager.update_universe()
+                 self.universe.update_universe()
                  self._day_initialized = True
 
              if hasattr(self.market_data, 'polling_symbols') and self.market_data.polling_symbols:
@@ -327,8 +327,8 @@ class Engine:
 
         # 1. 자동 스캐너 업데이트 (60초 간격)
         if self.system_config.get("use_auto_scanner", False):
-            if now - self.universe_manager.last_scan_time > 60:
-                self.universe_manager.update_universe()
+            if now - self.universe.last_scan_time > 60:
+                self.universe.update_universe()
                 if self.is_trading and not self.market_data.is_polling:
                     self.market_data.start()
                 

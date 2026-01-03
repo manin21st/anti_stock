@@ -8,7 +8,7 @@ from core import kis_api as ka
 from core.market_data import MarketData
 from core.broker import Broker
 from core.portfolio import Portfolio
-from core.risk_manager import RiskManager
+from core.risk import Risk
 from utils.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class Backtester:
         # Suppress Logs during Backtest
         logging.getLogger('core.broker').setLevel(logging.WARNING)
         logging.getLogger('core.market_data').setLevel(logging.WARNING)
-        # logging.getLogger('core.risk_manager').setLevel(logging.WARNING) # Keep Risk logs visible? Maybe.
+        # logging.getLogger('core.risk').setLevel(logging.WARNING) # Keep Risk logs visible? Maybe.
         
         # Activate API Backtest Mode
         ka.set_backtest_mode(True)
@@ -52,7 +52,7 @@ class Backtester:
         # Inject is_simulation flag into config
         temp_cfg["is_simulation"] = True
         
-        sim_risk = RiskManager(sim_portfolio, self.config) # Base config needed for common settings
+        sim_risk = Risk(sim_portfolio, self.config) # Base config needed for common settings
         
         # Initialize Simulation State
         virtual_state = {
@@ -145,7 +145,7 @@ class Backtester:
         strategy = st_class(
             config=st_cfg,
             broker=sim_broker,
-            risk_manager=sim_risk,
+            risk=sim_risk,
             portfolio=sim_portfolio,
             market_data=sim_market
         )

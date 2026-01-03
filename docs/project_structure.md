@@ -23,9 +23,11 @@
 | `kis_api.py` | 한국투자증권(KIS) REST API 래퍼 (Wrapper) | 통신 |
 | `market_data.py` | **시세 수집**. 1분봉/현재가 데이터 폴링 및 가공 | 반복(장 중) |
 | `portfolio.py` | **계좌/잔고 관리**. 보유 종목 및 수익률 계산, 매도 판단 지원 | 후처리 |
-| `risk_manager.py` | **리스크 관리**. 주문 전 미수/비중/한도 체크 (안전장치) | 진입 판단 |
-| `trade_manager.py` | 매매 기록(Log) 관리 및 UI 이벤트 통보 | 후처리 |
-| `scanner.py` | **조건 검색**. 감시 대상 종목 선정 로직 | 1회성/반복 |
+| `config.py` | **설정 행위자(Config)**. 시스템 및 전략 설정 관리 | 공통 |
+| `risk.py` | **리스크 행위자(Risk)**. 주문 전 미수/비중/한도 체크 (안전장치) | 진입 판단 |
+| `trade.py` | **거래 행위자(Trader)**. 매매 기록(Log) 관리 및 UI 이벤트 통보 | 후처리 |
+| `universe.py` | **유니버스 행위자(Universe)**. 감시 대상 종목 선정 및 구독 관리 | 1회성/반복 |
+| `scanner.py` | **조건 검색**. 시장 종목 스캔 로직 | 유니버스 보조 |
 | `backtester.py` | 전략 시뮬레이션 및 과거 데이터 테스트 엔진 | 분석 |
 | `database.py` | SQLite DB 연결 및 세션 관리 | 공통 |
 | `dao.py` | DB 쿼리(CRUD) 실행 객체들 | 공통 |

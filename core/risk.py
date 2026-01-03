@@ -2,7 +2,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class RiskManager:
+class Risk:
     def __init__(self, portfolio, config: dict = {}):
         self.portfolio = portfolio
         self.config = config

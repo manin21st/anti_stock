@@ -6,7 +6,7 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-class ConfigManager:
+class Config:
     def __init__(self, strategies_path: str = "config/strategies.yaml", secrets_path: str = "config/secrets.yaml"):
         self.strategies_path = strategies_path
         self.secrets_path = secrets_path

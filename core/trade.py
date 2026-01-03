@@ -10,7 +10,7 @@ from core.dao import TradeDAO
 
 logger = logging.getLogger(__name__)
 
-class TradeManager:
+class Trader:
     def __init__(self, telegram_bot=None):
         self.trade_history: List[TradeEvent] = []
         self.telegram = telegram_bot

@@ -5,10 +5,10 @@ import time
 logger = logging.getLogger(__name__)
 
 class BaseStrategy(ABC):
-    def __init__(self, config, broker, risk_manager, portfolio, market_data):
+    def __init__(self, config, broker, risk, portfolio, market_data):
         self.config = config
         self.broker = broker
-        self.risk = risk_manager
+        self.risk = risk
         self.portfolio = portfolio
         self.market_data = market_data
         self.logger = logging.getLogger(self.__class__.__name__)
