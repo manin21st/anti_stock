@@ -68,6 +68,12 @@ class Engine:
         self.restart_requested = False
         self.last_sync_time = 0
         self._last_wait_log_time = 0
+        self._last_heartbeat_time = 0
+        
+        # [24/7 최적화] 휴장일 동적 관리를 위한 변수
+        self._last_holiday_check_date = ""  # 마지막으로 휴장 여부를 확인한 날짜 (YYYYMMDD)
+        self._is_today_holiday = False      # 오늘이 휴장일인지 여부
+        self._day_initialized = False       # 새로운 날의 장중 초기화 완료 여부
         
         # Subscribe to market data events
         self.market_data.subscribers.append(self.on_market_data)
@@ -79,11 +85,73 @@ class Engine:
         # Pass market_data dynamically using lambda
         self.portfolio.on_position_change.append(lambda x: self.trade_manager.record_position_event(x, self.market_data))
 
-        # Watchlist Management
-        self.universe_manager.load_watchlist()
+        # 5. 시스템 사전 준비 (Sync & Load)
+        # 웹 서버가 켜지기 전에 데이터를 채워두기 위해 동기식으로 진행합니다.
+        self._prepare_system_data()
 
-        # Database Warm-up
-        self._warmup_db()
+    def _prepare_system_data(self):
+        """프로그램 시작 시 필요한 기초 데이터를 확보합니다 (API 시도 -> 실패 시 로컬 복구)."""
+        logger.info("시스템 기초 데이터 준비 중...")
+        
+        # 1. 초기 잔고 및 포지션 동기화
+        try:
+            balance = self.broker.get_balance()
+            if balance:
+                self.portfolio.sync_with_broker(balance, notify=False, tag_lookup_fn=self._resolve_strategy_tag)
+                # API 성공 시에도 로컬 상태 세부 정보(tag 등) 보완을 위해 로드 시도 가능
+                self.portfolio.load_state() 
+                logger.info(f"실시간 잔고 동기화 완료 (자산: {int(self.portfolio.total_asset):,}원)")
+            else:
+                logger.warning("증권사 잔고 조회 실패. 로컬 장부에서 데이터를 복구합니다.")
+                self.portfolio.load_state()
+        except Exception as e:
+            logger.error(f"초기 잔고 동기화 중 오류 발생: {e}")
+            self.portfolio.load_state()
+
+        # 2. 초기 관심종목 캐싱
+        target_group = self.system_config.get("watchlist_group_code", "000")
+        try:
+            self.cached_watchlist = self.scanner.get_watchlist(target_group_code=target_group)
+            if self.cached_watchlist:
+                logger.info(f"실시간 관심종목 캐싱 완료 ({len(self.cached_watchlist)} 종목)")
+            else:
+                logger.warning("실시간 관심종목 조회 결과 없음. DB에서 불러옵니다.")
+                self.cached_watchlist = []
+        except Exception as e:
+            logger.warning(f"관심종목 API 조회 실패 ({e}). DB 데이터를 사용합니다.")
+            self.cached_watchlist = []
+
+        # 3. 유니버스 점검
+        self.universe_manager.load_watchlist()
+        logger.info("시스템 기초 준비 완료.")
+
+    def _update_market_status(self, target_date: str):
+        """오늘의 휴장 여부를 KIS API를 통해 동적으로 업데이트합니다."""
+        logger.info(f"[{target_date}] 시장 운영 상태 확인 중...")
+        try:
+            holidays = ka.fetch_holiday(target_date)
+            if holidays:
+                # API 응답 중 오늘(target_date)에 해당하는 정보 찾기
+                today_info = next((h for h in holidays if h.get("bass_dt") == target_date), None)
+                if today_info:
+                    # 'opnd_yn'은 개장 여부, 'tr_day_yn'은 영업일 여부
+                    self._is_today_holiday = (today_info.get("opnd_yn") == "N")
+                    self._last_holiday_check_date = target_date
+                    status_str = "휴장일" if self._is_today_holiday else "영업일"
+                    logger.info(f"시장 상태 확인 완료: 오늘은 {status_str}입니다.")
+                    return
+
+            # API 응답이 없거나 오늘 정보가 없을 경우 주말 여부로 기본 판단
+            dt = datetime.strptime(target_date, "%Y%m%d")
+            self._is_today_holiday = (dt.weekday() >= 5)
+            self._last_holiday_check_date = target_date
+            logger.warning("API 응답 없음. 요일 기반으로 휴장 여부를 추정합니다.")
+        except Exception as e:
+            logger.error(f"시장 상태 업데이트 중 오류 발생: {e}")
+            # 오류 시 주말 여부로 최소한의 방어
+            dt = datetime.strptime(target_date, "%Y%m%d")
+            self._is_today_holiday = (dt.weekday() >= 5)
+            self._last_holiday_check_date = target_date
 
     @property
     def trade_history(self):
@@ -94,24 +162,6 @@ class Engine:
     def watchlist(self):
         """Proxy to universe_manager.watchlist"""
         return self.universe_manager.watchlist
-
-    def _warmup_db(self):
-        """Force DB connection establishment to avoid lazy loading delay on first UI request"""
-        try:
-            logger.debug("Warming up Database Connection...")
-            from core.database import db_manager
-            
-            # Ensure tables exist (Critical for new features like Checklist)
-            db_manager.create_tables()
-
-            # Simple connection check
-            db_manager.get_session().close()
-            
-            # Real query to warm up table/cache
-            count = TradeDAO.get_all_trades_count()
-            logger.debug(f"Database Connection Ready. (Trades in DB: {count})")
-        except Exception as e:
-            logger.warning(f"Database Warm-up failed (will retry on demand): {e}")
 
     def import_broker_watchlist(self):
         """Import watchlist from Broker"""
@@ -155,195 +205,183 @@ class Engine:
         logger.info("Trading stopped (Standby)")
 
     def run(self):
-        """Main Engine Loop (Blocking)"""
+        """매매 엔진의 메인 루프입니다. (Blocking)"""
         self.is_running = True
-        self.is_trading = True # Start in active mode by default
+        self.is_trading = True
         
         while self.is_running:
-            # Wait minimal time for connection stability
-            time.sleep(0.5)
-                
-            logger.info("Engine loop started")
+            time.sleep(0.5) # 연결 안정성을 위한 최소 대기
+            logger.info("매매 엔진 메인 루프 가동")
             
-            # Re-authenticate if needed (e.g. on restart)
-            env_type = self.system_config.get("env_type", "paper")
-            svr = "vps" if env_type == "paper" else "prod"
+            # 1. 루프 환경 초기화 (인증, 설정, 전략 인스턴스화)
+            self._initialize_loop_context()
             
-            try:
-                # On restart, we might want to re-auth to be safe
-                if self.restart_requested:
-                    logger.debug(f"DEBUG: Re-authenticating for {env_type} ({svr})")
-                    ka.auth(svr=svr)
-                
-                # Re-instantiate strategies with fresh config
-                self.strategies.clear()
-                self.config_manager.reload() # Ensure config is fresh
-                self.config = self.config_manager.config
-                self.system_config = self.config_manager.get_system_config()
-                
-                active_strategy_id = self.config.get("active_strategy")
-                logger.debug(f"Active strategy ID: {active_strategy_id}")
-                
-                if active_strategy_id and active_strategy_id in self.strategy_classes:
-                    strategy_class = self.strategy_classes[active_strategy_id]
-                    
-                    # Strategy Config Precedence
-                    strategy_config = self.config.get("common", {}).copy()
-                    strategy_config.update(self.config.get(active_strategy_id, {}))
-                    strategy_config["id"] = active_strategy_id
-                        
-                    strategy = strategy_class(
-                        config=strategy_config,
-                        broker=self.broker,
-                        risk_manager=self.risk_manager,
-                        portfolio=self.portfolio,
-                        market_data=self.market_data
-                    )
-                    self.strategies[active_strategy_id] = strategy
-                    logger.debug(f"Initialized active strategy: {active_strategy_id}")
-                else:
-                    logger.warning(f"Strategy not found: {active_strategy_id}")
-                
-                # [OPTIMIZATION] Offload heavy initialization to background thread
-                def _async_init_tasks():
-                    try:
-                        logger.debug("Running background initialization tasks...")
-                        # 1. Sync initial portfolio state
-                        balance = self.broker.get_balance()
-                        if balance:
-                            self.portfolio.sync_with_broker(balance, notify=False, tag_lookup_fn=self._resolve_strategy_tag)
-                            self.portfolio.load_state()
-                            total_asset = int(self.portfolio.total_asset)
-                            cash = int(self.portfolio.cash)
-                            logger.debug(f"[Init] Portfolio Synced: Asset {total_asset:,} / Cash {cash:,}")
-                        else:
-                            logger.error("[Init] Failed to fetch broker balance")
-
-                        # 2. Cache Watchlist
-                        target_group = self.system_config.get("watchlist_group_code", "000")
-                        logger.debug(f"Fetching Watchlist (Group {target_group}) for caching...")
-                        try:
-                            self.cached_watchlist = self.scanner.get_watchlist(target_group_code=target_group)
-                            logger.debug(f"Cached Watchlist: {len(self.cached_watchlist)} stocks")
-                        except Exception as e:
-                            logger.error(f"Failed to cache watchlist: {e}")
-                            self.cached_watchlist = []
-
-                        # 3. Initial Universe Scan (Only if Market is Open)
-                        if self._is_trading_hour():
-                            self.universe_manager.update_universe()
-                            
-                            # Log Initial Universe
-                            if hasattr(self.market_data, 'polling_symbols'):
-                                 symbols = self.market_data.polling_symbols
-                                 logger.info(f"[Init] Monitoring {len(symbols)} symbols: {', '.join(symbols[:10])}...")
-                        else:
-                            logger.info(f"[Init] Watchlist Loaded from DB ({len(self.watchlist if self.watchlist else [])} items). (Market Closed - Auto-Scanner Skipped)")
-                             
-                    except Exception as e:
-                        logger.error(f"Background Initialization Failed: {e}")
-                        import traceback
-                        logger.error(traceback.format_exc())
-
-                # Start Init Thread
-                threading.Thread(target=_async_init_tasks, daemon=True).start()
-
-            except Exception as e:
-                logger.error(f"초기화 실패: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-            
-            # Inner Loop
+            # 2. 실시간 거래 루프 (Inner Loop)
             self.restart_requested = False
-            last_heartbeat = time.time()
+            self._last_heartbeat_time = time.time()
+            
             try:
                 while not self.restart_requested and self.is_running:
-                    # Fix 2 & User Request: Strict Trading Hour Check
-                    if not self._is_trading_hour():
-                        if self.market_data.is_polling:
-                            logger.info("장 운영 시간이 종료되었습니다. 감시를 중단합니다. (KRX: 09:00~15:30)")
-                            self.market_data.stop()
-                            self._last_wait_log_time = int(time.time())
+                    # 3. 장 운영 시간 체크 및 대기 (Gating)
+                    if not self._handle_market_gating():
+                        continue # 장외 시간일 경우 아래 로직을 실행하지 않고 대기
                         
-                        if self._last_wait_log_time == 0:
-                             logger.info("장 운영 시간이 아닙니다. 대기 중... (KRX: 09:00~15:30)")
-                             self._last_wait_log_time = int(time.time())
-                        
-                        time.sleep(1)
-                        continue
-                    else:
-                        if self._last_wait_log_time != 0:
-                             self._last_wait_log_time = 0
-
-                        if self.is_trading and not self.market_data.is_polling:
-                             if hasattr(self.market_data, 'polling_symbols') and self.market_data.polling_symbols:
-                                 logger.info("장 운영 시간입니다. 감시를 재개합니다.")
-                                 self.market_data.start()
-
-                    # Periodic Scanner Update
-                    if self.system_config.get("use_auto_scanner", False):
-                        if time.time() - self.universe_manager.last_scan_time > 60:
-                            self.universe_manager.update_universe()
-                            # Check if polling is needed
-                            if self.is_trading and not self.market_data.is_polling:
-                                self.market_data.start()
-                            
-                            if hasattr(self.market_data, 'polling_symbols'):
-                                symbols = self.market_data.polling_symbols
-                                logger.info(f"[감시 종목 업데이트] 총 {len(symbols)}개: {', '.join(symbols[:10])}{' ...' if len(symbols)>10 else ''}")
-                    
-                    # Heartbeat
-                    if time.time() - last_heartbeat > 3:
-                        if int(time.time()) % 60 == 0:
-                            n_monitoring = len(self.market_data.polling_symbols) if hasattr(self.market_data, 'polling_symbols') else 0
-                            n_positions = len(self.portfolio.positions)
-                            total_asset = int(self.portfolio.total_asset)
-                            
-                            logger.info(f"[시스템 정상] 감시: {n_monitoring}종목 | 보유: {n_positions}종목 | 총자산: {total_asset:,}원")
-                        last_heartbeat = time.time()
-                    
-                    # Periodic Portfolio Sync (Every 5 seconds)
-                    if time.time() - self.last_sync_time > 5:
-                        try:
-                            balance = self.broker.get_balance()
-                            if balance:
-                                self.portfolio.sync_with_broker(balance, notify=True, tag_lookup_fn=self._resolve_strategy_tag)
-
-                                if not self.market_data.is_polling:
-                                    for symbol in list(self.portfolio.positions.keys()):
-                                        try:
-                                            price = self.market_data.get_last_price(symbol)
-                                            if price > 0:
-                                                self.portfolio.update_market_price(symbol, price)
-                                        except Exception as e:
-                                            logger.warning(f"Failed to manual fetch price for {symbol}: {e}")
-                            self.last_sync_time = time.time()
-                        except Exception as e:
-                            logger.error(f"Failed to sync portfolio: {e}")
-                    
-                    time.sleep(1)
+                    # 4. 주기적 작업 수행 (스캐너, 헬스체크, 잔고 동기화)
+                    self._run_periodic_tasks()
             except KeyboardInterrupt:
                 self.stop()
                 return
 
             if self.restart_requested:
-                logger.info("Performing restart...")
+                logger.info("엔진 재시작 프로세스 진행 중...")
                 time.sleep(1)
                 continue
             
             if not self.is_running:
                 break
 
+    def _initialize_loop_context(self):
+        """루프 시작 또는 재시작 시 필요한 환경(인증, 전략, 설정)을 초기화합니다."""
+        env_type = self.system_config.get("env_type", "paper")
+        svr = "vps" if env_type == "paper" else "prod"
+        
+        try:
+            # 재시작 요청 시 보안을 위해 재인증 수행
+            if self.restart_requested:
+                logger.debug(f"시스템 재인증 중 ({env_type} / {svr})")
+                ka.auth(svr=svr)
+            
+            # 설정 및 전략 재로드
+            self.strategies.clear()
+            self.config_manager.reload()
+            self.config = self.config_manager.config
+            self.system_config = self.config_manager.get_system_config()
+            
+            active_strategy_id = self.config.get("active_strategy")
+            if active_strategy_id and active_strategy_id in self.strategy_classes:
+                # 전략 설정 병합 (공통 + 전략별)
+                strategy_config = self.config.get("common", {}).copy()
+                strategy_config.update(self.config.get(active_strategy_id, {}))
+                strategy_config["id"] = active_strategy_id
+                    
+                strategy_class = self.strategy_classes[active_strategy_id]
+                self.strategies[active_strategy_id] = strategy_class(
+                    config=strategy_config,
+                    broker=self.broker,
+                    risk_manager=self.risk_manager,
+                    portfolio=self.portfolio,
+                    market_data=self.market_data
+                )
+                logger.debug(f"활성 전략 초기화 완료: {active_strategy_id}")
+            else:
+                logger.warning(f"활성 전략을 찾을 수 없습니다: {active_strategy_id}")
+            
+            # 초기 유니버스 설정 (장중일 경우)
+            if self._is_trading_hour():
+                logger.info("장중 가동: 유니버스 스캔을 즉시 수행합니다.")
+                self.universe_manager.update_universe()
+            else:
+                logger.info("장외 가동: 모니터링을 일시 중단하고 대기합니다.")
+
+        except Exception as e:
+            logger.error(f"루프 컨텍스트 초기화 실패: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def _handle_market_gating(self) -> bool:
+        """장 운영 시간 여부에 따라 시스템 활동을 제어합니다. (True 실행, False 대기)"""
+        if not self._is_trading_hour():
+            # 장 종료 시 폴링 중단
+            if self.market_data.is_polling:
+                logger.info("장 운영 시간이 종료되었습니다. 실시간 시세 수집을 중단합니다.")
+                self.market_data.stop()
+                self._last_wait_log_time = int(time.time())
+            
+            # 장외 시간 안내 로그 (딱 한 번만 출력하여 로그 소음 방지)
+            if self._last_wait_log_time == 0:
+                 logger.info("장 운영 시간이 아닙니다. 대기 모드로 전환합니다. (조회 서비스 유지)")
+                 self._last_wait_log_time = int(time.time())
+            
+            return False # 장외이므로 이후 로직 실행 안 함
+        
+        # --- 장 운영 시간 진입 ---
+        if self._last_wait_log_time != 0:
+             self._last_wait_log_time = 0
+
+        if self.is_trading and not self.market_data.is_polling:
+             # 새로운 영업일 첫 진입 시 유니버스 갱신
+             if not self._day_initialized:
+                 logger.info("새로운 영업일 장이 시작되었습니다. 유니버스 스캔 수행.")
+                 self.universe_manager.update_universe()
+                 self._day_initialized = True
+
+             if hasattr(self.market_data, 'polling_symbols') and self.market_data.polling_symbols:
+                 logger.info("장 운영 시간입니다. 실시간 감시를 재개합니다.")
+                 self.market_data.start()
+        
+        return True # 장중이므로 로직 계속 실행
+
+    def _run_periodic_tasks(self):
+        """주기적으로 수행해야 하는 보조 작업들을 처리합니다."""
+        now = time.time()
+
+        # 1. 자동 스캐너 업데이트 (60초 간격)
+        if self.system_config.get("use_auto_scanner", False):
+            if now - self.universe_manager.last_scan_time > 60:
+                self.universe_manager.update_universe()
+                if self.is_trading and not self.market_data.is_polling:
+                    self.market_data.start()
+                
+                if hasattr(self.market_data, 'polling_symbols'):
+                    symbols = self.market_data.polling_symbols
+                    logger.info(f"[감시 업데이트] {len(symbols)}종목: {', '.join(symbols[:10])}...")
+
+        # 2. 시스템 헬스체크 및 상태 요약 (60초 간격)
+        if now - self._last_heartbeat_time > 60:
+            n_monitoring = len(self.market_data.polling_symbols) if hasattr(self.market_data, 'polling_symbols') else 0
+            n_positions = len(self.portfolio.positions)
+            total_asset = int(self.portfolio.total_asset)
+            logger.info(f"[시스템 정상] 감시: {n_monitoring} | 보유: {n_positions} | 총자산: {total_asset:,}원")
+            self._last_heartbeat_time = now
+
+        # 3. 실시간 잔고 동기화 (5초 간격)
+        if now - self.last_sync_time > 5:
+            try:
+                balance = self.broker.get_balance()
+                if balance:
+                    self.portfolio.sync_with_broker(balance, notify=True, tag_lookup_fn=self._resolve_strategy_tag)
+                    
+                    # 폴링 중이 아닐 때만 수동으로 현재가 업데이트 (보유 종목 평가용)
+                    if not self.market_data.is_polling:
+                        for symbol in list(self.portfolio.positions.keys()):
+                            price = self.market_data.get_last_price(symbol)
+                            if price > 0:
+                                self.portfolio.update_market_price(symbol, price)
+                self.last_sync_time = now
+            except Exception as e:
+                logger.error(f"주기적 잔고 동기화 실패: {e}")
+
     def _is_trading_hour(self) -> bool:
-        """Check if current time is within trading hours"""
+        """현재 시간이 장 운영 시간인지 확인합니다 (휴장일 동적 체크 포함)."""
         if self.config.get("system", {}).get("env_type") == "dev":
             return True
             
         market_type = self.system_config.get("market_type", "KRX")
         now = datetime.now()
+        current_date = now.strftime("%Y%m%d")
         
+        # [24/7 핵심 로직] 날짜가 바뀌었다면 오늘의 휴장 여부를 새로 확인
+        if current_date != self._last_holiday_check_date:
+            self._update_market_status(current_date)
+            self._day_initialized = False # 새로운 날이 되었으므로 초기화 플래그 리셋
+            self._last_wait_log_time = 0   # 새로운 날의 대기 로그를 위해 플래그 리셋
+
+        # 1. 휴장일(공휴일/주말) 체크
+        if self._is_today_holiday:
+            return False
+            
+        # 2. 거래 시간 체크
         if market_type == "KRX":
-            if now.weekday() >= 5: return False
             current_time = now.time()
             start = now.replace(hour=9, minute=0, second=0, microsecond=0).time()
             end = now.replace(hour=15, minute=30, second=0, microsecond=0).time()

@@ -299,19 +299,32 @@ class Portfolio:
                 logger.error(f"Callback error: {e}")
 
     def save_state(self):
-        """Save portfolio state to file and memory"""
+        """본체의 포트폴리오 상태를 로컬 파일에 저장합니다."""
         if not self.state_file:
             return
 
-        state = {}
+        # 저장할 필드 구성
+        state = {
+            "cash": self.cash,
+            "deposit_d1": self.deposit_d1,
+            "deposit_d2": self.deposit_d2,
+            "total_asset": self.total_asset,
+            "positions": {}
+        }
+        
         for symbol, pos in self.positions.items():
-            state[symbol] = {
+            state["positions"][symbol] = {
+                "name": pos.name,
+                "qty": pos.qty,
+                "avg_price": pos.avg_price,
+                "current_price": pos.current_price,
+                "tag": pos.tag,
                 "partial_taken": pos.partial_taken,
                 "max_price": pos.max_price,
-                "tag": pos.tag,
                 "first_acquired_at": pos.first_acquired_at
             }
 
+        # 이전에 저장된 상태와 같다면 불필요한 IO 생략
         if state == self._state_cache:
             return
 
@@ -319,7 +332,8 @@ class Portfolio:
 
         try:
             with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=4)
+                json.dump(state, f, indent=4, ensure_ascii=False)
+            logger.debug(f"포트폴리오 상태 저장 완료: {self.state_file}")
         except Exception as e:
             logger.error(f"Failed to save portfolio state: {e}")
 
@@ -337,4 +351,42 @@ class Portfolio:
             self._state_cache = {}
 
     def load_state(self):
-        pass
+        """로컬 파일로부터 포트폴리오 상태를 복구합니다 (주말/장외 API 실패 대비용)."""
+        if not self.state_file or not os.path.exists(self.state_file):
+            logger.debug("복구할 로컬 포트폴리오 상태 파일이 없습니다.")
+            return
+
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # 기본 자산 정보 복구
+            self.cash = data.get("cash", 0.0)
+            self.deposit_d1 = data.get("deposit_d1", 0.0)
+            self.deposit_d2 = data.get("deposit_d2", 0.0)
+            self.total_asset = data.get("total_asset", 0.0)
+            
+            # 보유 종목 복구
+            positions_data = data.get("positions", data) # 하위 호환성 유지
+            # 만약 data 자체가 종목 리스트 형식인 옛 버전이면 data를 그대로 사용
+            if "positions" not in data and data: 
+                positions_data = data
+
+            self.positions = {}
+            for symbol, p in positions_data.items():
+                if isinstance(p, dict) and "qty" in p: # 새 버전 형식
+                    self.positions[symbol] = Position(
+                        symbol=symbol,
+                        name=p.get("name", symbol),
+                        qty=p.get("qty", 0),
+                        avg_price=p.get("avg_price", 0.0),
+                        current_price=p.get("current_price", 0.0),
+                        tag=p.get("tag", ""),
+                        partial_taken=p.get("partial_taken", False),
+                        max_price=p.get("max_price", 0.0),
+                        first_acquired_at=p.get("first_acquired_at", 0.0)
+                    )
+            
+            logger.info(f"로컬 파일로부터 자산 상태 복구 완료 (자산: {int(self.total_asset):,}원)")
+        except Exception as e:
+            logger.error(f"로컬 포트폴리오 상태 복구 실패: {e}")

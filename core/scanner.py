@@ -243,9 +243,15 @@ class Scanner:
                         if code:
                             watchlist_symbols.add(code)
                 else:
-                    logger.error(f"Failed to fetch stocks for group {grp_code}")
+                    from datetime import datetime
+                    is_weekend = datetime.now().weekday() >= 5
+                    log_fn = logger.warning if is_weekend else logger.error
+                    log_fn(f"Failed to fetch stocks for group {grp_code}: {res_stock.getErrorMessage()}")
                     
         else:
-            logger.error(f"Failed to fetch interest groups: {res_group.getErrorMessage()}")
+            from datetime import datetime
+            is_weekend = datetime.now().weekday() >= 5
+            log_fn = logger.warning if is_weekend else logger.error
+            log_fn(f"Failed to fetch interest groups: {res_group.getErrorMessage()}")
             
         return list(watchlist_symbols)

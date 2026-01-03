@@ -249,23 +249,22 @@ table {
 
 th {
     text-align: right;
-    /* Align numbers right */
     font-size: 12px;
     color: var(--text-secondary);
-    padding: 10px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--border);
     background: #f8fafc;
+    font-weight: 600;
 }
 
 th:first-child,
 th:nth-child(2) {
     text-align: left;
-    /* Align text left */
 }
 
 td {
-    padding: 12px 10px;
-    font-size: 14px;
+    padding: 8px 10px;
+    font-size: 12px;
     border-bottom: 1px solid #f1f5f9;
     text-align: right;
 }
@@ -275,16 +274,20 @@ td:nth-child(2) {
     text-align: left;
 }
 
-.pnl-positive {
-    color: var(--danger);
+/* 한국 시장 거래 표준 색상: 상승(빨강) / 하락(파랑) */
+.pnl-positive,
+.trade-buy,
+.row-buy {
+    color: var(--danger) !important;
+    font-weight: 600;
 }
 
-/* Korea: Red is up */
-.pnl-negative {
-    color: var(--accent);
+.pnl-negative,
+.trade-sell,
+.row-sell {
+    color: var(--accent) !important;
+    font-weight: 600;
 }
-
-/* Korea: Blue is down */
 
 /* Settings Tab */
 .settings-grid {
@@ -699,30 +702,7 @@ a.btn-success {
 }
 
 /* Row Highlights */
-/* Row Highlights (Text Color) */
-.row-buy {
-    background-color: transparent !important;
-    color: #ef4444;
-    /* Red */
-    font-weight: bold;
-}
-
-.row-sell {
-    background-color: transparent !important;
-    color: #3b82f6;
-    /* Blue */
-    font-weight: bold;
-}
-
-.trade-buy {
-    color: #059669;
-    font-weight: bold;
-}
-
-.trade-sell {
-    color: #dc2626;
-    font-weight: bold;
-}
+/* 공통 매수/매도 강조 스타일 제거 (위에서 통합 관리) */
 
 /* Backtest specific header style override */
 .section-header {
@@ -744,17 +724,7 @@ a.btn-success {
     padding: 6px;
 }
 
-.row-buy {
-    color: #ef4444;
-    /* Red */
-    font-weight: 600;
-}
-
-.row-sell {
-    color: #3b82f6;
-    /* Blue */
-    font-weight: 600;
-}
+/* 백테스트 특정 스타일 제거 (위에서 통합 관리) */
 
 /* Watchlist Specific Styles */
 .sparkline {

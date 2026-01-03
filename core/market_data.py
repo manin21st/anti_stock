@@ -148,14 +148,27 @@ class MarketData:
         """
         if timeframe == "1d":
             # Daily bars
-            end_dt = datetime.now().strftime("%Y%m%d")
+            now = datetime.now()
+            is_weekend = now.weekday() >= 5
+            
+            # 주말인 경우 end_dt를 금요일로 조정하여 불필요한 API 오류 방지
+            if is_weekend:
+                if now.weekday() == 5: # 토요일 -> 금요일
+                    effective_now = now - timedelta(days=1)
+                else: # 일요일 -> 금요일
+                    effective_now = now - timedelta(days=2)
+                end_dt = effective_now.strftime("%Y%m%d")
+            else:
+                end_dt = now.strftime("%Y%m%d")
+                
             start_dt = (datetime.now() - timedelta(days=int(lookback * 3))).strftime("%Y%m%d")
 
-            # Check Cache (TTL: 60 seconds)
+            # Check Cache (TTL: Weekends=1 hour, Weekdays=1 minute)
+            cache_ttl = 3600 if is_weekend else 60
             cache_key = f"{symbol}_1d_{lookback}"
             cached = self._daily_cache.get(cache_key)
             if cached:
-                if (time.time() - cached['timestamp'] < 60) and (cached['date'] == end_dt):
+                if (time.time() - cached['timestamp'] < cache_ttl) and (cached['date'] == end_dt):
                     return cached['data']
 
             logger.debug(f"Fetching daily bars for {symbol}: {start_dt} ~ {end_dt} (lookback={lookback})")
@@ -164,10 +177,7 @@ class MarketData:
             fetched_count = 0
             current_end_dt = end_dt
 
-            # Loop to fetch multiple pages if needed (Logic mainly for real API)
-            # For Backtest, the mock should return enough data in one go or handle pagination if sophisticated.
-            # Here we assume mock returns full requested range or what's available.
-            
+            api_failed = False
             while fetched_count < lookback:
                 res = ka.fetch_daily_chart(symbol, start_dt, current_end_dt)
                 
@@ -181,16 +191,18 @@ class MarketData:
                 else:
                     err_msg = res.getErrorMessage() if hasattr(res, 'getErrorMessage') else 'Unknown error'
                     err_code = res.getErrorCode() if hasattr(res, 'getErrorCode') else 'Unknown code'
-                    logger.error(f"Failed to fetch daily chunk for {symbol}: [{err_code}] {err_msg}")
+                    status_code = getattr(res, '_rescode', 200)
+                    
+                    # 주말 500 에러는 WARNING으로 처리 (서버 점검 가능성 높음)
+                    log_fn = logger.warning if (is_weekend or status_code == 500) else logger.error
+                    log_fn(f"Failed to fetch daily chunk for {symbol}: [{err_code}] {err_msg}")
+                    api_failed = True
                     break
 
                 if chunk_df.empty:
                     break
 
-                # Rename columns if needed (Mock data might already have correct columns?)
-                # Assuming KIS API format (korean keys) needs renaming.
-                # If mock returns cleaned data (english keys), renaming might fail or do nothing if columns missing.
-                # Let's check columns.
+                # Rename columns if needed
                 if 'stck_bsop_date' in chunk_df.columns:
                     chunk_df = chunk_df.rename(columns={
                         "stck_bsop_date": "date",
@@ -201,11 +213,8 @@ class MarketData:
                         "acml_vol": "volume"
                     })
                 
-                # If mock returns English keys directly (e.g. from DataLoader), we are good.
-                
                 # Type Conversion
                 cols = ["open", "high", "low", "close", "volume"]
-                # Only apply if columns exist
                 existing_cols = [c for c in cols if c in chunk_df.columns]
                 if existing_cols:
                     chunk_df[existing_cols] = chunk_df[existing_cols].apply(pd.to_numeric)
@@ -216,7 +225,6 @@ class MarketData:
                 # Pagination Logic updates current_end_dt
                 if 'date' in chunk_df.columns and not chunk_df.empty:
                     oldest_date = chunk_df['date'].min()
-                    # Backtest mock usually returns all data in first call, so oldest_date is start.
                     try:
                         oldest_dt_obj = datetime.strptime(str(oldest_date), "%Y%m%d")
                         current_end_dt = (oldest_dt_obj - timedelta(days=1)).strftime("%Y%m%d")
@@ -239,9 +247,17 @@ class MarketData:
                 }
 
                 return df.tail(lookback)
-            else:
-                # API 실패 시 빈 프레임 반환 (잘못된 로컬 데이터 사용 차단)
-                return pd.DataFrame()
+            
+            # API 실패 시 로컬 데이터 폴백 시도
+            if api_failed or not all_df_list:
+                logger.debug(f"Attempting local fallback for {symbol} (Daily)")
+                local_df = self.data_loader.load_data(symbol, start_dt, end_dt, timeframe="D")
+                if not local_df.empty:
+                    logger.info(f"Loaded local fallback data for {symbol} ({len(local_df)} bars)")
+                    return local_df.tail(lookback)
+
+            # 최후의 수단으로 빈 프레임 반환
+            return pd.DataFrame()
 
         elif timeframe in ["1m", "3m", "5m", "10m", "15m", "30m", "60m"]:
             # Minute bars (Intraday)

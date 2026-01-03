@@ -93,11 +93,18 @@ def _execute_api(func, *args, **kwargs):
             _last_api_call = time.time()
             res = func(*args, **kwargs)
             
-            # EGW00201 발생 시 로그 없이 조용히 1회 재시도 (사용자 방해 금지)
+            # EGW00201(속도 제한) 또는 500(서버 점검/오류) 발생 시 조용히 1회 재시도
             try:
                 msg = str(res.getErrorMessage() if hasattr(res, 'getErrorMessage') else '')
-                if 'EGW00201' in msg and attempt < 2:
-                    time.sleep(1.5)
+                # APIResp는 _rescode, APIRespError는 status_code 필드를 가짐
+                status_code = getattr(res, '_rescode', getattr(res, 'status_code', 200))
+                
+                # EGW00201 또는 HTTP 500 에러 발생 시 재시도
+                if ('EGW00201' in msg or status_code == 500) and attempt < 3:
+                    wait_time = 1.5 if status_code != 500 else 2.0
+                    if status_code == 500:
+                        logger.warning(f"[KIS_API] 500 Error detected ({msg}). Retrying {attempt}/3...")
+                    time.sleep(wait_time)
                     continue
             except:
                 pass
@@ -405,3 +412,27 @@ def fetch_period_profit(start_dt: str, end_dt: str, ctx_area_fk: str = "", ctx_a
         "CTX_AREA_NK100": ctx_area_nk
     }
     return _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/trading/inquire-period-profit", tr_id, "", params)
+def fetch_holiday(base_date: str) -> List[Dict]:
+    """
+    국내 휴장일 정보 조회 (CTCA0903R)
+    base_date: 기준일자 (YYYYMMDD)
+    참고: 이 API는 실전투자 계좌에서만 작동하며, 모의투자(VTS)에서는 지원되지 않을 수 있습니다.
+    """
+    if _backtest_mode or is_paper_trading():
+        # 백테스트나 모의투자에서는 API 실패가 예상되므로 호출을 생략하고 빈 리스트를 반환하여
+        # 엔진이 요일 기반으로 판단하게 유도합니다.
+        return []
+
+    tr_id = "CTCA0903R"
+    params = {
+        "BASS_DT": base_date,
+        "CTX_AREA_FK100": "",
+        "CTX_AREA_NK100": ""
+    }
+    res = _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/chk-holiday", tr_id, "", params)
+    if res and res.isOK():
+        return res.getBody().output
+    else:
+        # 실전투자인데도 실패한 경우에만 에러를 남깁니다.
+        logger.error(f"fetch_holiday failed: {res.getErrorMessage() if res else 'Unknown Error'}")
+        return []

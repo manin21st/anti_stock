@@ -52,10 +52,10 @@
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="tab-portfolio">포트폴리오</button>
             <button class="tab-btn" data-tab="tab-watchlist">감시종목</button>
-            <button class="tab-btn" data-tab="tab-backtest">백테스트</button>
             <button class="tab-btn" data-tab="tab-journal">매매일지</button>
             <button class="tab-btn" data-tab="tab-settings">환경 설정</button>
             <button class="tab-btn" data-tab="tab-logs">시스템 로그</button>
+            <button class="tab-btn" data-tab="tab-backtest">백테스트</button>
         </nav>
 
         <main>
@@ -110,11 +110,8 @@
                 </section>
             </div>
 
-            <!-- Tab: Watchlist (New) -->
+            <!-- Tab: Watchlist -->
             {% include 'watchlist.html' %}
-
-            <!-- Tab 3: Backtest -->
-            {% include 'backtest.html' %}
 
             <!-- Tab: Journal -->
             {% include 'journal.html' %}
@@ -199,6 +196,9 @@
                     <div id="log-viewer"></div>
                 </section>
             </div>
+
+            <!-- Tab: Backtest -->
+            {% include 'backtest.html' %}
         </main>
     </div>
     </div>

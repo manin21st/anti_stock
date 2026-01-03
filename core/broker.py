@@ -118,7 +118,10 @@ class Broker:
         res = ka.get_balance(tr_id, params)
         
         if res is None:
-            logger.error("Failed to get balance: Response is None")
+            from datetime import datetime
+            is_weekend = datetime.now().weekday() >= 5
+            log_fn = logger.warning if is_weekend else logger.error
+            log_fn("Failed to get balance: Response is None")
             return {}
 
         if isinstance(res, dict): # Handle mock response which is already a dict
@@ -135,7 +138,10 @@ class Broker:
                     "summary": res.getBody().output2
                 }
             else:
-                logger.error(f"Failed to get balance: {res.getErrorMessage()}")
+                from datetime import datetime
+                is_weekend = datetime.now().weekday() >= 5
+                log_fn = logger.warning if is_weekend else logger.error
+                log_fn(f"Failed to get balance: {res.getErrorMessage()}")
                 return {}
         
         # Fallback for dict mock response if passed directly (safeguard)

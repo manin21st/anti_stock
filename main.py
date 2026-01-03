@@ -10,7 +10,6 @@ from strategies.vwap_scalping import VWAPScalping
 from web.server import start_server
 
 # Setup Logging
-# Setup Logging
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 

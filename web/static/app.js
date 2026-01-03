@@ -3,6 +3,7 @@ let userSellQty = {}; // Store manual input values to survive poll re-renders: {
 
 // Utils
 const formatCurrency = (val) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(val);
+const formatComma = (val) => new Intl.NumberFormat('ko-KR').format(val); // 통화 기호 없는 콤마 포맷
 
 // Strategy Name Mapping
 const strategyNames = {
@@ -118,12 +119,13 @@ async function updateStatus() {
                     const tr = document.createElement("tr");
                     tr.innerHTML = `
                         <td style="text-align: left;">
-                            <div class="symbol-cell-wrapper">
+                            <div class="symbol-cell-wrapper" style="display: flex; align-items: center; gap: 8px;">
                                 <span style="font-weight: 600;">${pos.name || pos.symbol}</span>
+                                <span style="color: var(--text-secondary); font-size: 0.9em;">[${pos.symbol}]</span>
                                 <div class="chart-icon-badge" onclick="window.openChart('${pos.symbol}', '${pos.name || pos.symbol}')">📊</div>
                             </div>
                         </td>
-                        <td style="text-align: center; color: var(--text-secondary); font-size: 0.9em;">${pos.symbol}</td>
+                        <td style="text-align: center; color: var(--text-secondary);">${pos.symbol}</td>
                         <td style="text-align: right; font-weight: 600;">${pos.qty}</td>
                         <td>
                             <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
@@ -134,11 +136,11 @@ async function updateStatus() {
                                         style="padding: 4px 8px; font-size: 13px; font-weight: 500; border-radius: 4px; height: 28px; line-height: 1;">매도</button>
                             </div>
                         </td>
-                        <td style="text-align: right;">${formatCurrency(pos.avg_price)}</td>
-                        <td style="text-align: right; color: var(--text-secondary);">${formatCurrency(investedAmt)}</td>
-                        <td style="text-align: right; font-weight: 500;">${formatCurrency(pos.current_price)}</td>
-                        <td style="text-align: right; font-weight: 500;">${formatCurrency(evalAmt)}</td>
-                        <td style="text-align: right;" class="${pnlClass}">${formatCurrency(pnl)}</td>
+                        <td style="text-align: right;">${formatComma(pos.avg_price)}</td>
+                        <td style="text-align: right; color: var(--text-secondary);">${formatComma(investedAmt)}</td>
+                        <td style="text-align: right; font-weight: 500;">${formatComma(pos.current_price)}</td>
+                        <td style="text-align: right; font-weight: 500;">${formatComma(evalAmt)}</td>
+                        <td style="text-align: right;" class="${pnlClass}">${formatComma(pnl)}</td>
                         <td style="text-align: center;" class="${pnlClass}">${pos.pnl_pct.toFixed(2)}%</td>
                         <td style="text-align: right;">${pos.holding_days}일</td>
                     `;
@@ -839,15 +841,15 @@ function renderDataTable(data, strategyId) {
         tr.setAttribute("data-date", uniqueKey);
 
         // Format numbers
-        const close = Number(row.close).toLocaleString();
-        const ma5 = row.ma5 ? Math.round(row.ma5).toLocaleString() : "-";
-        const ma20 = row.ma20 ? Math.round(row.ma20).toLocaleString() : "-";
-        const vol = Number(row.volume).toLocaleString();
+        const close = formatComma(row.close);
+        const ma5 = row.ma5 ? formatComma(Math.round(row.ma5)) : "-";
+        const ma20 = row.ma20 ? formatComma(Math.round(row.ma20)) : "-";
+        const vol = formatComma(row.volume);
 
         // MA Trend Specific
         let maTrendCell = "";
         if (strategyId === 'ma_trend') {
-            const vma20 = row.vol_ma20 ? Math.round(row.vol_ma20).toLocaleString() : "-";
+            const vma20 = row.vol_ma20 ? formatComma(Math.round(row.vol_ma20)) : "-";
             maTrendCell = `<td class="text-right">${vma20}</td>`;
         }
 
@@ -954,8 +956,8 @@ function updateTableRow(trade) {
         typeCell.textContent = trade.side;
         typeCell.className = `border-left type-cell ${trade.side === "BUY" ? "trade-buy" : "trade-sell"}`;
 
-        qtyCell.textContent = trade.qty;
-        priceCell.textContent = Math.round(trade.price).toLocaleString();
+        qtyCell.textContent = formatComma(trade.qty);
+        priceCell.textContent = formatComma(Math.round(trade.price));
 
         // Highlights (Text Color)
         if (trade.side === "BUY") {
@@ -975,11 +977,11 @@ function updateRealtimeMetrics(d) {
         if (el) el.textContent = val;
     };
 
-    setVal("bt-qty", d.qty);
-    setVal("bt-avg", Math.round(d.avg_price).toLocaleString());
-    setVal("bt-buy-amt", Math.round(d.buy_amt).toLocaleString());
-    setVal("bt-eval-amt", Math.round(d.eval_amt).toLocaleString());
-    setVal("bt-eval-pnl", Math.round(d.eval_pnl).toLocaleString());
+    setVal("bt-qty", formatComma(d.qty));
+    setVal("bt-avg", formatComma(Math.round(d.avg_price)));
+    setVal("bt-buy-amt", formatComma(Math.round(d.buy_amt)));
+    setVal("bt-eval-amt", formatComma(Math.round(d.eval_amt)));
+    setVal("bt-eval-pnl", formatComma(Math.round(d.eval_pnl)));
 
     // PnL Color
     const pnlEl = document.getElementById("bt-eval-pnl");
@@ -1118,8 +1120,8 @@ function renderJournalTable(data) {
         const sideClass = item.side === "BUY" ? "trade-buy" : "trade-sell";
         const sideLabel = item.side === "BUY" ? "매수" : "매도";
 
-        const price = Math.round(item.price).toLocaleString();
-        const amt = Math.round(item.price * item.qty).toLocaleString();
+        const price = formatComma(Math.round(item.price));
+        const amt = formatComma(Math.round(item.price * item.qty));
 
         // PnL & Cost Logic
         let pnlText = "-";
@@ -1129,18 +1131,18 @@ function renderJournalTable(data) {
         // Cost (Fees) - Display if available (usually in meta)
         if (item.meta && item.meta.fees !== undefined) {
             const fees = Math.round(item.meta.fees);
-            if (fees > 0) costText = fees.toLocaleString();
+            if (fees > 0) costText = formatComma(fees);
         }
 
         // Avg Price - Display if available (meta.old_avg_price)
         if (item.side === "SELL" && item.meta && item.meta.old_avg_price) {
-            avgPriceText = formatCurrency(Math.round(item.meta.old_avg_price));
+            avgPriceText = formatComma(Math.round(item.meta.old_avg_price));
         }
 
         // PnL
         if (item.pnl !== undefined && item.pnl !== null) {
             const val = Math.round(item.pnl);
-            pnlText = val.toLocaleString();
+            pnlText = formatComma(val);
             if (val > 0) pnlText = `<span class="pnl-positive">${pnlText}</span>`;
             else if (val < 0) pnlText = `<span class="pnl-negative">${pnlText}</span>`;
         }
