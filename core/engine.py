@@ -21,7 +21,7 @@ from core.trade import Trader
 from core.universe import Universe
 from core.backtester import Backtester
 from datetime import datetime
-from core import kis_api as ka
+from core import interface as ka
 
 logger = logging.getLogger(__name__)
 

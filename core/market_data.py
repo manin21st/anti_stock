@@ -13,7 +13,7 @@ import zipfile
 # Add project root to path to allow imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core import kis_api as ka
+from core import interface as ka
 from utils.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)

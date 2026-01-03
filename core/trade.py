@@ -178,7 +178,7 @@ class Trader:
 
     def sync_trade_history(self, start_date: str, end_date: str):
         """Syncs local trade history with Broker API"""
-        from core import kis_api as ka
+        from core import interface as ka
         try:
             logger.info(f"Syncing trade history from {start_date} to {end_date}...")
 

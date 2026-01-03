@@ -4,7 +4,7 @@ from typing import Dict, Optional, Callable, List
 from datetime import datetime, timedelta
 import time
 
-from core import kis_api as ka
+from core import interface as ka
 from core.market_data import MarketData
 from core.broker import Broker
 from core.portfolio import Portfolio

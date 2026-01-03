@@ -19,7 +19,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.visualization import TradeVisualizationService
 from core.dao import TradeDAO, WatchlistDAO, ChecklistDAO
-from core import kis_api as ka
+from core import interface as ka
 
 logger = logging.getLogger(__name__)
 

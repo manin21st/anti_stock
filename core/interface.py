@@ -38,7 +38,7 @@ _data_provider = None # Hook for fetch_daily_chart/fetch_minute_chart (avoid cir
 def set_backtest_mode(mode: bool):
     global _backtest_mode
     _backtest_mode = mode
-    logger.info(f"[KIS_API] Backtest Mode set to: {mode}")
+    logger.info(f"[INTERFACE] Backtest Mode set to: {mode}")
 
 def set_mock_state(cash: int, positions: dict, prices: dict, date: str = None, time: str = None):
     """
@@ -103,7 +103,7 @@ def _execute_api(func, *args, **kwargs):
                 if ('EGW00201' in msg or status_code == 500) and attempt < 3:
                     wait_time = 1.5 if status_code != 500 else 2.0
                     if status_code == 500:
-                        logger.warning(f"[KIS_API] 500 Error detected ({msg}). Retrying {attempt}/3...")
+                        logger.warning(f"[INTERFACE] 500 Error detected ({msg}). Retrying {attempt}/3...")
                     time.sleep(wait_time)
                     continue
             except:
@@ -197,7 +197,7 @@ def issue_request(api_url, ptr_id, tr_cont, params, appendHeaders=None, postFlag
     if _backtest_mode:
         # Prevent accidental API calls from Scanner or other components during backtest
         # Return a Dummy Response
-        logger.debug(f"[KIS_API Backtest] Blocked request to {api_url}")
+        logger.debug(f"[INTERFACE Backtest] Blocked request to {api_url}")
         class MockResponse:
             def isOK(self): return True
             def getBody(self): return type('Body', (), {"output": []})()

@@ -9,7 +9,7 @@ from typing import Optional
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core import kis_api as ka
+from core import interface as ka
 
 logger = logging.getLogger(__name__)
 
