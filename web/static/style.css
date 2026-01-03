@@ -12,6 +12,7 @@
 
 body {
     font-family: 'Inter', sans-serif;
+    font-size: 14px;
     background-color: var(--bg-color);
     color: var(--text-primary);
     margin: 0;
@@ -214,7 +215,7 @@ h2 {
 
 .metric .label {
     display: block;
-    font-size: 12px;
+    font-size: 14px;
     color: var(--text-secondary);
     margin-bottom: 5px;
 }
@@ -243,13 +244,13 @@ table {
     th,
     td {
         padding: 8px 5px;
-        font-size: 13px;
+        font-size: 14px;
     }
 }
 
 th {
     text-align: right;
-    font-size: 12px;
+    font-size: 14px;
     color: var(--text-secondary);
     padding: 8px 10px;
     border-bottom: 1px solid var(--border);
@@ -264,7 +265,7 @@ th:nth-child(2) {
 
 td {
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: 14px;
     border-bottom: 1px solid #f1f5f9;
     text-align: right;
 }
@@ -472,7 +473,7 @@ a.btn-success {
 }
 
 .log-status {
-    font-size: 12px;
+    font-size: 14px;
     color: var(--success);
     animation: blink 2s infinite;
 }
@@ -499,7 +500,7 @@ a.btn-success {
     padding: 15px;
     border-radius: 8px;
     font-family: 'Consolas', monospace;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1.4;
 }
 
@@ -648,7 +649,7 @@ a.btn-success {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: bold;
     color: #1e293b;
     z-index: 1;
@@ -873,7 +874,7 @@ a.btn-success {
     background: rgba(255, 255, 255, 0.1);
     padding: 4px 10px;
     border-radius: 20px;
-    font-size: 12px;
+    font-size: 14px;
 }
 
 .tps-body {

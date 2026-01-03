@@ -92,7 +92,7 @@ function renderStockSelectionList() {
             <input type="checkbox" class="stock-select-cb" value="${stock.code}" data-name="${stock.name}" ${exists ? 'disabled checked' : ''}>
             <div class="symbol-cell-wrapper" style="flex: 1;">
                 <span style="font-weight:500;">${stock.name}</span>
-                <span style="color:#888; font-size:12px;">${stock.code}</span>
+                <span style="color:#888; font-size:13px;">${stock.code}</span>
             </div>
         `;
         container.appendChild(div);
@@ -238,7 +238,7 @@ function renderWatchlistTable() {
 
         tr.innerHTML = `
             <td style="text-align:center;"><input type="checkbox" class="wl-item-cb" value="${code}"></td>
-            <td style="text-align:center; color: #888; font-size: 12px;">${idx + 1}</td>
+            <td style="text-align:center; color: #888; font-size: 13px;">${idx + 1}</td>
             <td style="text-align:left;">
                 <div class="symbol-cell-wrapper">
                     <span style="font-weight:600;">${name}</span>
