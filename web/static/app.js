@@ -47,20 +47,21 @@ function initTabs() {
     let touchEndY = 0;
 
     document.addEventListener('touchstart', (e) => {
-        // Ignore if touching an input, select, textarea, or elements inside a table-container (which needs horizontal scroll)
-        if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.target.tagName)) return;
-        if (e.target.closest('.table-container') || e.target.closest('.chart-popup-overlay') || e.target.closest('.floating-popup')) return;
+        // Ignore if touching an input, select, textarea
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+        // Ignore specific overlays that handle their own touches
+        if (e.target.closest('.chart-popup-overlay') || e.target.closest('.floating-popup')) return;
 
-        touchStartX = e.changedTouches[0].screenX;
-        touchStartY = e.changedTouches[0].screenY;
+        touchStartX = e.changedTouches[0].clientX;
+        touchStartY = e.changedTouches[0].clientY;
     }, { passive: true });
 
     document.addEventListener('touchend', (e) => {
-        if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.target.tagName)) return;
-        if (e.target.closest('.table-container') || e.target.closest('.chart-popup-overlay') || e.target.closest('.floating-popup')) return;
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+        if (e.target.closest('.chart-popup-overlay') || e.target.closest('.floating-popup')) return;
 
-        touchEndX = e.changedTouches[0].screenX;
-        touchEndY = e.changedTouches[0].screenY;
+        touchEndX = e.changedTouches[0].clientX;
+        touchEndY = e.changedTouches[0].clientY;
         handleSwipe();
     }, { passive: true });
 
