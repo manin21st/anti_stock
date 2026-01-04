@@ -65,7 +65,8 @@ class Backtester:
         
         # Load Data
         tf = temp_cfg.get("timeframe", "D")
-        buffer_days = 60 if tf == "D" else 5
+        # 일봉 필터(MA20 등)를 위해 미분/분 단위 전략도 60일치 버퍼 필요
+        buffer_days = 60 # if tf == "D" else 5
         
         # Helper to parse dates
         def parse_date(d):
@@ -142,26 +143,33 @@ class Backtester:
         st_cfg = temp_cfg
         st_cfg["id"] = strategy_id
 
+        # 3. Execution Loop
+        history = []
+        daily_stats = []
+
+        # Simulated Trader for performance-based weighting support
+        class SimTrader:
+            def __init__(self, history):
+                self.trade_history = history
+        
+        sim_trader = SimTrader(history)
+
         strategy = st_class(
             config=st_cfg,
             broker=sim_broker,
             risk=sim_risk,
             portfolio=sim_portfolio,
-            market_data=sim_market
+            market_data=sim_market,
+            trader=sim_trader
         )
         
         # Suppress Strategy Logger
         # Strategies usually use logging.getLogger(self.__class__.__name__)
-        # We need to suppress only for this backtest instance.
-        # But logging is global. We restore it later.
-        strat_logger_name = st_class.__name__
-        logging.getLogger(strat_logger_name).setLevel(logging.WARNING)
-        self._suppressed_loggers.append(strat_logger_name) # Track to restore
+        # [Verification] 임시 주석 처리: 검증을 위해 상세 로그 허용
+        # strat_logger_name = st_class.__name__
+        # logging.getLogger(strat_logger_name).setLevel(logging.WARNING)
+        # self._suppressed_loggers.append(strat_logger_name) # Track to restore
 
-        # 3. Execution Loop
-        history = []
-        daily_stats = []
-        
         # Prepare Data Iterator
         if tf == "D":
             dates = df['date'].unique()
@@ -214,10 +222,18 @@ class Backtester:
              df['date'] = df['date'].astype(str)
              df['time'] = df['time'].astype(str).str.zfill(6)
              df['datetime'] = pd.to_datetime(df['date'] + df['time'], format="%Y%m%d%H%M%S")
-             df = df.set_index('datetime').sort_index()
              
              # Filter Range
+             is_sim = temp_cfg.get("is_simulation", False)
              df = df[df['date'] >= start_date_str]
+             
+             if df.empty:
+                 if is_sim: print(f">>> [BACKTEST] {symbol} No data in range {start_date_str}~")
+                 self._cleanup_backtest()
+                 return {"error": "No data in the requested date range after filtering."}
+
+             # Set Index (required for resample)
+             df = df.set_index('datetime').sort_index()
              
              # Resample to TF
              rule = tf.replace("m", "min")
@@ -226,6 +242,11 @@ class Backtester:
              }).dropna()
              
              total_steps = len(resampled)
+             if is_sim:
+                 if total_steps == 0:
+                     print(f">>> [BACKTEST] Warning: No data after resampling for {symbol}")
+                 else:
+                     print(f">>> [BACKTEST] Running {symbol} | Steps: {total_steps} | {resampled.index[0]} ~ {resampled.index[-1]}")
              
              prev_date = None
              
@@ -393,12 +414,16 @@ class Backtester:
                     
                     self._log_trade(history, timestamp, symbol, "BUY", qty, exec_price, order.get('tag'), callback)
                     
-            elif side == "2": # Sell
+            elif backtest_side == "2": # Sell (Normalized side)
                 p = state['positions'].get(symbol)
                 if p and p['qty'] >= qty:
                     revenue = exec_price * qty
                     fee = revenue * 0.00015 + revenue * 0.002 # Tax
                     net_revenue = revenue - fee
+                    
+                    # PnL 계산 (매수 평균가 대비)
+                    avg_buy_price = p['avg_price']
+                    pnl_pct = ((exec_price - avg_buy_price) / avg_buy_price * 100) if avg_buy_price > 0 else 0
                     
                     state['cash'] += net_revenue
                     p['qty'] -= qty
@@ -408,7 +433,7 @@ class Backtester:
                     if p['qty'] <= 0:
                         del state['positions'][symbol]
                         
-                    self._log_trade(history, timestamp, symbol, "SELL", qty, exec_price, order.get('tag'), callback)
+                    self._log_trade(history, timestamp, symbol, "SELL", qty, exec_price, order.get('tag'), callback, pnl_pct=pnl_pct)
 
         # Update Portfolio (Constructing Mock Balance)
         holdings = []
@@ -434,7 +459,7 @@ class Backtester:
         # Sync
         portfolio.sync_with_broker({"holdings": holdings, "summary": summary}, notify=False, allow_clear=True)
 
-    def _log_trade(self, history, timestamp, symbol, side, qty, price, tag, callback):
+    def _log_trade(self, history, timestamp, symbol, side, qty, price, tag, callback, pnl_pct=None):
         info = {
             "timestamp": timestamp,
             "symbol": symbol,
@@ -442,6 +467,7 @@ class Backtester:
             "qty": qty,
             "price": price,
             "tag": tag,
+            "pnl_pct": pnl_pct,
             "order_no": f"SIM_{int(time.time()*1000)}"
         }
         history.append(info)

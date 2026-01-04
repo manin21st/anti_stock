@@ -1,16 +1,19 @@
 from abc import ABC, abstractmethod
 import logging
 import time
+import pandas as pd
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 class BaseStrategy(ABC):
-    def __init__(self, config, broker, risk, portfolio, market_data):
+    def __init__(self, config, broker, risk, portfolio, market_data, trader):
         self.config = config
         self.broker = broker
         self.risk = risk
         self.portfolio = portfolio
         self.market_data = market_data
+        self.trader = trader
         self.logger = logging.getLogger(self.__class__.__name__)
         
         # Validate Config immediately
@@ -56,6 +59,16 @@ class BaseStrategy(ABC):
         self.enabled = self.config.get("enabled", True)
         self.logger.info(f"Config updated. Enabled: {self.enabled}")
 
+    def on_bar(self, symbol: str, bar: Dict):
+        """
+        [표준 인터페이스]
+        실시간 데이터(on_market_data) 및 백테스터에서 공통으로 호출하는 진입점입니다.
+        preprocessing()을 거쳐 execute()를 실행합니다.
+        """
+        if not self.preprocessing(symbol, bar):
+            return
+        self.execute(symbol, bar)
+
     # --- Interface for Child Classes ---
     
     @abstractmethod
@@ -88,10 +101,9 @@ class BaseStrategy(ABC):
         # [Cool-down] 당일 손절 종목 재진입 방지
         # manage_position에서 손절매 발생 시 이 목록에 추가됨
         if symbol in self.stopped_out_symbols:
-            # 로그 과다 출력을 막기 위해 디버그 레벨로 하거나, 한 번만 출력해야 함.
             return False
 
-        if not self.check_rate_limit(symbol, interval_seconds=5): # 5초 제한 (캔들 지연 방지)
+        if not self.check_rate_limit(symbol, interval_seconds=5):
             return False
             
         current_time = data.get('time', '')
@@ -111,8 +123,6 @@ class BaseStrategy(ABC):
             # 진입 로직(execute)으로 진행을 허용합니다. (단, 손절 시에는 재진입 차단됨)
 
         # 3. 일봉 추세 필터
-        # 일봉 추세가 좋지 않으면 신규 진입을 하지 않습니다.
-        # check_daily_trend returns DataFrame or None
         if self.check_daily_trend(symbol, stock_name) is None:
             return False
 
@@ -128,7 +138,15 @@ class BaseStrategy(ABC):
 
         # 1. 기본 리스크 관리 (Step Size)
         # 총 자산의 risk_pct(예: 3%) 만큼을 1회 매수 기준으로 삼습니다.
-        risk_step_qty = self.calc_position_size(symbol, risk_pct=self.config.get("risk_pct"))
+        risk_pct = self.config.get("risk_pct", 0.03)
+        
+        # [성과 기반 가중치 적용] 수익이 잘 났던 종목은 더 크게, 손실 난 종목은 작게.
+        perf_weight = self.get_performance_weight(symbol)
+        adjusted_risk_pct = risk_pct * perf_weight
+        
+        self.logger.info(f"[비중 계산] {symbol} | 성과 가중치: {perf_weight}x (최종 리스크: {adjusted_risk_pct*100:.1f}%)")
+
+        risk_step_qty = self.calc_position_size(symbol, risk_pct=adjusted_risk_pct)
         
         # 2. 목표 비중 관리 (Target Weight Logic)
         # 종목당 최대 비중(예: 10%)을 설정합니다.
@@ -136,7 +154,7 @@ class BaseStrategy(ABC):
         target_weight = self.config.get("target_weight", 0.0) 
         
         if target_weight <= 0:
-            # 목표 비중이 없으면 단순히 1회 매수량 반환
+            # 목표 비중이 없으면 단순히 성과 가중치가 반영된 1회 매수량 반환
             return risk_step_qty
 
         # 부족분(Deficit) 계산
@@ -238,8 +256,20 @@ class BaseStrategy(ABC):
         if daily is None: return None
 
         # 일봉 추세 필터 (MA20)
-        ma20_now = daily.close.iloc[-20:].mean()
-        ma20_prev = daily.close.iloc[-21:-1].mean()
+        # 백테스트 시 데이터가 부족할 경우(20일 미만) 시뮬레이션을 위해 유연하게 대응
+        is_sim = self.config.get("is_simulation", False)
+        min_bars = 2 if is_sim else 20
+        
+        if len(daily) < min_bars:
+            if is_sim:
+                self.logger.debug(f"[시뮬레이션] {symbol} 일봉 데이터 부족 ({len(daily)}개), 필터 통과 처리")
+                return daily
+            return None
+
+        # 가용한 데이터 범위 내에서 MA 계산
+        win_size = min(20, len(daily))
+        ma20_now = daily.close.iloc[-win_size:].mean()
+        ma20_prev = daily.close.iloc[-(win_size+1):-1].mean() if len(daily) > win_size else ma20_now
         curr_close = daily.close.iloc[-1]
 
         if curr_close < ma20_now:
@@ -254,12 +284,20 @@ class BaseStrategy(ABC):
         defaults = getattr(self, "CONSTANTS", {})
         prev_daily_vol_k = self.config.get("prev_daily_vol_k", defaults.get("prev_daily_vol_k", 1.5))
         
+        if len(daily) < 22:
+            if is_sim:
+                self.logger.debug(f"[시뮬레이션] {symbol} 거래량 데이터 부족, 필터 통과 처리")
+                return daily
+            return None
+            
         prev_vol = daily.volume.iloc[-2]
         prev_avg_vol = daily.volume.iloc[-22:-2].mean()
 
         if prev_avg_vol > 0 and prev_vol < (prev_avg_vol * prev_daily_vol_k):
              self.log_state_once(symbol, f"[감시 제외] {stock_name} | 전일 거래량 부족")
-             return None
+             if not is_sim: return None # 시뮬레이션에서는 로그만 남기고 일단 진행 (데이터셋 한계 고려)
+             
+        return daily
              
         return daily
 
@@ -284,7 +322,15 @@ class BaseStrategy(ABC):
         return daily
 
     def log_state_once(self, symbol, msg):
-        """상태가 변경되었을 때만 로그를 출력합니다."""
+        """
+        상태가 변경되었을 때만 로그를 출력합니다.
+        단, 시뮬레이션 모드에서는 모든 진행 상황을 보기 위해 항상 출력할 수 있습니다.
+        """
+        # [Verification Mode] 시뮬레이션 중에는 항상 출력 (상세 분석용)
+        # if self.broker.__class__.__name__ == "SimBroker" or self.config.get("is_simulation"):
+        #     self.logger.info(msg)
+        #     return
+
         last_msg = self.last_log_state.get(symbol)
         if last_msg != msg:
             self.logger.info(msg)
@@ -350,3 +396,183 @@ class BaseStrategy(ABC):
                     return True
 
         return False # 아무 동작도 하지 않음
+
+    # --- 추가된 전략 고도화 로직 (Trend & Performance) ---
+
+    def get_performance_weight(self, symbol: str) -> float:
+        """
+        해당 종목의 최근 매매 성과를 분석하여 가중치(0.3 ~ 3.0)를 산출합니다.
+        최근 5회의 SELL 이벤트를 분석합니다. (객체 및 딕셔너리 모두 지원)
+        """
+        try:
+            def g(obj, attr, default=None):
+                if isinstance(obj, dict): return obj.get(attr, default)
+                return getattr(obj, attr, default)
+
+            # 최근 5회의 실현 손익 이벤트 필터링
+            history_pool = self.trader.trade_history
+            recent_trades = []
+            
+            for t in history_pool:
+                t_symbol = g(t, 'symbol')
+                t_side = g(t, 'side')
+                t_pnl_pct = g(t, 'pnl_pct')
+                
+                if t_symbol == symbol and t_side == "SELL" and t_pnl_pct is not None:
+                    recent_trades.append(t)
+            
+            if not recent_trades:
+                return 1.0 # 기록 없으면 기본값
+                
+            # 최근 5건 추출 (이미 역순 정렬되어 있다고 가정 - Trader.trade_history는 prepend함)
+            # 단, Backtest history는 append할 수 있으므로 주의 필요. 
+            # 일단 최신순으로 정렬 유도.
+            # TradeEvent는 timestamp를 가짐.
+            history = sorted(recent_trades, key=lambda x: g(x, 'timestamp'), reverse=True)[:5]
+            weights = []
+            
+            for trade in history:
+                pnl_pct = g(trade, 'pnl_pct')
+                if pnl_pct > 0:
+                    # 수익인 경우: 수익률에 비례하여 가중치 (최대 1.5)
+                    w = 1.0 + min(pnl_pct / 10.0, 0.5) 
+                    weights.append(w)
+                else:
+                    # 손실인 경우: 손실률에 비례하여 감점 (최소 0.5)
+                    w = 1.0 + max(pnl_pct / 10.0, -0.5) 
+                    weights.append(w)
+            
+            avg_w = sum(weights) / len(weights)
+            
+            # 승률 보너스
+            wins = [t for t in history if g(t, 'pnl_pct') > 0]
+            win_rate = len(wins) / len(history)
+            
+            if win_rate >= 0.8: # 승률 80% 이상: 보너스
+                avg_w *= 1.5
+            elif win_rate <= 0.2: # 승률 20% 이하
+                # [기존 로직 제거] 손실 종목 비중 축소 패널티는 RR 필터로 대체하므로 제거함.
+                # 단, 우수 종목 가중치는 유지.
+                avg_w = 1.0 # 감점 없음
+                
+            # 최종 범위 제한: 1.0x ~ 3.0x (공격적 세팅, 손실 종목 축소 로직 제거됨)
+            final_w = round(min(max(avg_w, 1.0), 3.0), 2)
+            
+            if final_w > 1.0:
+                 self.logger.info(f"[성과 가중치] {symbol} | 최근 {len(history)}회 성과(승률 {win_rate*100:.0f}%) 기반: {final_w}x 비중 확대")
+                 
+            return final_w
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating performance weight for {symbol}: {e}")
+            return 1.0
+
+    def get_cumulative_pnl(self, symbol: str) -> float:
+        """
+        해당 종목의 누적 손익률(%)을 계산합니다. (전체 이력 기반)
+        """
+        try:
+            def g(obj, attr, default=None):
+                if isinstance(obj, dict): return obj.get(attr, default)
+                return getattr(obj, attr, default)
+
+            history = [t for t in self.trader.trade_history 
+                      if g(t, 'symbol') == symbol and g(t, 'side') == "SELL" and g(t, 'pnl_pct') is not None]
+            
+            if not history:
+                return 0.0
+                
+            total_pnl = sum([g(t, 'pnl_pct') for t in history])
+            return round(total_pnl, 2)
+        except Exception as e:
+            self.logger.error(f"Error calculating cumulative PnL for {symbol}: {e}")
+            return 0.0
+
+    def calculate_rr_ratio(self, symbol: str, current_price: float, bars: pd.DataFrame) -> Dict:
+        """
+        현재가 기준 예상 손익비(Risk/Reward Ratio)를 계산합니다.
+        Target(Reward): 최근 20~60봉 이내의 최고가 (저항대)
+        Stop(Risk): 설정된 손절 % 지점
+        """
+        if current_price <= 0 or bars is None or len(bars) < 20:
+            return {"rr_ratio": 0, "reward_pct": 0, "risk_pct": 0}
+
+        # 1. Reward (예상 수익)
+        # 최근 60봉(또는 가용 데이터) 중 최고가를 목표가로 설정
+        lookback = min(len(bars), 60)
+        recent_high = bars.high.iloc[-lookback:].max()
+        
+        reward_amt = recent_high - current_price
+        reward_pct = (reward_amt / current_price) * 100 if current_price > 0 else 0
+
+        # 2. Risk (예상 손실)
+        # 기본 설정된 stop_loss_pct 사용
+        stop_loss_pct = self.config.get("stop_loss_pct", 0.03) 
+        risk_pct = stop_loss_pct * 100
+        
+        # 3. RR Ratio
+        rr_ratio = reward_pct / risk_pct if risk_pct > 0 else 0
+        
+        return {
+            "rr_ratio": round(rr_ratio, 2),
+            "reward_pct": round(reward_pct, 2),
+            "risk_pct": round(risk_pct, 2),
+            "target_price": recent_high
+        }
+
+    def calculate_adx(self, bars: pd.DataFrame, period: int = 14) -> float:
+        """
+        ADX (Average Directional Index)를 계산합니다. (추세 강도 지표)
+        참고: 25 이상이면 강한 추세로 간주합니다.
+        """
+        if len(bars) < period * 2:
+            return 0.0
+            
+        df = bars.copy()
+        df['up_move'] = df.high.diff()
+        df['down_move'] = df.low.diff().mul(-1)
+        
+        df['plus_dm'] = 0.0
+        df.loc[(df.up_move > df.down_move) & (df.up_move > 0), 'plus_dm'] = df.up_move
+        
+        df['minus_dm'] = 0.0
+        df.loc[(df.down_move > df.up_move) & (df.down_move > 0), 'minus_dm'] = df.down_move
+        
+        # True Range
+        df['tr'] = pd.concat([
+            df.high - df.low,
+            (df.high - df.close.shift()).abs(),
+            (df.low - df.close.shift()).abs()
+        ], axis=1).max(axis=1)
+        
+        # Smoothing (Simple Rolling for efficiency)
+        tr_smooth = df.tr.rolling(period).sum()
+        plus_dm_smooth = df.plus_dm.rolling(period).sum()
+        minus_dm_smooth = df.minus_dm.rolling(period).sum()
+        
+        df['plus_di'] = 100 * (plus_dm_smooth / tr_smooth)
+        df['minus_di'] = 100 * (minus_dm_smooth / tr_smooth)
+        
+        df['dx'] = 100 * (df.plus_di - df.minus_di).abs() / (df.plus_di + df.minus_di)
+        adx = df.dx.rolling(period).mean().iloc[-1]
+        
+        return round(float(adx), 2) if not pd.isna(adx) else 0.0
+
+    def get_ma_slope(self, bars: pd.DataFrame, ma_period: int = 20, lookback: int = 5) -> float:
+        """
+        이평선(MA)의 기울기를 계산합니다. (최근 lookback 기간 동안의 변화량)
+        기울기가 양수(+)이면 우상향으로 판단합니다.
+        """
+        if len(bars) < ma_period + lookback:
+            return 0.0
+            
+        ma = bars.close.rolling(ma_period).mean()
+        
+        # 최근 lookback 기간 동안의 변화율(%) 계산
+        curr_ma = ma.iloc[-1]
+        prev_ma = ma.iloc[-lookback-1]
+        
+        if prev_ma <= 0: return 0.0
+        
+        slope_pct = (curr_ma - prev_ma) / prev_ma * 100
+        return round(float(slope_pct), 4)

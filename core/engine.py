@@ -273,7 +273,8 @@ class Engine:
                     broker=self.broker,
                     risk=self.risk,
                     portfolio=self.portfolio,
-                    market_data=self.market_data
+                    market_data=self.market_data,
+                    trader=self.trader
                 )
                 logger.debug(f"활성 전략 초기화 완료: {active_strategy_id}")
             else:
