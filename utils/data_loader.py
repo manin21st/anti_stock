@@ -34,7 +34,7 @@ class DataLoader:
         """
         file_path = self._get_file_path(symbol, timeframe)
         if not os.path.exists(file_path):
-            logger.warning(f"Data file for {symbol} (TF: {timeframe}) not found.")
+            logger.debug(f"Data file for {symbol} (TF: {timeframe}) not found.")
             return pd.DataFrame()
 
         try:

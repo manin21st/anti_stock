@@ -66,8 +66,8 @@ class BaseStrategy(ABC):
         preprocessing()을 거쳐 execute()를 실행합니다.
         """
         if not self.preprocessing(symbol, bar):
-            return
-        self.execute(symbol, bar)
+            return None
+        return self.execute(symbol, bar)
 
     # --- Interface for Child Classes ---
     

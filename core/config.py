@@ -23,8 +23,19 @@ class Config:
         if secrets:
             self._merge_config(self.config, secrets)
             logger.debug(f"Loaded secrets from {self.secrets_path}")
-
+        
+        # Base system config from YAML
         self.system_config = self.config.get("system", {"env_type": "paper", "market_type": "KRX"})
+
+    def _load_json(self, path: str) -> Dict[str, Any]:
+        try:
+            if not os.path.exists(path):
+                return {}
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load json config from {path}: {e}")
+            return {}
 
     def _load_yaml(self, path: str) -> Dict[str, Any]:
         try:

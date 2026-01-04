@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -12,6 +12,8 @@ import yaml
 import random
 import string
 from datetime import datetime
+import io
+import pandas as pd
 from utils.data_loader import DataLoader
 
 # Add project root to path
@@ -504,9 +506,13 @@ def start_server(engine):
     engine_instance = engine
     visualization_service = TradeVisualizationService(engine)
     import uvicorn
+    
+    # Read port from system config (merged from json)
+    port = int(engine.system_config.get("server_port", 8000))
+
     # Run in a separate thread
     # Disable access log to prevent "GET /api/status" spam
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning", access_log=False)
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning", access_log=False)
     server = uvicorn.Server(config)
     server.run()
 
@@ -979,7 +985,9 @@ async def backtest_websocket(websocket: WebSocket):
         if "error" in result:
              await websocket.send_json({"type": "error", "message": result["error"]})
         else:
-             await websocket.send_json({"type": "result", "result": result})
+             # Sanitize result to handle NumPy types
+             safe_result = json_compatible(result)
+             await websocket.send_json({"type": "result", "result": safe_result})
 
     except WebSocketDisconnect:
         logger.info("Backtest WebSocket disconnected")
@@ -991,3 +999,107 @@ async def backtest_websocket(websocket: WebSocket):
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
             pass
+
+def json_compatible(obj):
+    """
+    Recursively convert NumPy types to Python native types for JSON serialization.
+    """
+    if isinstance(obj, dict):
+        return {k: json_compatible(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [json_compatible(v) for v in obj]
+    elif hasattr(obj, 'item'): # NumPy scalar
+        return obj.item()
+    elif hasattr(obj, 'tolist'): # NumPy array/Series
+        return obj.tolist()
+    else:
+        return obj
+
+@app.post("/api/backtest/export")
+async def export_backtest_result(request: Request):
+    """
+    백테스트 결과를 엑셀로 내보냅니다.
+    요청 바디: { "history": [...simulated trades...], "config": {...} }
+    """
+    try:
+        data = await request.json()
+        history = data.get("history", [])
+        config = data.get("config", {})
+
+        if not history:
+             return JSONResponse({"status": "error", "message": "No history data to export"}, status_code=400)
+
+        # 1. Convert to DataFrame
+        df = pd.DataFrame(history)
+
+        # 2. Rename & Reorder Columns
+        # 기본 매매 정보
+        col_map = {
+            "timestamp": "일자/시간",
+            "symbol": "종목코드",  # 종목명은 별도로 넣어야 함 (history에 있나? 보통 없으므로 로직 필요)
+            "side": "구분", # 1: 매수, 2: 매도
+            "qty": "수량",
+            "price": "체결가",
+            "pnl_pct": "수익률(%)",
+            "tag": "태그",
+            
+            # 기술적 지표 (Simulated)
+            "ma_short": "이평(Short)",
+            "ma_long": "이평(Long)",
+            "volume": "거래량",
+            "avg_vol": "평균거래량(20)",
+            "adx": "ADX",
+            "slope": "기울기",
+            
+            # 판단 지표
+            "rr_ratio": "RR(손익비)",
+            "perf_weight": "비중가중치",
+            "action": "Action",
+            "msg": "로그(판단근거)"
+        }
+        
+        # 실제 데이터에 있는 컬럼만 선택
+        existing_cols = [c for c in col_map.keys() if c in df.columns]
+        df = df[existing_cols].rename(columns=col_map)
+        
+        # 3. Value Formatting
+        # 구분: 1->매수, 2->매도
+        if "구분" in df.columns:
+            df["구분"] = df["구분"].apply(lambda x: "매수" if str(x) == "1" or str(x) == "BUY" else "매도" if str(x) == "2" or str(x) == "SELL" else x)
+            
+        # 종목명 추가 (엔진이 있으면 조회, 없으면 패스)
+        if engine_instance and "종목코드" in df.columns:
+            # engine_instance.market_data might be available
+             def get_name(code):
+                 return engine_instance.market_data.get_stock_name(code)
+             
+             df.insert(1, "종목명", df["종목코드"].apply(get_name))
+
+        # 4. Create Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Backtest_Result')
+            
+            # Configuration Sheet (User Request: Snapshot)
+            if config:
+                cfg_df = pd.DataFrame([{"Parameter": k, "Value": str(v)} for k, v in config.items()])
+                cfg_df.to_excel(writer, index=False, sheet_name='Configuration')
+                
+            # Auto-adjust columns width (Basic)
+            worksheet = writer.sheets['Backtest_Result']
+            for i, col in enumerate(df.columns):
+                width = max(df[col].astype(str).map(len).max(), len(col)) + 2
+                worksheet.set_column(i, i, width)
+
+        output.seek(0)
+        
+        # 5. Return Response
+        filename = f"Backtest_Result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        headers = {
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        }
+        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    except Exception as e:
+        logger.error(f"Export Error: {e}", exc_info=True)
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)

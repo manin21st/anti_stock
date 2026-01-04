@@ -99,21 +99,31 @@
                     <button id="btn-view-chart" class="btn-secondary small-btn" style="display:none;">차트 보기</button>
                 </div>
             </div>
-            <div class="table-container-scroll" style="flex: 1; overflow-y: auto;">
+            <div class="table-container-scroll">
                 <table id="bt-trade-table" class="data-table">
                     <thead class="sticky-header">
                         <tr>
                             <!-- Base Data -->
-                            <th>일시</th>
+                            <!-- Base Data -->
+                            <th>일자/시간</th>
                             <th class="text-right">종가</th>
-                            <th class="text-right">이평(5)</th>
-                            <th class="text-right">이평(20)</th>
+                            <!-- Tech Indicators -->
+                            <th class="text-right">이평(Short)</th>
+                            <th class="text-right">이평(Long)</th>
                             <th class="text-right">거래량</th>
-                            <th class="text-right col-ma-trend" style="display:none;">평균거래량(20)</th>
-                            <!-- Trade Info (Filled during execution) -->
-                            <th class="border-left">매매유형</th>
+                            <th class="text-right">평비(20)</th>
+                            <th class="text-right col-advanced">ADX</th>
+                            <th class="text-right col-advanced">기울기</th>
+                            <!-- Decision Metrics -->
+                            <th class="text-right border-left col-advanced">RR(손익비)</th>
+                            <th class="text-right col-advanced">비중</th>
+                            <th class="text-center col-advanced">Action</th>
+                            <th class="col-advanced">로그(판단근거)</th>
+                            <!-- Trade Info -->
+                            <th class="border-left text-center">구분</th>
                             <th class="text-right">수량</th>
                             <th class="text-right">체결가</th>
+                            <th class="text-right">수익률</th>
                         </tr>
                     </thead>
                     <tbody>

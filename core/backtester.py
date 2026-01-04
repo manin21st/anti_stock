@@ -195,16 +195,17 @@ class Backtester:
                 self._update_progress(i, total_steps, virtual_state, current_price, symbol, start_date, progress_callback, history)
                 
                 # Execute Step
+                decision = {}
                 try:
                     # Create Bar Object
                     bar = row.copy()
                     bar['date'] = date
-                    strategy.on_bar(symbol, bar)
+                    decision = strategy.on_bar(symbol, bar) or {}
                 except Exception as e:
                     logger.error(f"Strategy Error on {date}: {e}")
 
                 # Process Orders & Update State
-                self._process_orders(symbol, current_price, virtual_state, history, date, sim_portfolio, progress_callback)
+                self._process_orders(symbol, current_price, virtual_state, history, date, sim_portfolio, progress_callback, decision)
                 
                 # End of Day Stats
                 daily_stats.append({
@@ -247,7 +248,7 @@ class Backtester:
                      print(f">>> [BACKTEST] Warning: No data after resampling for {symbol}")
                  else:
                      print(f">>> [BACKTEST] Running {symbol} | Steps: {total_steps} | {resampled.index[0]} ~ {resampled.index[-1]}")
-             
+             detailed_logs = []
              prev_date = None
              
              for i, (dt, row) in enumerate(resampled.iterrows()):
@@ -271,13 +272,32 @@ class Backtester:
                  if i % 10 == 0:
                      self._update_progress(i, total_steps, virtual_state, current_price, symbol, start_date, progress_callback, history)
 
+                 decision = {}
                  try:
                      bar = row.to_dict()
-                     strategy.on_bar(symbol, bar)
+                     decision = strategy.on_bar(symbol, bar) or {}
                  except Exception as e:
                      logger.error(f"Strategy Error on {dt}: {e}")
 
-                 self._process_orders(symbol, current_price, virtual_state, history, f"{date_str} {time_str}", sim_portfolio, progress_callback)
+                 # Capture Detailed Log for Every Bar
+                 log_entry = {
+                     "timestamp": f"{date_str} {time_str}",
+                     # Core Metrics
+                     "ma_short": decision.get("ma_short"),
+                     "ma_long": decision.get("ma_long"), 
+                     "volume": decision.get("volume"),
+                     "avg_vol": decision.get("avg_vol"),
+                     # Strategy Metrics
+                     "adx": decision.get("adx"),
+                     "slope": decision.get("slope"),
+                     "rr_ratio": decision.get("rr_ratio"),
+                     "perf_weight": decision.get("perf_weight"),
+                     "action": decision.get("action"),
+                     "msg": decision.get("msg")
+                 }
+                 detailed_logs.append(log_entry)
+
+                 self._process_orders(symbol, current_price, virtual_state, history, f"{date_str} {time_str}", sim_portfolio, progress_callback, decision)
 
 
         # 4. Final Wrap-up
@@ -295,7 +315,8 @@ class Backtester:
                 "trade_count": len(history),
             },
             "history": history,
-            "daily_stats": daily_stats
+            "daily_stats": daily_stats,
+            "detailed_logs": detailed_logs
         }
 
     def _update_progress(self, current_step, total_steps, state, price, symbol, start_date, callback, history):
@@ -325,9 +346,14 @@ class Backtester:
         }
         callback("progress", status)
 
-    def _process_orders(self, symbol, current_price, state, history, timestamp, portfolio, callback):
+    def _process_orders(self, symbol, current_price, state, history, timestamp, portfolio, callback, decision=None):
         orders = ka.get_mock_orders()
+        decision = decision or {}
         
+        # If no orders but decision was significant (e.g. filtered), log it as SKIP
+        if not orders and decision.get("is_significant"):
+             self._log_trade(history, timestamp, symbol, "SKIP", 0, current_price, "", callback, decision=decision)
+
         for order in orders:
             # {'symbol':..., 'qty':..., 'buy_sell_gb': '1'/'2', 'ord_dv':...} OR KIS Params
             
@@ -412,7 +438,7 @@ class Backtester:
                     p['amount'] += cost
                     p['avg_price'] = p['amount'] / p['qty']
                     
-                    self._log_trade(history, timestamp, symbol, "BUY", qty, exec_price, order.get('tag'), callback)
+                    self._log_trade(history, timestamp, symbol, "BUY", qty, exec_price, order.get('tag'), callback, decision=decision)
                     
             elif backtest_side == "2": # Sell (Normalized side)
                 p = state['positions'].get(symbol)
@@ -433,7 +459,7 @@ class Backtester:
                     if p['qty'] <= 0:
                         del state['positions'][symbol]
                         
-                    self._log_trade(history, timestamp, symbol, "SELL", qty, exec_price, order.get('tag'), callback, pnl_pct=pnl_pct)
+                    self._log_trade(history, timestamp, symbol, "SELL", qty, exec_price, order.get('tag'), callback, pnl_pct=pnl_pct, decision=decision)
 
         # Update Portfolio (Constructing Mock Balance)
         holdings = []
@@ -459,7 +485,8 @@ class Backtester:
         # Sync
         portfolio.sync_with_broker({"holdings": holdings, "summary": summary}, notify=False, allow_clear=True)
 
-    def _log_trade(self, history, timestamp, symbol, side, qty, price, tag, callback, pnl_pct=None):
+    def _log_trade(self, history, timestamp, symbol, side, qty, price, tag, callback, pnl_pct=None, decision=None):
+        decision = decision or {}
         info = {
             "timestamp": timestamp,
             "symbol": symbol,
@@ -468,7 +495,17 @@ class Backtester:
             "price": price,
             "tag": tag,
             "pnl_pct": pnl_pct,
-            "order_no": f"SIM_{int(time.time()*1000)}"
+            "order_no": f"SIM_{int(time.time()*1000)}",
+            # 상세 데이터 추가
+            "adx": decision.get("adx"),
+            "slope": decision.get("slope"),
+            "rr_ratio": decision.get("rr_ratio"),
+            "perf_weight": decision.get("perf_weight"),
+            "ma_short": decision.get("ma_short"),
+            "ma_long": decision.get("ma_long"),
+            "volume": decision.get("volume"),
+            "avg_vol": decision.get("avg_vol"),
+            "msg": decision.get("msg")
         }
         history.append(info)
         if callback:

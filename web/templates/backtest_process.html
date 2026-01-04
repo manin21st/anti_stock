@@ -54,7 +54,7 @@
         }
 
         h2 {
-            margin-top: 30px;
+            margin-top: 40px;
             color: var(--accent);
             border-bottom: 1px solid var(--border);
             padding-bottom: 10px;
@@ -64,6 +64,7 @@
             margin-top: 25px;
             margin-bottom: 10px;
             color: var(--text-primary);
+            font-weight: 600;
         }
 
         ul,
@@ -91,6 +92,7 @@
             overflow-x: auto;
             font-family: monospace;
             font-size: 0.9em;
+            margin: 10px 0;
         }
 
         table {
@@ -112,19 +114,6 @@
             font-weight: 600;
         }
 
-        .nav-link {
-            display: inline-block;
-            margin-bottom: 20px;
-            color: var(--accent);
-            text-decoration: none;
-            font-weight: 500;
-            cursor: pointer;
-        }
-
-        .nav-link:hover {
-            text-decoration: underline;
-        }
-
         .step-box {
             background-color: #f8fafc;
             border: 1px solid var(--border);
@@ -143,20 +132,46 @@
             margin-top: 20px;
             overflow-x: auto;
         }
+
+        .rule-table th {
+            width: 30%;
+            background-color: #edf2f7;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            color: white;
+            margin-left: 5px;
+        }
+
+        .badge-essential {
+            background-color: #ef4444;
+        }
+
+        /* Red */
+        .badge-filter {
+            background-color: #3b82f6;
+        }
+
+        /* Blue */
     </style>
 </head>
 
 <body>
     <div class="container">
-        <a onclick="window.close()" class="nav-link">← 메인 화면으로 돌아가기 (닫기)</a>
+        <a onclick="window.close()" style="cursor: pointer; color: var(--accent); font-weight: 500;">← 닫기 (메인 화면으로)</a>
 
         <h1>이동평균 추세 추종 전략 백테스트 처리 과정</h1>
-        <p>이 문서는 <code>MovingAverageTrendStrategy</code>를 사용하여 백테스트를 진행할 때, 시스템 내부적으로 실행되는 처리 과정을 라이브러리 및 함수 호출 레벨에서 상세히
-            설명합니다.</p>
+        <p>이 문서는 <code>MovingAverageTrendStrategy</code>를 사용하여 백테스트를 진행할 때, <strong>시스템 내부 처리 과정</strong>과 <strong>상세 매매
+                로직</strong>을 통합하여 설명합니다.</p>
 
+        <!-- [Section 1] System Architecture (Restored) -->
         <h2>1. 주요 컴포넌트 및 역할</h2>
         <p>백테스트는 실제 트레이딩 환경과 격리된 <strong>가상 환경(Simulation Scope)</strong>에서 실행됩니다.</p>
-
         <table>
             <thead>
                 <tr>
@@ -169,99 +184,132 @@
                 <tr>
                     <td><strong>엔진</strong></td>
                     <td><code>core.engine.Engine</code></td>
-                    <td>백테스트 전체 수명 주기 관리 및 실행 루프 제어</td>
+                    <td>전체 수명 주기 및 실행 루프 제어</td>
                 </tr>
                 <tr>
                     <td><strong>전략</strong></td>
                     <td><code>strategies.ma_trend</code></td>
-                    <td>매매 로직 수행 (매수/매도 시그널 생성)</td>
+                    <td>매매 로직 수행 (시그널 생성 및 주문)</td>
                 </tr>
                 <tr>
                     <td><strong>가상 브로커</strong></td>
                     <td><code>core.broker.Broker</code></td>
-                    <td>가상 주문 접수, 체결 처리, 잔고 관리 (Sim Mode)</td>
+                    <td>가상 주문 접수, 체결 처리, 잔고 관리</td>
                 </tr>
                 <tr>
                     <td><strong>가상 포트폴리오</strong></td>
                     <td><code>core.portfolio.Portfolio</code></td>
-                    <td>보유 종목 및 자산 가치 추적</td>
+                    <td>보유 종목, 평가금, 예수금 추적</td>
                 </tr>
                 <tr>
                     <td><strong>데이터 로더</strong></td>
                     <td><code>utils.data_loader</code></td>
-                    <td>과거 차트 데이터 로드 (<code>pandas</code> DataFrame)</td>
+                    <td>과거 차트 데이터 로드 (pandas DataFrame)</td>
                 </tr>
             </tbody>
         </table>
 
-        <h2>2. 실행 흐름 (Execution Flow)</h2>
-        <p>백테스트는 크게 <strong>초기화 → 데이터 준비 → 시뮬레이션 루프 → 결산</strong> 단계로 진행됩니다.</p>
-
+        <!-- [Section 2] System Execution Flow (Restored) -->
+        <h2>2. 시스템 실행 흐름 (System Execution Flow)</h2>
+        <p>백테스트 엔진은 <strong>초기화 → 데이터 준비 → 시뮬레이션 루프 → 결산</strong> 단계로 진행됩니다.</p>
         <div class="step-box">
             <h3>단계 1: 환경 초기화 및 데이터 준비</h3>
-            <p>함수: <code>Engine.run_backtest(strategy_id, symbol, start_date, end_date, ...)</code></p>
-            <ol>
-                <li><strong>독립 인스턴스 생성</strong>: 실제 매매에 영향을 주지 않도록 가상 객체들을 생성합니다.
-                    <pre>
-sim_market = MarketData(is_simulation=True)
-sim_broker = Broker() # set_simulation_mode(True)
-sim_portfolio = Portfolio()</pre>
-                </li>
-                <li><strong>데이터 로드</strong>: <code>DataLoader</code>를 통해 과거 데이터를 메모리(<code>pandas.DataFrame</code>)로
-                    불러옵니다. 일봉(1d) 및 분봉 데이터를 로드하여 지표 계산을 위한 충분한 기간을 확보합니다.</li>
-            </ol>
+            <p>함수: <code>Engine.run_backtest(...)</code></p>
+            <ul>
+                <li><strong>격리된 인스턴스</strong>: <code>MarketData</code>, <code>Broker</code>, <code>Portfolio</code>를
+                    시뮬레이션 모드로 생성하여 실제 계좌와 분리합니다.</li>
+                <li><strong>데이터 로드</strong>: 분석에 필요한 기간(Buffer 포함)의 일봉/분봉 데이터를 메모리에 적재합니다.</li>
+            </ul>
         </div>
-
         <div class="step-box">
-            <h3>단계 2: 시뮬레이션 루프 (Simulation Loop)</h3>
+            <h3>단계 2: 시뮬레이션 루프 (Loop)</h3>
             <p>함수: <code>Engine._run_backtest_step(...)</code></p>
-            <p>불러온 데이터의 시간 순서대로 반복문(Loop)을 실행합니다.</p>
-
-            <h4>반복 처리 (Loop Logic):</h4>
             <ol>
-                <li><strong>환경 시간 동기화</strong>:
-                    <code>sim_market.set_simulation_date(current_time)</code>을 호출하여 전략이 미래 데이터를 보지 못하게 차단합니다.
-                </li>
-                <li><strong>주문 체결 처리 (Broker Execution)</strong>:
-                    <p><strong>중요</strong>: 전략 실행 <strong>전(Pre)</strong>에, 이전 턴에서 접수된 미체결 주문을 처리합니다.</p>
+                <li><strong>시간 동기화</strong>: <code>market_data.set_simulation_date()</code>를 통해 미래 데이터 참조를 차단합니다.</li>
+                <li><strong>주문 체결 (Broker)</strong>: 이전 턴의 미체결 주문을 현재가(또는 시가) 기준으로 체결 처리합니다.</li>
+                <li><strong>전략 실행 (Strategy)</strong>: <code>strategy.on_bar(symbol, bar)</code>를 호출합니다.
                     <ul>
-                        <li><code>sim_broker.process_simulation_orders(current_prices)</code></li>
-                        <li>백테스트에서는 일반적으로 <strong>시가(Open)</strong> 또는 <strong>현재가(Close)</strong>를 기준으로 체결을 가정합니다.</li>
-                    </ul>
-                </li>
-                <li><strong>전략 실행 (Strategy Execution)</strong>:
-                    <ul>
-                        <li><code>strategy.on_bar(symbol, bar)</code> 호출</li>
-                        <li><strong>기술적 분석</strong>: 이동평균선(MA5, MA20) 계산, 골든크로스/데드크로스 판단</li>
-                        <li><strong>매매 판단</strong>:
-                            <ul>
-                                <li><strong>매도(청산)</strong>: 손절매, 익절 조건 확인 → <code>broker.sell_market()</code></li>
-                                <li><strong>매수(진입)</strong>: 골든크로스 발생 시 → <code>strategy.calculate_buy_quantity()</code>
-                                    호출</li>
-                                <li>(자금 관리: 리스크 비율 및 목표 비중을 고려하여 수량 계산 후 <code>broker.buy_market()</code>)</li>
-                            </ul>
-                        </li>
+                        <li>내부적으로 <code>preprocessing()</code> (일봉 필터, 포지션 관리) 실행 후</li>
+                        <li><strong><code>execute()</code></strong> 메서드에서 구체적인 진입 로직을 판단합니다.</li>
                     </ul>
                 </li>
             </ol>
+        </div>
+
+        <!-- [Section 3] Strategy Logic (New/Integrated) -->
+        <h2>3. 상세 진입 및 청산 로직 (Strategy Logic)</h2>
+        <p><code>ma_trend</code> 전략의 <strong>execute()</strong> 단계에서 실제로 수행되는 판단 조건입니다. (현재 설정값 기준)</p>
+
+        <div class="mermaid">
+            flowchart TD
+            Start([데이터 수신]) --> Pre{전처리/일봉필터}
+            Pre -- Pass --> CheckTrend{추세 & 거래량}
+            CheckTrend -- Pass --> CheckSignal{골든크로스}
+            CheckSignal -- Pass --> CheckAdv{고도화 필터}
+
+            subgraph Filters [고도화 필터 (Advanced)]
+            direction TB
+            F1(ADX 강도)
+            F2(MA 기울기)
+            F3(손익비 RR)
+            F1 -.- F2 -.- F3
+            end
+
+            CheckAdv -- Pass --> CalcSize[비중 계산]
+            CalcSize --> Order[매수 주문]
+
+            Pre -- Fail --> Stop[중단]
+            CheckTrend -- Fail --> Stop
+            CheckSignal -- Fail --> Stop
+            CheckAdv -- Fail --> Log[보류 로그 기록]
         </div>
 
         <div class="step-box">
-            <h3>단계 3: 결과 집계 및 리포트</h3>
-            <p>함수: <code>run_backtest</code> (Return)</p>
-            <ol>
-                <li><strong>자산 재평가</strong>: <code>sim_portfolio.total_asset</code>을 최종 갱신합니다.</li>
-                <li><strong>성과 지표 계산</strong>:
-                    <ul>
-                        <li><strong>총 수익률 (Total Return)</strong>: (최종자산 - 초기자산) / 초기자산 * 100</li>
-                        <li><strong>MDD (최대 낙폭)</strong>: 자산 곡선(Equity Curve)에서 고점 대비 최대 하락폭 계산</li>
-                        <li><strong>승률 (Win Rate)</strong>: 매매 내역(history) 분석</li>
-                    </ul>
-                </li>
-            </ol>
+            <h3>① 기본 추세 및 거래량 (Trend & Volume)</h3>
+            <table class="rule-table">
+                <tr>
+                    <th>정배열 확인 <span class="badge badge-essential">필수</span></th>
+                    <td>단기 이평선(5일) > 장기 이평선(20일) 상태여야 합니다.</td>
+                </tr>
+                <tr>
+                    <th>거래량 급증 <span class="badge badge-filter">필터</span></th>
+                    <td>현재 거래량이 20일 평균의 <strong>설정 배수(k)</strong> 이상이어야 합니다.</td>
+                </tr>
+            </table>
         </div>
 
-        <h2>3. 함수 호출 다이어그램 (Sequence)</h2>
+        <div class="step-box">
+            <h3>② 고도화 필터 (Advanced Filters)</h3>
+            <p>승률을 높이고 휩쏘(Whipsaw)를 방지하기 위한 정밀 조건입니다.</p>
+            <table class="rule-table">
+                <tr>
+                    <th>ADX (추세 강도)</th>
+                    <td>ADX 지표가 <strong>설정값(예: 25)</strong> 이상이어야 합니다. (횡보장 필터링)</td>
+                </tr>
+                <tr>
+                    <th>MA 기울기</th>
+                    <td>장기 이평선(20일)의 기울기가 <strong>양수(+)</strong>여야 합니다. (하락 추세 매수 방지)</td>
+                </tr>
+                <tr>
+                    <th>손익비 (RR Ratio)</th>
+                    <td>예상 손익비(Reward/Risk)가 <strong>2.0 이상</strong>이어야 합니다. <br>
+                        (※ 손실 복구 모드일 경우 <strong>3.0 이상</strong>으로 강화됨)</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="step-box">
+            <h3>③ 자금 관리 및 청산 (Money Management)</h3>
+            <ul>
+                <li><strong>동적 비중 조절</strong>: 최근 5회 매매 성과(승률, 수익금)에 따라 진입 비중을 <strong>1.0배 ~ 3.0배</strong> 가중 적용합니다.
+                </li>
+                <li><strong>손절매 (Stop Loss)</strong>: 진입가 대비 <strong>-3% (설정값)</strong> 도달 시 즉시 시장가 청산합니다.</li>
+                <li><strong>트레일링 스탑</strong>: 고점 대비 <strong>일정 비율</strong> 하락 시 이익 실현합니다.</li>
+            </ul>
+        </div>
+
+        <!-- [Section 4] Sequence Diagram (Restored) -->
+        <h2>4. 함수 호출 시퀀스 (Sequence Diagram)</h2>
         <div class="mermaid">
             sequenceDiagram
             participant Eng as Engine
@@ -269,41 +317,27 @@ sim_portfolio = Portfolio()</pre>
             participant Stg as Strategy (MA Trend)
             participant Base as BaseStrategy
 
-            Eng->>Eng: Initialize Sim Environment
-            Eng->>Eng: Load Data (Sim Environment)
-
             loop Every Bar (Time Sequential)
-            Eng->>Brk: process_simulation_orders(Open Price)
-            Note right of Brk: 이전 턴 주문 체결 처리
+            Eng->>Brk: process_orders()
+            Note right of Brk: 미체결 주문 처리
 
-            Eng->>Stg: on_bar(Current Bar)
+            Eng->>Stg: on_bar(bar)
+            activate Stg
+            Stg->>Base: preprocessing() (일봉/RateLimit)
 
-            rect rgb(240, 248, 255)
-            Note right of Stg: [전략 로직 수행]
-            Stg->>Stg: Calculate Indicators (MA5, MA20)
+            alt Preprocessing Pass
+            Stg->>Stg: execute() (진입 판단)
 
-            alt Exit Condition (StopLoss/TP)
-            Stg->>Brk: sell_market()
-            else Entry Condition (Golden Cross)
+            opt Entry Condition Met
             Stg->>Base: calculate_buy_quantity()
-            Base-->>Stg: Buy Qty (Risk Limit)
+            Base-->>Stg: Adjusted Qty (Risk/Weight)
             Stg->>Brk: buy_market()
-            Note right of Brk: 주문 버퍼링 (Pending)
             end
             end
+            deactivate Stg
             end
-
-            Eng->>Eng: Calculate Metrics (Return, MDD)
-            Eng-->>User: Return Result Dict
         </div>
 
-        <h2>4. 핵심 특징</h2>
-        <ul>
-            <li><strong>Look-ahead Bias 방지</strong>: 시뮬레이션 모드에서는 현재 시점 이후의 데이터를 조회할 수 없도록 제한합니다.</li>
-            <li><strong>정교한 자금 관리</strong>: 리팩토링된 <code>BaseStrategy</code> 로직을 통해, 백테스트에서도 실제 매매와 동일하게 <strong>비중 조절
-                    (Target Weight Splitting)</strong>이 시뮬레이션됩니다.</li>
-            <li><strong>독립성</strong>: 실제 계좌나 API와 완전히 분리되어 안전하게 전략을 검증할 수 있습니다.</li>
-        </ul>
     </div>
 </body>
 

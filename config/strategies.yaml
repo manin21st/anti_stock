@@ -24,8 +24,7 @@ common:
   target_weight: 0.1
   trail_activation_pct: 0.03
   whipsaw_threshold: 0.002
-database:
-  url: postgresql://antistock:antistock@211.188.56.39:5432/antistock
+
 ma_trend:
   enabled: true
   id: ma_trend
@@ -41,14 +40,10 @@ ma_trend:
   trail_stop_pct: 0.015
   vol_k: 1.5
 system:
+  server_port: 9000 # Real: 8000, 모의투자: 9000
   env_type: paper
   market_type: KRX
   scanner_mode: volume
-  telegram:
-    bot_token: 7175981417:AAF58bvA9QvQ_Kpz3pd0PDbH5D79hgenSh8
-    chat_id: '7692999971'
-    enable_system_alert: true
-    enable_trade_alert: true
   universe: []
   use_auto_scanner: true
   watchlist_group_code: '000'

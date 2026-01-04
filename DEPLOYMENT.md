@@ -22,7 +22,7 @@ sudo apt install git python3-pip python3-venv -y
 ## 3. 프로젝트 클론 (Clone)
 GitHub에서 프로젝트를 내려받습니다.
 ```bash
-git clone https://github.com/manin21st/anti_stock.git
+git clone --recursive https://github.com/manin21st/anti_stock.git
 cd anti_stock
 ```
 
@@ -51,31 +51,16 @@ pip install -r requirements.txt --break-system-packages
 (보안상 `portfolio_state.json` 등은 초기화 상태일 수 있습니다.)
 
 ## 7. 서버 실행 (백그라운드)
-서버 연결이 끊겨도 프로그램이 계속 실행되도록 `nohup` 또는 `systemd`를 사용합니다.
+서버 연결이 끊겨도 프로그램이 계속 실행되도록 `systemd`를 사용합니다.
 
-### 방법 A: 간단 실행 (nohup)
-```bash
-# 1. TPS 서버 실행 (필수)
-nohup python tps_server.py > logs/tps_server.log 2>&1 &
-
-# 2. 웹 서버 실행 (로그를 파일에 남기며 백그라운드 실행)
-nohup python main.py > server.log 2>&1 &
-
-# 실행 확인
-ps aux | grep python
-```
-
-
-### 방법 B: 서비스 등록 (Systemd) - 권장
+### 서비스 등록 (Systemd) - 권장
 서버 재부팅 시 자동 실행되도록 설정합니다.
-
 
 2. 서비스 파일 생성 (웹 서버): `sudo nano /etc/systemd/system/anti_stock.service`
 ```ini
 [Unit]
 Description=Anti-Stock Trading Bot (Web)
-After=network.target anti_stock_tps.service
-Wants=anti_stock_tps.service
+After=network.target
 
 [Service]
 User=root
@@ -87,25 +72,7 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-3. 서비스 파일 생성 (TPS 서버): `sudo nano /etc/systemd/system/anti_stock_tps.service`
-```ini
-[Unit]
-Description=Anti-Stock TPS Server
-After=network.target
-PartOf=anti_stock.service
-
-[Service]
-User=root
-WorkingDirectory=/root/anti_stock
-ExecStart=/root/anti_stock/venv/bin/python tps_server.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-
-4. 서비스 시작 및 등록:
+3. 서비스 시작 및 등록:
 ```bash
 sudo systemctl daemon-reload
 
@@ -266,3 +233,177 @@ HTTPS(도메인)로 접속 시 UI가 멈추거나 로그가 안 뜬다면, 브�
    ```
 3. 서버 프로세스를 재시작합니다.
 4. 브라우저 캐시를 강력 새로고침(Ctrl+F5)합니다.
+
+## 14. 듀얼 인스턴스 구성 (모의/실전 동시 운영)
+클라우드 서버 하나에서 **모의투자(anti_stock)**와 **실전투자(bot_stock)**를 동시에 운영하는 구성 방법입니다.
+두 인스턴스는 동일한 GitHub 소스 코드를 사용하되, 서로 다른 폴더와 설정, 포트를 사용합니다.
+
+### 1. 디렉토리 구조 생성 및 클론
+```bash
+# 홈 디렉토리로 이동
+cd ~
+
+# 1) 모의투자용 (기존): /root/anti_stock
+# (이미 존재한다고 가정)
+
+# 2) 실전투자용 (신규): /root/bot_stock
+# 깃허브에서 동일한 소스를 'bot_stock' 이름으로 클론
+git clone --recursive https://github.com/manin21st/anti_stock.git bot_stock
+```
+
+### 2. 실전투자용 환경 설정
+실전투자 인스턴스(`bot_stock`)를 위한 독립적인 가상환경과 설정을 구성합니다.
+
+1.  **가상환경 생성 및 의존성 설치**:
+    ```bash
+    cd ~/bot_stock
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    # (오류 발생 시: pip install -r requirements.txt --break-system-packages)
+    ```
+
+2.  **KIS API 실전투자 키 설정 (`~/KIS/config/kis_devlp.yaml`)**:
+    실전투자를 위해서는 KIS API 설정 파일에 **실전투자용 앱키와 계좌번호**가 입력되어 있어야 합니다.
+    (이 파일은 모든 인스턴스가 공유합니다.)
+    
+    `vi ~/KIS/config/kis_devlp.yaml` (또는 해당 경로의 파일)을 열어 확인하세요:
+
+    ```yaml
+    # 실전투자 (반드시 입력해야 함)
+    my_app: "실전투자_앱키_붙여넣기"
+    my_sec: "실전투자_시크릿키_붙여넣기"
+    my_acct_stock: "실전계좌_8자리"
+    
+    # 모의투자 (기존 사용 중)
+    paper_app: "모의투자_앱키"
+    # ...
+    ```
+
+3.  **포트 및 환경 설정 수정 (`config/strategies.yaml`)**:
+    
+    **1) 모의투자 (`anti_stock`) 포트 변경 (8000 -> 9000)**
+    기존 모의투자 서버의 포트를 9000으로 옮겨 실전투자 서버가 8000번(메인)을 쓸 수 있게 합니다.
+    `vi ~/anti_stock/config/strategies.yaml`
+    ```yaml
+    system:
+      server_port: 9000        # <-- 9000으로 변경 (모의투자)
+      env_type: paper
+      # ...
+    ```
+    변경 후 재시작: `sudo systemctl restart anti_stock`
+
+    **2) 실전투자 (`bot_stock`) 설정 (Port 8000)**
+    새로 만든 실전투자 서버는 기본 포트(8000)를 그대로 사용합니다.
+    `vi ~/bot_stock/config/strategies.yaml`
+    ```yaml
+    system:
+      server_port: 8000        # <-- 8000 (기본값, 실전투자 메인)
+      env_type: prod           # <-- paper에서 prod로 변경
+      market_type: KRX
+      scanner_mode: volume
+      universe: []
+      use_auto_scanner: true
+      watchlist_group_code: '000'
+    ```
+    *   **주의**: `database`와 `telegram` 설정은 `secrets.yaml`에 별도로 작성해야 합니다.
+
+### 3. 서비스 파일 등록 (Bot Stock)
+실전투자용 시스템 서비스를 별도로 등록하여 자동 실행되게 합니다.
+
+**1) 웹 서버 서비스 생성 (`sudo nano /etc/systemd/system/bot_stock.service`)**
+```ini
+[Unit]
+Description=Bot Stock Trading (Real)
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/bot_stock
+# 포트 인자는 system_config.json이 우선하지만, 명시적으로 적어도 됩니다.
+ExecStart=/root/bot_stock/venv/bin/python main.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**2) 서비스 시작 및 등록**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable bot_stock
+sudo systemctl start bot_stock
+```
+
+### 4. 일괄 업데이트 스크립트 (`update_all.sh`)
+두 인스턴스의 소스 코드를 한 번에 업데이트하고 재시작하는 스크립트입니다.
+
+`vi ~/update_all.sh` 작성:
+```bash
+#!/bin/bash
+
+echo "=================================="
+echo "Updating Anti-Stock (Paper)..."
+echo "=================================="
+cd ~/anti_stock
+git pull --recurse-submodules
+sudo systemctl restart anti_stock
+
+echo ""
+echo "=================================="
+echo "Updating Bot-Stock (Real)..."
+echo "=================================="
+cd ~/bot_stock
+git pull --recurse-submodules
+sudo systemctl restart bot_stock
+
+echo "Update Completed!"
+```
+
+**사용법:**
+```bash
+chmod +x ~/update_all.sh
+./update_all.sh
+```
+
+### 5. Nginx 설정 업데이트 (선택 사항)
+실전투자를 메인 도메인(`botocks`)으로, 모의투자를 서브 포트나 별도 도메인으로 연결합니다.
+
+```nginx
+# 실전투자 (Main): 8000
+server {
+    listen 80;
+    server_name botocks.bhsong.org;
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+
+# 모의투자 (Paper): 9000 -> antistock.bhsong.org
+server {
+    listen 80;
+    server_name antistock.bhsong.org;
+
+    location / {
+        proxy_pass http://127.0.0.1:9000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 웹소켓 지원
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+### 6. 포트 및 방화벽 확인
+*   **실전투자**: `http://<IP>:8000` (또는 도메인)
+*   **모의투자**: `http://<IP>:9000`
+*   클라우드 방화벽(ACG/Security Group)에서 **9000** 포트도 허용("Inbound Allow")해주어야 합니다.
+

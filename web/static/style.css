@@ -673,13 +673,19 @@ a.btn-success {
 /* Data Table (Merged) */
 .table-container-scroll {
     flex: 1;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: auto;
     position: relative;
+    white-space: nowrap;
+    /* Prevent cell wrapping to force scroll */
+    max-width: 100%;
+    /* Ensure it fits within parent */
 }
 
 .data-table th {
     background: #f1f5f9;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .sticky-header th {
@@ -692,6 +698,7 @@ a.btn-success {
 .data-table td {
     font-family: 'Consolas', monospace;
     /* Monospace for numbers */
+    white-space: nowrap;
 }
 
 .border-left {

@@ -718,13 +718,34 @@ function initBacktest() {
             const strategy_id = document.getElementById("bt-strategy-select").value;
             const initial_cash = document.getElementById("bt-initial-cash").value;
 
-            if (confirm("엑셀 다운로드를 시작하시겠습니까? (백테스트가 재실행되므로 시간이 걸릴 수 있습니다.)")) {
+            if (!lastBacktestResult || (!lastBacktestResult.history && !lastBacktestResult.detailed_logs)) {
+                alert("먼저 백테스트를 실행해주세요.");
+                return;
+            }
+
+            if (confirm("현재 결과를 엑셀로 다운로드하시겠습니까?")) {
                 updateStatusText("엑셀 생성 중...", "#f59e0b");
+
+                // Use detailed_logs (per-bar) for full fidelity, or history (trades only) if that's what we have
+                // We want the detailed view (Grid view), so detailed_logs is preferred.
+                const exportData = lastBacktestResult.detailed_logs || lastBacktestResult.history;
+
+                const config = {
+                    symbol: document.getElementById("bt-symbol").value,
+                    start: document.getElementById("bt-start-date").value,
+                    end: document.getElementById("bt-end-date").value,
+                    strategy_id: document.getElementById("bt-strategy-select").value,
+                    initial_cash: document.getElementById("bt-initial-cash").value
+                };
+
                 try {
                     const response = await fetch(`${API_BASE}/backtest/export`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ symbol, start, end, strategy_id, initial_cash })
+                        body: JSON.stringify({
+                            history: exportData,
+                            config: config
+                        })
                     });
 
                     if (response.ok) {
@@ -885,44 +906,43 @@ function renderDataTable(data, strategyId) {
     const tbody = document.querySelector("#bt-trade-table tbody");
     tbody.innerHTML = "";
 
-    // Toggle MA Trend Column
-    const maTrendCols = document.querySelectorAll(".col-ma-trend");
-    if (strategyId === 'ma_trend') {
-        maTrendCols.forEach(el => el.style.display = "");
-    } else {
-        maTrendCols.forEach(el => el.style.display = "none");
-    }
-
     data.forEach(row => {
         const tr = document.createElement("tr");
         // Unique Key for Intraday
         const uniqueKey = row.time ? `${row.date} ${row.time}` : row.date;
         tr.setAttribute("data-date", uniqueKey);
 
-        // Format numbers
+        // Format numbers (Default from Market Data)
         const close = formatComma(row.close);
         const ma5 = row.ma5 ? formatComma(Math.round(row.ma5)) : "-";
         const ma20 = row.ma20 ? formatComma(Math.round(row.ma20)) : "-";
         const vol = formatComma(row.volume);
-
-        // MA Trend Specific
-        let maTrendCell = "";
-        if (strategyId === 'ma_trend') {
-            const vma20 = row.vol_ma20 ? formatComma(Math.round(row.vol_ma20)) : "-";
-            maTrendCell = `<td class="text-right">${vma20}</td>`;
-        }
+        const avgVol = row.vol_ma20 ? formatComma(Math.round(row.vol_ma20)) : "-";
 
         tr.innerHTML = `
             <td>${uniqueKey}</td>
             <td class="text-right">${close}</td>
-            <td class="text-right">${ma5}</td>
-            <td class="text-right">${ma20}</td>
-            <td class="text-right">${vol}</td>
-            ${maTrendCell}
-            <!-- Trade Columns (Empty initially) -->
-            <td class="border-left type-cell"></td>
+            
+            <!-- Tech Indicators (Initial: Market Data / Update: Strategy Data) -->
+            <td class="text-right ma-short-cell">${ma5}</td>
+            <td class="text-right ma-long-cell">${ma20}</td>
+            <td class="text-right vol-cell">${vol}</td>
+            <td class="text-right avg-vol-cell">${avgVol}</td>
+            
+            <td class="text-right adx-cell">-</td>
+            <td class="text-right slope-cell">-</td>
+            
+            <!-- Decision Metrics -->
+            <td class="text-right border-left rr-cell">-</td>
+            <td class="text-right weight-cell">-</td>
+            <td class="text-center action-cell" style="font-size: 0.9em;">-</td>
+            <td class="log-cell" style="font-size: 0.85em; color: #666; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>
+            
+            <!-- Trade Info -->
+            <td class="border-left text-center side-cell"></td>
             <td class="text-right qty-cell"></td>
             <td class="text-right price-cell"></td>
+            <td class="text-right pnl-cell"></td>
         `;
         tbody.appendChild(tr);
     });
@@ -980,6 +1000,15 @@ function runBacktestWebSocket() {
             if (progressBar) progressBar.style.width = "100%";
             if (progressText) progressText.textContent = "100%";
             renderMetrics(msg.result.metrics);
+
+            // Populate full table with rich data from detailed_logs (every bar)
+            if (msg.result.detailed_logs) {
+                msg.result.detailed_logs.forEach(log => updateTableRow(log));
+            } else if (msg.result.history) {
+                // Fallback
+                msg.result.history.forEach(trade => updateTableRow(trade));
+            }
+
             if (statusDiv) statusDiv.textContent = "완료";
             btnRun.disabled = false;
             ws.close();
@@ -1008,20 +1037,82 @@ function updateTableRow(trade) {
     const tr = document.querySelector(`tr[data-date="${dateKey}"]`);
     if (tr) {
         // Update cells
-        const typeCell = tr.querySelector('.type-cell');
+        const sideCell = tr.querySelector('.side-cell');
         const qtyCell = tr.querySelector('.qty-cell');
         const priceCell = tr.querySelector('.price-cell');
+        const pnlCell = tr.querySelector('.pnl-cell');
 
-        typeCell.textContent = trade.side;
-        typeCell.className = `border-left type-cell ${trade.side === "BUY" ? "trade-buy" : "trade-sell"}`;
+        // Tech & Decision Cells
+        const adxCell = tr.querySelector('.adx-cell');
+        const slopeCell = tr.querySelector('.slope-cell');
+        const rrCell = tr.querySelector('.rr-cell');
+        const weightCell = tr.querySelector('.weight-cell');
+        const actionCell = tr.querySelector('.action-cell');
+        const logCell = tr.querySelector('.log-cell');
 
-        qtyCell.textContent = formatComma(trade.qty);
-        priceCell.textContent = formatComma(Math.round(trade.price));
+        // MA/Vol Cells (Update with actual strategy values if available)
+        const maShortCell = tr.querySelector('.ma-short-cell');
+        const maLongCell = tr.querySelector('.ma-long-cell');
+        const volCell = tr.querySelector('.vol-cell');
+        const avgVolCell = tr.querySelector('.avg-vol-cell');
+
+        // 1. Basic Trade Info
+        sideCell.textContent = trade.side === "1" ? "매수" : (trade.side === "2" ? "매도" : trade.side);
+        // Map 1/2 back to text if needed, or use what came from server. 
+        // Backtester sends "BUY"/"SELL"/"SKIP" or "1"/"2". Check Backtester._log_trade.
+        // It sends "BUY", "SELL", "SKIP".
+
+        let sideText = trade.side;
+        if (trade.side === "BUY") sideText = "매수";
+        else if (trade.side === "SELL") sideText = "매도";
+        else if (trade.side === "SKIP") sideText = "보류";
+
+        sideCell.textContent = sideText;
+        sideCell.className = `border-left text-center side-cell ${trade.side === "BUY" ? "trade-buy" : (trade.side === "SELL" ? "trade-sell" : "trade-skip")}`;
+
+        if (trade.qty !== undefined && trade.qty !== null) qtyCell.textContent = formatComma(trade.qty);
+        if (trade.price !== undefined && trade.price !== null) priceCell.textContent = formatComma(Math.round(trade.price));
+
+        if (trade.pnl_pct !== undefined && trade.pnl_pct !== null) {
+            const pnl = parseFloat(trade.pnl_pct).toFixed(2);
+            pnlCell.innerHTML = `<span class="${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${pnl}%</span>`;
+        }
+
+        // 2. Tech Indicators
+        if (trade.ma_short) maShortCell.textContent = formatComma(Math.round(trade.ma_short));
+        if (trade.ma_long) maLongCell.textContent = formatComma(Math.round(trade.ma_long));
+        if (trade.volume) volCell.textContent = formatComma(trade.volume);
+        if (trade.avg_vol) avgVolCell.textContent = formatComma(Math.round(trade.avg_vol));
+
+        // 3. Decision Metrics
+        if (trade.adx) adxCell.textContent = Math.round(trade.adx);
+        if (trade.slope) slopeCell.textContent = parseFloat(trade.slope).toFixed(1);
+
+        if (trade.rr_ratio) {
+            const rr = parseFloat(trade.rr_ratio).toFixed(2);
+            // Highlight good RR
+            rrCell.innerHTML = `<span class="${rr >= 2.0 ? 'pnl-positive' : ''}">${rr}</span>`;
+        }
+
+        if (trade.perf_weight) weightCell.textContent = parseFloat(trade.perf_weight).toFixed(2);
+
+        if (trade.action) {
+            actionCell.textContent = trade.action;
+            // Style Action
+            if (trade.action === "BUY") actionCell.style.color = "#ef4444";
+            else if (trade.action === "SELL") actionCell.style.color = "#3b82f6";
+            else if (trade.action === "HOLD" || trade.action === "FAIL") actionCell.style.color = "#f59e0b";
+        }
+
+        if (trade.msg) {
+            logCell.textContent = trade.msg;
+            logCell.title = trade.msg; // Tooltip
+        }
 
         // Highlights (Text Color)
         if (trade.side === "BUY") {
             tr.classList.add("row-buy");
-        } else {
+        } else if (trade.side === "SELL") {
             tr.classList.add("row-sell");
         }
 
