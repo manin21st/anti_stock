@@ -16,21 +16,79 @@ const strategyNames = {
 
 // Tabs Logic
 function initTabs() {
-    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabBtns = Array.from(document.querySelectorAll('.tab-nav .tab-btn'));
     const tabContents = document.querySelectorAll('.tab-content');
 
-    tabBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            // Remove active class from all
-            tabBtns.forEach(b => b.classList.remove('active'));
-            tabContents.forEach(c => c.classList.remove('active'));
+    function switchTab(index) {
+        if (index < 0 || index >= tabBtns.length) return;
 
-            // Add active class to clicked
-            btn.classList.add('active');
-            const tabId = btn.getAttribute('data-tab');
-            document.getElementById(tabId).classList.add('active');
-        });
+        const btn = tabBtns[index];
+        // Remove active class from all
+        tabBtns.forEach(b => b.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+
+        // Add active class to clicked
+        btn.classList.add('active');
+        const tabId = btn.getAttribute('data-tab');
+        const content = document.getElementById(tabId);
+        if (content) {
+            content.classList.add('active');
+        }
+    }
+
+    tabBtns.forEach((btn, idx) => {
+        btn.addEventListener('click', () => switchTab(idx));
     });
+
+    // Swipe Swipe Logic
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchEndX = 0;
+    let touchEndY = 0;
+
+    document.addEventListener('touchstart', (e) => {
+        // Ignore if touching an input, select, textarea, or elements inside a table-container (which needs horizontal scroll)
+        if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.target.tagName)) return;
+        if (e.target.closest('.table-container') || e.target.closest('.chart-popup-overlay') || e.target.closest('.floating-popup')) return;
+
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+        if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.target.tagName)) return;
+        if (e.target.closest('.table-container') || e.target.closest('.chart-popup-overlay') || e.target.closest('.floating-popup')) return;
+
+        touchEndX = e.changedTouches[0].screenX;
+        touchEndY = e.changedTouches[0].screenY;
+        handleSwipe();
+    }, { passive: true });
+
+    function handleSwipe() {
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = touchEndY - touchStartY;
+
+        // Thresholds
+        const minSwipeDistance = 70;
+        const maxVerticalDistance = 100;
+
+        if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaY) < maxVerticalDistance) {
+            const currentBtn = document.querySelector('.tab-nav .tab-btn.active');
+            const currentIndex = tabBtns.indexOf(currentBtn);
+
+            if (deltaX < 0) {
+                // Swipe Left -> Next Tab
+                if (currentIndex < tabBtns.length - 1) {
+                    switchTab(currentIndex + 1);
+                }
+            } else {
+                // Swipe Right -> Previous Tab
+                if (currentIndex > 0) {
+                    switchTab(currentIndex - 1);
+                }
+            }
+        }
+    }
 }
 
 // Status & Portfolio
