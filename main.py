@@ -2,12 +2,6 @@ import logging
 import threading
 import sys
 import os
-from core.engine import Engine
-from strategies.ma_trend import MovingAverageTrendStrategy
-from strategies.bollinger_mr import BollingerMeanReversion
-from strategies.breakout import PreviousHighBreakout
-from strategies.vwap_scalping import VWAPScalping
-from web.server import start_server
 
 # Setup Logging
 root_logger = logging.getLogger()
@@ -31,6 +25,15 @@ root_logger.addHandler(file_handler)
 
 logger = logging.getLogger(__name__)
 
+from core.engine import Engine
+from strategies.ma_trend import MovingAverageTrendStrategy
+from strategies.bollinger_mr import BollingerMeanReversion
+from strategies.breakout import PreviousHighBreakout
+from strategies.vwap_scalping import VWAPScalping
+from web.server import start_server
+
+logger = logging.getLogger(__name__)
+
 def main():
     logger.info("Starting Anti-Stock Trading System...")
     
@@ -46,7 +49,7 @@ def main():
     # Start Web Server in a separate thread
     server_thread = threading.Thread(target=start_server, args=(engine,), daemon=True)
     server_thread.start()
-    logger.info("웹 모니터링 서버 실행 완료: http://localhost:8000")
+    logger.info("웹 모니터링 서버 실행 완료: http://localhost:%s", engine.system_config.get("server_port", 8000))
     
     # Start Engine (Blocking)
     try:

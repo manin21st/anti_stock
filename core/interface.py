@@ -12,16 +12,55 @@ import json
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Add open-trading-api/examples_user to path to import original kis_auth
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "open-trading-api", "examples_user"))
-
-import kis_auth as ka
-
 # 전역 API 제어를 위한 단순 장치
 _api_lock = threading.Lock()
 _last_api_call = time.time()
 
 logger = logging.getLogger(__name__)
+
+# --- [Shadow Home Logic] ---
+# Configure environment for kis_auth to read config/kis_devlp.yaml without modification
+try:
+    import shutil
+    import hashlib
+    
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    user_config_path = os.path.join(project_root, "config", "kis_devlp.yaml")
+    
+    # Check if user has provided a custom kis_devlp.yaml in config/
+    if os.path.exists(user_config_path):
+        # Determine original home directory
+        original_home = os.environ.get("USERPROFILE") or os.environ.get("HOME")
+        if not original_home:
+            original_home = os.path.expanduser("~")
+            
+        # Create a unique shadow directory in the User's Home based on project path hash
+        # This keeps the project structure clean and separates instances (Paper/Real) 
+        project_hash = hashlib.md5(project_root.encode('utf-8')).hexdigest()[:8]
+        shadow_home_base = os.path.join(original_home, ".anti_stock", project_hash)
+        
+        shadow_kis_config_dir = os.path.join(shadow_home_base, "KIS", "config")
+        os.makedirs(shadow_kis_config_dir, exist_ok=True)
+        
+        # Copy the user's config file to the shadow location
+        target_path = os.path.join(shadow_kis_config_dir, "kis_devlp.yaml")
+        shutil.copy2(user_config_path, target_path)
+        
+        # Override HOME/USERPROFILE for the current process
+        os.environ["USERPROFILE"] = shadow_home_base # Windows
+        os.environ["HOME"] = shadow_home_base        # Linux/Mac
+        
+        logger.debug(f"[INTERFACE] Shadow Home activated at {shadow_home_base} (Project: {os.path.basename(project_root)})")
+    else:
+        logger.info("[INTERFACE] Custom kis_devlp.yaml not found in config/, using system default")
+        
+except Exception as e:
+    logger.error(f"[INTERFACE] Failed to setup Shadow Home: {e}")
+
+# Add open-trading-api/examples_user to path to import original kis_auth
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "open-trading-api", "examples_user"))
+
+import kis_auth as ka
 
 # --- Backtest State Management ---
 _backtest_mode = False

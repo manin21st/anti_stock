@@ -416,7 +416,7 @@ class Engine:
 
     def _resolve_strategy_tag(self, symbol: str) -> str:
         """Helper to find the last strategy that traded this symbol from history"""
-        for event in reversed(self.trade_manager.trade_history):
+        for event in reversed(self.trader.trade_history):
             if event.symbol == symbol and event.event_type == "ORDER_SUBMITTED":
                  return event.strategy_id
         return ""
@@ -463,10 +463,10 @@ class Engine:
 
     # Delegation methods
     def load_trade_history(self):
-        self.trade_manager.load_trade_history()
+        self.trader.load_trade_history()
 
     def sync_trade_history(self, start_date, end_date):
-        return self.trade_manager.sync_trade_history(start_date, end_date)
+        return self.trader.sync_trade_history(start_date, end_date)
 
     def run_backtest(self, strategy_id: str, symbol: str, start_date: str, end_date: str, initial_cash: int = 100000000, strategy_config: Dict = None, progress_callback=None) -> Dict:
         return self.backtester.run_backtest(strategy_id, symbol, start_date, end_date, initial_cash, strategy_config, progress_callback)

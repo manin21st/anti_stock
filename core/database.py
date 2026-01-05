@@ -56,7 +56,8 @@ class DatabaseManager:
             # Create Session Factory
             self.Session = scoped_session(sessionmaker(bind=self.engine))
             
-            logger.info(f"DatabaseManager initialized with {self.db_url.split('@')[-1]} (WAL Mode Enabled)")
+            wal_msg = " (WAL Mode Enabled)" if self.db_url.startswith('sqlite') else ""
+            logger.debug(f"DatabaseManager initialized with {self.db_url.split('@')[-1]}{wal_msg}")
             
         except Exception as e:
             logger.error(f"Database Initialization Failed: {e}")
