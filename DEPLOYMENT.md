@@ -88,6 +88,9 @@ sudo systemctl start anti_stock
 서비스가 등록된 후에는 아래 명령어들로 상태를 확인하고 관리할 수 있습니다.
 
 ```bash
+# 실행 중인 모든 서비스 목록 보기
+systemctl list-units --type=service --state=running
+
 # 상태 확인 (Active: active (running) 인지 확인)
 sudo systemctl status anti_stock
 
@@ -102,6 +105,18 @@ sudo systemctl restart anti_stock
 
 # 실시간 로그 확인 (실행 중인 프로그램의 출력 보기)
 journalctl -u anti_stock -f
+
+# 서비스 완전 삭제 (제거)
+# 1. 서비스 중지
+sudo systemctl stop anti_stock
+# 2. 자동 실행 해제
+sudo systemctl disable anti_stock
+# 3. 서비스 파일 삭제
+sudo rm /etc/systemd/system/anti_stock.service
+# 4. 데몬 재로드 (설정 반영)
+sudo systemctl daemon-reload
+# 5. (선택) 실패 상태 초기화
+sudo systemctl reset-failed
 ```
 
 ## 8. 접속 확인
@@ -167,20 +182,6 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-    }
-}
-
-# TPS 서버 (추가)
-server {
-    listen 80;
-    server_name tps.bhsong.org;
-
-    location / {
-        proxy_pass http://127.0.0.1:9000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```

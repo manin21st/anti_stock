@@ -142,7 +142,15 @@ async def logout(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    title = "Anti Stock Trading" # Default
+    if engine_instance:
+        env_type = engine_instance.system_config.get("env_type", "paper")
+        if env_type in ["prod", "real"]:
+            title = "Bot Stock Trading"
+        else:
+            title = "Anti Stock Trading"
+            
+    return templates.TemplateResponse("index.html", {"request": request, "app_title": title})
 
 # Watchlist & Stock Master APIs
 @app.get("/api/stocks")

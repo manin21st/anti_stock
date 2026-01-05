@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bot Stock Trading</title>
+    <title>{{ app_title }}</title>
     <link rel="stylesheet" href="/static/style.css?v=7">
     <script src="/static/app.js?v=7" defer></script>
     <!-- Chart.js for Charts -->
@@ -34,7 +34,7 @@
     <div class="container">
         <header>
             <div class="header-left">
-                <h1>Bot Stock Trading</h1>
+                <h1>{{ app_title }}</h1>
                 <div class="global-controls">
                     <button id="btn-start" class="btn-primary small-btn">시작</button>
                     <button id="btn-stop" class="btn-danger small-btn">중지</button>
@@ -128,9 +128,9 @@
                             <div class="option-group">
                                 <label class="group-label">투자 모드</label>
                                 <div class="radio-group">
-                                    <label><input type="radio" name="env_type" value="real" checked>
+                                    <label><input type="radio" name="env_type" value="real" disabled>
                                         실전투자</label>
-                                    <label><input type="radio" name="env_type" value="paper"> 모의투자</label>
+                                    <label><input type="radio" name="env_type" value="paper" disabled> 모의투자</label>
                                 </div>
                             </div>
                             <div class="option-group">
