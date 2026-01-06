@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>전략 실험실 (Sandbox) - Anti Stock</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-secondary: #f8fafc;
+            --border-color: #e2e8f0;
+            --text-secondary: #64748b;
+        }
+
+        body {
+            background-color: #f1f5f9;
+        }
+
+        .sandbox-container {
+            display: flex;
+            height: calc(100vh - 60px);
+            /* Adjust for header */
+            gap: 20px;
+            padding: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Sidebar Strategy List */
+        .strategy-sidebar {
+            width: 250px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .strategy-list-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .strategy-item {
+            padding: 15px 20px;
+            cursor: pointer;
+            border-bottom: 1px solid #f1f5f9;
+            transition: all 0.2s;
+        }
+
+        .strategy-item:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .strategy-item.active {
+            background-color: #eff6ff;
+            color: var(--primary-color);
+            border-left: 4px solid var(--primary-color);
+        }
+
+        /* Main Editor Area */
+        .editor-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            padding-right: 5px;
+            /* Scrollbar padding */
+        }
+
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f1f5f9;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Variables Table */
+        .var-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .var-table th {
+            text-align: left;
+            padding: 12px;
+            background: #f8fafc;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .var-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .var-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: monospace;
+        }
+
+        /* Rule Cards */
+        .rule-card {
+            background: #fdfdfd;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            position: relative;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .rule-card:hover {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .rule-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+
+        .rule-label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .rule-desc {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            resize: vertical;
+            min-height: 40px;
+            font-family: inherit;
+            margin-bottom: 15px;
+        }
+
+        .rule-code-wrapper {
+            position: relative;
+        }
+
+        .rule-code {
+            width: 100%;
+            padding: 15px;
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            font-family: 'Consolas', monospace;
+            min-height: 60px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .delete-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .delete-btn:hover {
+            background: #fee2e2;
+        }
+
+        .add-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #f1f5f9;
+            color: var(--text-primary);
+            border: 1px dashed var(--border-color);
+            border-radius: 8px;
+            width: 100%;
+            justify-content: center;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .add-btn:hover {
+            background: #e2e8f0;
+            border-color: #cbd5e1;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: transparent;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Floating Save Button */
+        .fab-save {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+            cursor: pointer;
+            transition: transform 0.2s;
+            border: none;
+            z-index: 100;
+        }
+
+        .fab-save:hover {
+            transform: scale(1.05);
+        }
+
+        .fab-save:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Simple Header similar to index.html but simplified -->
+    <header
+        style="background: white; padding: 0 20px; height: 60px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0;">
+        <div style="font-weight: 800; font-size: 1.25rem; color: #1e293b;">Anti-Stock <span
+                style="color: #3b82f6; font-weight: 400;">Sandbox</span></div>
+        <nav>
+            <a href="/" style="text-decoration: none; color: #64748b; font-weight: 600; margin-right: 20px;">대시보드</a>
+            <a href="/sandbox" style="text-decoration: none; color: #3b82f6; font-weight: 600;">전략실험실</a>
+        </nav>
+    </header>
+
+    <div class="sandbox-container">
+        <!-- Sidebar -->
+        <aside class="strategy-sidebar">
+            <div class="strategy-list-header">전략 목록</div>
+            <div id="strategy-list">
+                <!-- Dynamic List -->
+            </div>
+        </aside>
+
+        <!-- Main Editor -->
+        <main class="editor-area" id="editor-area" style="display: none;">
+
+            <!-- 1. Variables Section -->
+            <section class="section-card">
+                <div class="section-header">
+                    <div class="section-title"><i class="fas fa-sliders-h"></i> 변수 설정 (Variables)</div>
+                </div>
+                <table class="var-table">
+                    <thead>
+                        <tr>
+                            <th>변수명 (Variable)</th>
+                            <th>값 (Value)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="variables-body">
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- 2. Rules Section -->
+            <section class="section-card">
+                <div class="section-header">
+                    <div class="section-title"><i class="fas fa-code-branch"></i> 로직 구성 (Logic Rules)</div>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('monitoring_exclusions')">감시 제외 조건</button>
+                    <button class="tab-btn" onclick="switchTab('entry_conditions')">진입 조건 (Entry)</button>
+                    <button class="tab-btn" onclick="switchTab('exit_conditions')">청산 조건 (Exit)</button>
+                </div>
+
+                <div id="monitoring_exclusions" class="tab-content active">
+                    <div id="monitoring-list" class="rule-list"></div>
+                    <button class="add-btn" onclick="addRule('monitoring_exclusions')"><i class="fas fa-plus"></i> 새 제외
+                        조건 추가</button>
+                    <p style="margin-top: 10px; font-size: 0.9rem; color: #64748b;">* 하나라도 만족하면 감시 대상에서 제외됩니다. (OR 조건)
+                    </p>
+                </div>
+
+                <div id="entry_conditions" class="tab-content">
+                    <div id="entry-list" class="rule-list"></div>
+                    <button class="add-btn" onclick="addRule('entry_conditions')"><i class="fas fa-plus"></i> 새 진입 조건
+                        추가</button>
+                    <p style="margin-top: 10px; font-size: 0.9rem; color: #64748b;">* 모든 조건을 만족해야 진입합니다. (AND 조건)</p>
+                </div>
+
+                <div id="exit_conditions" class="tab-content">
+                    <div id="exit-list" class="rule-list"></div>
+                    <button class="add-btn" onclick="addRule('exit_conditions')"><i class="fas fa-plus"></i> 새 청산 조건
+                        추가</button>
+                    <p style="margin-top: 10px; font-size: 0.9rem; color: #64748b;">* 하나라도 만족하면 청산합니다. (OR 조건)</p>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Floating Save Button -->
+    <button class="fab-save" onclick="saveConfig()" title="변경사항 저장">
+        <i class="fas fa-save"></i>
+    </button>
+
+    <script>
+        let fullConfig = {};
+        let currentStrategy = null;
+
+        // Load Config on Start
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/sandbox/config');
+                fullConfig = await res.json();
+                renderSidebar();
+
+                // Select first strategy by default if available
+                const keys = Object.keys(fullConfig);
+                if (keys.length > 0) {
+                    selectStrategy(keys[0]);
+                }
+            } catch (e) {
+                console.error("Failed to load config", e);
+                alert("설정 로드 실패: " + e);
+            }
+        }
+
+        // Render Sidebar
+        function renderSidebar() {
+            const list = document.getElementById('strategy-list');
+            list.innerHTML = '';
+
+            Object.keys(fullConfig).forEach(key => {
+                const div = document.createElement('div');
+                div.className = 'strategy-item';
+                div.textContent = key;
+                div.onclick = () => selectStrategy(key);
+                div.dataset.key = key;
+                list.appendChild(div);
+            });
+        }
+
+        // Select Strategy
+        function selectStrategy(key) {
+            currentStrategy = key;
+
+            // UI Active State
+            document.querySelectorAll('.strategy-item').forEach(el => el.classList.remove('active'));
+            const activeItem = document.querySelector(`.strategy-item[data-key="${key}"]`);
+            if (activeItem) activeItem.classList.add('active');
+
+            // Show Editor
+            document.getElementById('editor-area').style.display = 'flex';
+
+            renderVariables();
+            renderRules('monitoring_exclusions');
+            renderRules('entry_conditions');
+            renderRules('exit_conditions');
+        }
+
+        // Render Variables Table
+        function renderVariables() {
+            const tbody = document.getElementById('variables-body');
+            tbody.innerHTML = '';
+
+            const vars = fullConfig[currentStrategy].variables || {};
+
+            Object.entries(vars).forEach(([k, v]) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${k}</td>
+                    <td><input type="text" class="var-input" value="${v}" onchange="updateVariable('${k}', this.value)"></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateVariable(key, val) {
+            // Try to parse number if possible
+            if (!isNaN(val) && val.trim() !== '') {
+                fullConfig[currentStrategy].variables[key] = Number(val);
+            } else {
+                fullConfig[currentStrategy].variables[key] = val;
+            }
+        }
+
+        // Render Rules
+        function renderRules(section) {
+            const container = document.getElementById(section === 'monitoring_exclusions' ? 'monitoring-list' :
+                section === 'entry_conditions' ? 'entry-list' : 'exit-list');
+            container.innerHTML = '';
+
+            const rules = fullConfig[currentStrategy][section] || [];
+
+            rules.forEach((rule, idx) => {
+                const card = createRuleCard(section, idx, rule.desc, rule.code);
+                container.appendChild(card);
+            });
+        }
+
+        function createRuleCard(section, idx, desc, code) {
+            const div = document.createElement('div');
+            div.className = 'rule-card';
+            div.innerHTML = `
+                <button class="delete-btn" onclick="deleteRule('${section}', ${idx})" title="삭제"><i class="fas fa-trash-alt"></i></button>
+                <div class="rule-header">
+                    <span class="rule-label"><i class="far fa-comment-alt"></i> 조건 설명 (Description)</span>
+                </div>
+                <textarea class="rule-desc" placeholder="조건을 한글로 설명해주세요. (예: 20일 이동평균선 위에 주가가 존재)" onchange="updateRule('${section}', ${idx}, 'desc', this.value)">${desc}</textarea>
+                
+                <div class="rule-header" style="margin-top: 15px;">
+                    <span class="rule-label"><i class="fas fa-code"></i> 파이썬 코드 (Python Code)</span>
+                </div>
+                <div class="rule-code-wrapper">
+                    <textarea class="rule-code" placeholder="close > ma_20" onchange="updateRule('${section}', ${idx}, 'code', this.value)">${code}</textarea>
+                </div>
+            `;
+            return div;
+        }
+
+        function updateRule(section, idx, field, val) {
+            fullConfig[currentStrategy][section][idx][field] = val;
+        }
+
+        function addRule(section) {
+            if (!fullConfig[currentStrategy][section]) {
+                fullConfig[currentStrategy][section] = [];
+            }
+            fullConfig[currentStrategy][section].push({ desc: "", code: "" });
+            renderRules(section);
+        }
+
+        function deleteRule(section, idx) {
+            if (confirm("정말 이 규칙을 삭제하시겠습니까?")) {
+                fullConfig[currentStrategy][section].splice(idx, 1);
+                renderRules(section);
+            }
+        }
+
+        // Tab Switching
+        function switchTab(section) {
+            // Buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(section).classList.add('active');
+        }
+
+        // Save Config
+        async function saveConfig() {
+            try {
+                const btn = document.querySelector('.fab-save');
+                const originalIcon = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+                const res = await fetch('/api/sandbox/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(fullConfig)
+                });
+
+                const data = await res.json();
+
+                if (data.status === 'ok') {
+                    // Visual Feedback
+                    btn.innerHTML = '<i class="fas fa-check"></i>';
+                    setTimeout(() => { btn.innerHTML = originalIcon; }, 1500);
+                } else {
+                    alert('저장 실패: ' + data.message);
+                    btn.innerHTML = originalIcon;
+                }
+            } catch (e) {
+                console.error(e);
+                alert('저장 중 오류 발생');
+                document.querySelector('.fab-save').innerHTML = '<i class="fas fa-save"></i>';
+            }
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', loadConfig);
+    </script>
+</body>
+
+</html>

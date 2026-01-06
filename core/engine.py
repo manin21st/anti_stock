@@ -253,6 +253,11 @@ class Engine:
             if self.restart_requested:
                 logger.debug(f"시스템 재인증 중 ({env_type} / {svr})")
                 ka.auth(svr=svr)
+                
+                # [Environment Hot-Swap Fix]
+                # Auth 상태 변경에 따라 Broker와 Trader의 내부 상태도 갱신해야 함
+                self.broker.refresh_env()
+                self.trader.update_env_type(env_type)
             
             # 설정 및 전략 재로드
             self.strategies.clear()

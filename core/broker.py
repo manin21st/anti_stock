@@ -17,6 +17,22 @@ class Broker:
         self.account_code = ka.getTREnv().my_prod
         self.env_dv = "demo" if ka.isPaperTrading() else "real"
         self.on_order_sent = [] # List of callbacks (order_info: dict)
+        
+        # Verify initial consistency
+        self.refresh_env(log=False)
+
+    def refresh_env(self, log: bool = True):
+        """Refreshes account info and environment type from current Auth state"""
+        try:
+            env = ka.getTREnv()
+            self.account_number = env.my_acct
+            self.account_code = env.my_prod
+            self.env_dv = "demo" if ka.isPaperTrading() else "real"
+            
+            if log:
+                logger.info(f"Broker environment refreshed: {self.env_dv.upper()} (Account: {self.account_number})")
+        except Exception as e:
+            logger.error(f"Failed to refresh Broker environment: {e}")
 
     def buy_market(self, symbol: str, qty: int, tag: str = "") -> bool:
         """Buy at market price"""

@@ -41,9 +41,16 @@ class Trader:
                     env_type=getattr(t, 'env_type', 'paper'),
                     meta=t.meta
                 ))
-            logger.debug(f"Loaded {len(self.trade_history)} recent trade events from Database")
+            logger.debug(f"Loaded {len(self.trade_history)} recent trade events from Database (Env: {self.env_type})")
         except Exception as e:
             logger.error(f"Failed to load trade history: {e}")
+
+    def update_env_type(self, new_env_type: str):
+        """Update environment type and reload history"""
+        if self.env_type != new_env_type:
+            self.env_type = new_env_type
+            logger.info(f"Trader environment updated to: {self.env_type}")
+            self.load_trade_history()
 
     def record_order_event(self, order_info: Dict):
         """Callback from Broker when order is sent"""

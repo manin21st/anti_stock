@@ -406,6 +406,36 @@ async def get_manual(request: Request):
 async def get_backtest_process(request: Request):
     return templates.TemplateResponse("backtest_process.html", {"request": request})
 
+@app.get("/sandbox", response_class=HTMLResponse)
+async def get_sandbox(request: Request):
+    return templates.TemplateResponse("sandbox.html", {"request": request})
+
+@app.get("/api/sandbox/config")
+async def get_sandbox_config():
+    """Read strategies_sandbox.yaml"""
+    config_path = os.path.join("config", "strategies_sandbox.yaml")
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+@app.post("/api/sandbox/config")
+async def update_sandbox_config(request: Request):
+    """Write strategies_sandbox.yaml"""
+    try:
+        data = await request.json()
+        config_path = os.path.join("config", "strategies_sandbox.yaml")
+        # Ensure directory exists (though it should)
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+            
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Failed to save sandbox config: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/control")
 async def control_engine(action: dict):
     # action: { "command": "start" | "stop" | "restart" }

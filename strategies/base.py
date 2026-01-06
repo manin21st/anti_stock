@@ -298,8 +298,6 @@ class BaseStrategy(ABC):
              if not is_sim: return None # 시뮬레이션에서는 로그만 남기고 일단 진행 (데이터셋 한계 고려)
              
         return daily
-             
-        return daily
 
     def get_daily_data(self, symbol):
         """

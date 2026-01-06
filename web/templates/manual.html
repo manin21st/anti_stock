@@ -111,16 +111,7 @@
             <h2>시스템 상세 설정 (System Configuration)</h2>
             <p>웹 대시보드의 '환경 설정' 탭에서 변경할 수 있는 시스템 관련 옵션들입니다.</p>
 
-            <div class="config-item">
-                <span class="config-name">API 속도 제한 (TPS Limit)</span>
-                <p class="config-desc">초당 API 호출 허용 횟수를 조절합니다.</p>
-                <ul>
-                    <li><strong>기본값 (2.0)</strong>: PC 1대에서 단독으로 실행할 때 적합합니다.</li>
-                    <li><strong>1.0 이하 설정</strong>: 만약 <code>[RateLimiter] Max retries exceeded</code> 에러가 자주 발생하거나, 여러
-                        대의 PC에서 동시에 봇을 돌릴 경우 값을 낮춰주세요.</li>
-                </ul>
-                <p class="config-example">설정 예시: 1.0 (초당 1회 호출로 제한)</p>
-            </div>
+
 
             <div class="config-item">
                 <span class="config-name">알림 설정 (Telegram Alert)</span>
@@ -168,44 +159,29 @@
         </section>
 
         <section class="card">
-            <h2>차트 탭 사용 가이드 (Chart Tab)</h2>
-            <p>실시간 시세 차트와 매매 내역을 시각적으로 확인하고 분석할 수 있는 공간입니다.</p>
+            <h2>차트 팝업 사용 가이드 (Chart Popup)</h2>
+            <p>메인 화면의 <strong>'감시종목'</strong> 탭에서 종목명을 클릭하면 해당 종목의 상세 차트 팝업이 열립니다.</p>
 
-            <h3>1. 차트 조회 및 제어</h3>
+            <h3>1. 팝업 제어</h3>
             <ul>
-                <li><strong>종목코드</strong>: 조회할 종목 코드를 입력합니다. (예: 005930)</li>
-                <li><strong>시간 단위 (Timeframe)</strong>: 차트의 캔들 주기를 선택합니다. (1분, 3분, 5분, 15분, 30분, 1시간, 일봉)</li>
-                <li><strong>조회 건수 (Lookback)</strong>: 최근 몇 개의 캔들을 불러올지 설정합니다. (기본 300건)</li>
-                <li><strong>조회 버튼</strong>: 입력한 설정으로 차트 데이터를 불러옵니다.</li>
+                <li><strong>시간 단위 (Timeframe)</strong>: 상단의 버튼을 눌러 차트 주기를 변경합니다. (1분, 3분, 5분, 15분, 일봉)</li>
+                <li><strong>이동평균선 (MA)</strong>: 상단의 체크박스로 5, 10, 20, 60, 120, 200일 이평선을 켜고 끌 수 있습니다.</li>
+                <li><strong>닫기</strong>: 우측 상단의 'X' 버튼을 누르면 팝업이 닫힙니다.</li>
             </ul>
 
             <h3>2. 차트 기능</h3>
             <ul>
-                <li><strong>캔들 차트</strong>: 시가, 고가, 저가, 종가를 캔들 형태로 표시합니다. (상승: 초록색, 하락: 빨간색)</li>
-                <li><strong>이동평균선 (MA)</strong>: 5, 10, 20, 60, 120, 200일 이동평균선을 체크박스로 켜고 끌 수 있습니다.</li>
+                <li><strong>캔들 차트</strong>: 시가, 고가, 저가, 종가를 캔들 형태로 표시합니다.</li>
                 <li><strong>거래량 (Volume)</strong>: 차트 하단에 막대 그래프로 표시됩니다.</li>
-                <li><strong>RSI (상대강도지수)</strong>: 차트 최하단에 보라색 선으로 표시됩니다. (과매수/과매도 구간 확인용)</li>
                 <li><strong>줌/팬 (Zoom/Pan)</strong>: 마우스 휠로 확대/축소, 드래그로 차트 이동이 가능합니다.</li>
             </ul>
 
-            <h3>3. 매매 내역 (Trade History)</h3>
-            <p>차트 하단에 해당 종목의 매매 내역이 리스트로 표시됩니다.</p>
+            <h3>3. 매매 마커 (Trade Markers)</h3>
+            <p>봇이 매매를 체결한 내역이 차트 위에 자동으로 표시됩니다.</p>
             <ul>
-                <li><strong>마커 (Marker)</strong>: 차트 위에 매수(초록색 화살표), 매도(빨간색 화살표) 시점이 표시됩니다.</li>
-                <li><strong>날짜 수정</strong>: 매매 내역 테이블의 날짜 입력 필드를 클릭하여 시간을 수정하면, 차트 위의 마커 위치도 즉시 변경됩니다. (디버깅용)</li>
-                <li><strong>페이지네이션</strong>: 매매 내역이 많을 경우 하단의 '이전/다음' 버튼으로 페이지를 넘길 수 있습니다.</li>
+                <li><strong>매수 (Buy)</strong>: 캔들 아래에 <span style="color: green;">▲</span> 초록색 화살표로 표시됩니다.</li>
+                <li><strong>매도 (Sell)</strong>: 캔들 위에 <span style="color: red;">▼</span> 빨간색 화살표로 표시됩니다.</li>
             </ul>
-
-            <h3>4. 디버그 기능 (Debug Features)</h3>
-            <div class="config-item">
-                <span class="config-name">테스트 데이터 생성</span>
-                <p class="config-desc">가상의 매매 데이터를 생성하여 차트에 표시합니다. (삼성전자 005930 기준)</p>
-            </div>
-            <div class="config-item">
-                <span class="config-name">디버그 마커 (Debug Marker)</span>
-                <p class="config-desc">매매 내역의 첫 번째 행에 있는 날짜를 읽어 차트에 'DEBUG' 마커를 표시합니다. 날짜 수정 후 이 버튼을 누르면 수정된 위치에 마커가
-                    찍히는지 확인할 수 있습니다.</p>
-            </div>
         </section>
 
         <section class="card">
@@ -225,6 +201,28 @@
                         파일(anti_stock.log)</strong>을 다운로드합니다.</li>
                 <li><strong>과거 기록 확인</strong>: 화면에서 사라진 오래된 기록이나 며칠 전의 로그는 다운로드한 파일에서 모두 확인할 수 있습니다.</li>
             </ul>
+        </section>
+
+        <section class="card">
+            <h2>감시 제외 조건 (Monitoring Exclusions)</h2>
+            <p>로그에 <code>[감시 제외]</code> 메시지가 뜨는 것은 오류가 아니라, 봇이 필터링을 수행하고 있다는 정상적인 신호입니다.</p>
+
+            <div class="config-item">
+                <span class="config-name">하락 추세 (주가 < 20일선)</span>
+                        <p class="config-desc">현재 주가가 20일 이동평균선(생명선) 아래에 있어, 중기 추세가 하락세인 경우입니다. 역배열 종목은 승률이 낮아 단타 대상에서
+                            제외합니다.</p>
+            </div>
+
+            <div class="config-item">
+                <span class="config-name">20일선 하락 중</span>
+                <p class="config-desc">주가는 20일선 위에 있지만, 20일선 자체가 꺾여서 내려가고 있는 경우입니다. 상승 탄력이 약화된 상태로 판단합니다.</p>
+            </div>
+
+            <div class="config-item">
+                <span class="config-name">전일 거래량 부족</span>
+                <p class="config-desc">어제(D-1)의 거래량이 평소(20일 평균)보다 1.5배 이상 터지지 않은 경우입니다. '거래량이 터진 다음 날의 눌림목'을 공략하는 전략
+                    특성상, 기준에 미달하여 제외합니다.</p>
+            </div>
         </section>
 
         <section class="card">
@@ -292,29 +290,33 @@
             <p class="config-desc">골든크로스 유효 기간입니다. 크로스가 발생한 후 지정된 봉(Candle) 개수 동안은 거래량이 뒤늦게 터져도 매수 진입을 허용합니다.</p>
             <p class="config-example">예시: 3 (3봉 이내 유효)</p>
         </div>
+        <div class="config-item">
+            <span class="config-name">prev_daily_vol_k</span>
+            <p class="config-desc">일봉 상대 거래량 필터입니다. 전일 거래량이 "전일 기준 20일 평균 거래량"의 K배 이상이어야만 진입합니다.</p>
+            <p class="config-example">예시: 1.5 (평소보다 1.5배 이상 거래량 폭증 시에만 진입)</p>
+        </div>
 
         <h2>이동평균 추세 추종 (MA Trend)</h2>
         <p>일봉상 상승 추세인 종목에서 분봉상 골든크로스가 발생할 때 매수하는 정석적인 추세 추종 전략입니다.</p>
         <h3>매매 로직</h3>
         <ul>
-            <li><strong>진입</strong>: 일봉상 20일선 상승 추세 & 전일 거래량 급증(상대 거래량 > 1.5배) 상태에서, 분봉상 골든크로스가 발생하고 거래량이 터질 때.</li>
-            <li><strong>청산 ("확정 수익 + 추세 추종" 혼합 전략)</strong>:
+            <li><strong>진입 (Buy)</strong>: 다음 4박자가 모두 맞아야 진입합니다.
                 <ol>
-                    <ol>
-                        <li><strong>1차 익절 (Partial TP)</strong>: 수익률이 <code>take_profit1_pct</code> (예: 0.03 / 3%) 도달 시
-                            50% 물량을 즉시
-                            매도하여 수익을 확정합니다. (재시작 후에도 상태 유지됨)</li>
-                        <li><strong>본전 스탑 (Breakeven Stop)</strong>: 1차 익절 후, 주가가 다시 매수 평균가(본전) 밑으로 떨어지면 남은 물량을 전량 매도하여
-                            손실을
-                            방지합니다.</li>
-                        <li><strong>트레일링 스탑 (Trailing Stop)</strong>: 주가가 계속 상승하면 매도하지 않고 따라가다가, 고점 대비
-                            <code>trail_stop_pct</code> (예: 0.015 / 1.5%) 이상 하락할 때 전량 매도합니다. (단, 수익률이
-                            <code>trail_activation_pct</code> 이상일 때부터 작동)
-                        </li>
-                        <li><strong>손절 (Stop Loss)</strong>: 1차 익절 전, 수익률이 <code>-stop_loss_pct</code>에 도달하면 전량 매도합니다.
-                        </li>
-                    </ol>
+                    <li><strong>일봉 추세</strong>: 정배열 (주가 > 20일선) + 20일선 우상향 + 전일 거래량 폭발</li>
+                    <li><strong>추세 강도</strong>: ADX 지표 25 이상 (횡보장 필터링)</li>
+                    <li><strong>기울기</strong>: 20일 이동평균선의 기울기가 양수(+)</li>
+                    <li><strong>손익비 (RR)</strong>: 기대 수익이 손절폭의 2.0배~3.0배 이상 나오는 자리</li>
+                </ol>
+                이 상태에서 5분봉상 <strong>골든크로스</strong> 발생 시 매수합니다. (<strong>성과 가중치</strong> 적용 시 비중 확대)
             </li>
+            <li><strong>청산 (Sell)</strong>:
+                <ol>
+                    <li><strong>1차 익절 (Partial TP)</strong>: 수익률이 <code>take_profit1_pct</code> (예: 0.05 / 5%) 도달 시 50%
+                        분할 매도.</li>
+                    <li><strong>트레일링 스탑 (Trailing Stop)</strong>: 고점 대비 <code>trail_stop_pct</code> (예: 1.5%) 하락 시 전량 매도
+                        (수익 보존).</li>
+                    <li><strong>손절 (Stop Loss)</strong>: 수익률이 <code>-stop_loss_pct</code> (예: -3%) 도달 시 즉시 전량 매도.</li>
+                </ol>
             </li>
         </ul>
 
@@ -328,11 +330,7 @@
             <p class="config-desc">평균 거래량 대비 급증 배수입니다.</p>
             <p class="config-example">예시: 1.5 (1.5배 이상)</p>
         </div>
-        <div class="config-item">
-            <span class="config-name">prev_daily_vol_k</span>
-            <p class="config-desc">일봉 상대 거래량 필터입니다. 전일 거래량이 "전일 기준 20일 평균 거래량"의 K배 이상이어야만 진입합니다.</p>
-            <p class="config-example">예시: 1.5 (평소보다 1.5배 이상 거래량 폭증 시에만 진입)</p>
-        </div>
+
         <div class="config-item">
             <span class="config-name">ma_short</span>
             <p class="config-desc">단기 이동평균선 기간입니다.</p>

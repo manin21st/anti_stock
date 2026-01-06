@@ -465,8 +465,8 @@ def fetch_holiday(base_date: str) -> List[Dict]:
     tr_id = "CTCA0903R"
     params = {
         "BASS_DT": base_date,
-        "CTX_AREA_FK100": "",
-        "CTX_AREA_NK100": ""
+        "CTX_AREA_FK": "",
+        "CTX_AREA_NK": ""
     }
     res = _execute_api(ka._url_fetch, "/uapi/domestic-stock/v1/quotations/chk-holiday", tr_id, "", params)
     if res and res.isOK():
