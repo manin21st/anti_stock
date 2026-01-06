@@ -32,6 +32,7 @@ class TradeEvent:
     position_id: Optional[str] = None
     pnl: Optional[float] = None
     pnl_pct: Optional[float] = None
+    env_type: str = "paper"
     meta: Optional[Dict[str, Any]] = None
 
     def to_dict(self):
@@ -48,6 +49,7 @@ class TradeEvent:
             "position_id": self.position_id,
             "pnl": self.pnl,
             "pnl_pct": self.pnl_pct,
+            "env_type": self.env_type,
             "meta": self.meta or {}
         }
 
@@ -189,10 +191,13 @@ class TradeVisualizationService:
 
         # 2. Get Trade Markers from Engine's trade history
         markers = []
-        markers = []
         try:
+            current_env = "paper"
+            if hasattr(self.engine, 'system_config'):
+                current_env = self.engine.system_config.get("env_type", "paper")
+                
             from core.dao import TradeDAO
-            trades = TradeDAO.get_trades(symbol=symbol, limit=500)
+            trades = TradeDAO.get_trades(symbol=symbol, limit=500, env_type=current_env)
             markers = [t.__dict__ for t in trades]
             # Convert timestamp to string/isoformat if needed for frontend
             for m in markers:

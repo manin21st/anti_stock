@@ -35,7 +35,7 @@ class TradeDAO:
             session.close()
 
     @staticmethod
-    def get_trades(start_date: datetime = None, end_date: datetime = None, symbol: str = None, limit: int = 100, offset: int = 0) -> List[Trade]:
+    def get_trades(start_date: datetime = None, end_date: datetime = None, symbol: str = None, env_type: str = None, limit: int = 100, offset: int = 0) -> List[Trade]:
         """
         Fetch trades with filters.
         """
@@ -51,6 +51,9 @@ class TradeDAO:
                 
             if end_date:
                 query = query.filter(Trade.timestamp <= end_date)
+            
+            if env_type:
+                 query = query.filter(Trade.env_type == env_type)
                 
             # Sort by timestamp DESC
             query = query.order_by(desc(Trade.timestamp))

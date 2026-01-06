@@ -53,7 +53,7 @@ class Engine:
         self.telegram.send_system_alert("🚀 <b>System Started</b>\nAnti-Stock Engine Initialized.")
         
         # 4. Actors (기존 Managers)
-        self.trader = Trader(telegram_bot=self.telegram) # TradeManager -> Trader
+        self.trader = Trader(telegram_bot=self.telegram, env_type=env_type) # TradeManager -> Trader
         self.universe = Universe(self.system_config, self.market_data, self.scanner, self.portfolio) # UniverseManager -> Universe
         self.backtester = Backtester(self.config, {}) # strategy_classes will be filled later
 

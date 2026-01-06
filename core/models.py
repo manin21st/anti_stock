@@ -20,6 +20,7 @@ class Trade(Base):
     pnl = Column(Float, nullable=True)
     pnl_pct = Column(Float, nullable=True)
     order_id = Column(String(50), nullable=True)
+    env_type = Column(String(20), default='paper') # paper, real
     meta = Column(JSON, nullable=True)
 
     def __repr__(self):

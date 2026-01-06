@@ -26,3 +26,6 @@ Desktop.ini
 
 # Tests
 tests/
+
+# Virtual Environment
+venv/

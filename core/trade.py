@@ -11,15 +11,16 @@ from core.dao import TradeDAO
 logger = logging.getLogger(__name__)
 
 class Trader:
-    def __init__(self, telegram_bot=None):
+    def __init__(self, telegram_bot=None, env_type="paper"):
         self.trade_history: List[TradeEvent] = []
         self.telegram = telegram_bot
+        self.env_type = env_type
         self.load_trade_history()
 
     def load_trade_history(self):
         """Load trade history from Database"""
         try:
-            trades = TradeDAO.get_trades(limit=1000)
+            trades = TradeDAO.get_trades(limit=1000, env_type=self.env_type)
 
             # Convert SQLAlchemy Models to TradeEvent objects
             self.trade_history = []
@@ -37,6 +38,7 @@ class Trader:
                     order_id=t.order_id,
                     pnl=t.pnl,
                     pnl_pct=t.pnl_pct,
+                    env_type=getattr(t, 'env_type', 'paper'),
                     meta=t.meta
                 ))
             logger.debug(f"Loaded {len(self.trade_history)} recent trade events from Database")
@@ -56,7 +58,8 @@ class Trader:
                 price=float(order_info["price"]),
                 qty=int(order_info["qty"]),
                 order_id=order_info["order_no"],
-                meta={"type": order_info["type"], "event_type": "ORDER_SUBMITTED"}
+                meta={"type": order_info["type"], "event_type": "ORDER_SUBMITTED"},
+                env_type=self.env_type
             )
 
             # DB Insert
@@ -70,7 +73,8 @@ class Trader:
                 "qty": event.qty,
                 "exec_amt": event.price * event.qty,
                 "order_id": event.order_id,
-                "meta": event.meta
+                "meta": event.meta,
+                "env_type": self.env_type
             })
 
             self.trade_history.insert(0, event) # Prepend for recent
@@ -134,7 +138,8 @@ class Trader:
                 order_id=f"fill_{int(time.time()*1000)}",
                 pnl=pnl,
                 pnl_pct=pnl_pct,
-                meta=change_info
+                meta=change_info,
+                env_type=self.env_type
             )
 
             if "exec_qty" in change_info:
@@ -154,7 +159,8 @@ class Trader:
                 "pnl": event.pnl,
                 "pnl_pct": event.pnl_pct,
                 "order_id": event.order_id,
-                "meta": event.meta
+                "meta": event.meta,
+                "env_type": self.env_type
             })
 
             logger.info(f"Recorded Position Event: {event.event_type} {event.symbol} (PnL: {pnl})")
@@ -309,7 +315,8 @@ class Trader:
                     price=price,
                     qty=qty,
                     order_id=odno,
-                    meta={"source": "api_sync"}
+                    meta={"source": "api_sync"},
+                    env_type=self.env_type
                 )
                 self.trade_history.append(event)
                 new_count += 1
@@ -324,7 +331,8 @@ class Trader:
                     "qty": event.qty,
                     "exec_amt": event.price * event.qty,
                     "order_id": event.order_id,
-                    "meta": event.meta
+                    "meta": event.meta,
+                    "env_type": self.env_type
                 })
 
             if new_count > 0:
