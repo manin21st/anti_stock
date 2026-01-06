@@ -348,7 +348,9 @@ async function loadSystemConfig() {
 
     // Set Radio Buttons
     if (config.env_type) {
-        const el = document.querySelector(`input[name="env_type"][value="${config.env_type}"]`);
+        let envVal = config.env_type;
+        if (envVal === "prod") envVal = "real"; // Normalize prod -> real
+        const el = document.querySelector(`input[name="env_type"][value="${envVal}"]`);
         if (el) el.checked = true;
     }
     if (config.market_type) {
