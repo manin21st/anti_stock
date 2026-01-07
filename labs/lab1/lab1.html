@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
+            --primary-color: #3b82f6;
             --bg-secondary: #f8fafc;
             --border-color: #e2e8f0;
             --text-secondary: #64748b;
@@ -27,6 +28,18 @@
             padding: 20px;
             max-width: 1600px;
             margin: 0 auto;
+        }
+
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        /* Override global style.css hover which sets text to white */
+        .tab-btn:hover {
+            color: var(--primary-color) !important;
+            background-color: #eff6ff !important;
+            border-color: var(--primary-color) !important;
         }
 
         /* Sidebar Strategy List */
@@ -249,6 +262,12 @@
             border-bottom-color: var(--primary-color);
         }
 
+        /* Override global style.css hover which sets text to white */
+        .tab-btn:hover {
+            color: var(--primary-color);
+            background-color: #eff6ff;
+        }
+
         .tab-content {
             display: none;
         }
@@ -294,7 +313,7 @@
 </head>
 
 <body>
-    <!-- Simple Header similar to index.html but simplified -->
+    <!-- Simple Header -->
     <header
         style="background: white; padding: 0 20px; height: 60px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0;">
         <div style="font-weight: 800; font-size: 1.25rem; color: #1e293b;">Anti-Stock <span
@@ -308,7 +327,14 @@
     <div class="sandbox-container">
         <!-- Sidebar -->
         <aside class="strategy-sidebar">
-            <div class="strategy-list-header">전략 목록</div>
+            <div class="strategy-list-header"
+                style="display: flex; justify-content: space-between; align-items: center;">
+                <span>전략 목록</span>
+                <button onclick="createNewStrategy()" class="add-btn"
+                    style="width: auto; padding: 5px 10px; font-size: 0.8rem;">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
             <div id="strategy-list">
                 <!-- Dynamic List -->
             </div>
@@ -317,11 +343,20 @@
         <!-- Main Editor -->
         <main class="editor-area" id="editor-area" style="display: none;">
 
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 0px;">
-                <button onclick="saveConfig()" class="add-btn"
-                    style="width: auto; background-color: #3b82f6; color: white; border: none;">
-                    <i class="fas fa-save"></i> 전략 저장하기
-                </button>
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                    <i class="fas fa-chess-knight" style="color: var(--primary-color); font-size: 1.2rem;"></i>
+                    <input type="text" id="strategy-name-input" class="var-input"
+                        style="font-size: 1.0rem; font-weight: 600; font-family: inherit; width: auto; min-width: 200px;"
+                        onchange="renameStrategy(this.value)">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="deleteStrategy()" class="add-btn"
+                        style="width: auto; background: #fee2e2; color: #ef4444; border-color: #fecaca;">
+                        <i class="fas fa-trash-alt"></i> 삭제
+                    </button>
+                </div>
             </div>
 
             <!-- 1. Variables Section -->
@@ -349,31 +384,66 @@
                 </div>
 
                 <div class="tabs">
-                    <button class="tab-btn active" onclick="switchTab('monitoring_exclusions')">감시 제외 조건</button>
+                    <button class="tab-btn active" onclick="switchTab('watch_conditions')">감시 조건 (Watch)</button>
                     <button class="tab-btn" onclick="switchTab('entry_conditions')">진입 조건 (Entry)</button>
                     <button class="tab-btn" onclick="switchTab('exit_conditions')">청산 조건 (Exit)</button>
                 </div>
 
-                <div id="monitoring_exclusions" class="tab-content active">
-                    <div id="monitoring-list" class="rule-list"></div>
-                    <button class="add-btn" onclick="addRule('monitoring_exclusions')"><i class="fas fa-plus"></i> 새 제외
-                        조건 추가</button>
-                    <p style="margin-top: 10px; font-size: 0.9rem; color: #64748b;">* 하나라도 만족하면 감시 대상에서 제외됩니다. (OR 조건)
-                    </p>
+                <div id="watch_conditions" class="tab-content active">
+                    <div class="rule-card">
+                        <div class="rule-header">
+                            <span class="rule-label"><i class="far fa-comment-alt"></i> 감시 조건 설명 (Description)</span>
+                        </div>
+                        <textarea id="watch_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
+                            onchange="updateRuleBlock('watch_conditions', 'desc', this.value)"></textarea>
+
+                        <div class="rule-header" style="margin-top: 15px;">
+                            <span class="rule-label"><i class="fas fa-code"></i> 파이썬 수식 (Python Expression)</span>
+                        </div>
+                        <div class="rule-code-wrapper">
+                            <textarea id="watch_conditions_code" class="rule-code"
+                                placeholder="예: volume >= 10000 and price >= 1000"
+                                onchange="updateRuleBlock('watch_conditions', 'code', this.value)"></textarea>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="entry_conditions" class="tab-content">
-                    <div id="entry-list" class="rule-list"></div>
-                    <button class="add-btn" onclick="addRule('entry_conditions')"><i class="fas fa-plus"></i> 새 진입 조건
-                        추가</button>
-                    <p style="margin-top: 10px; font-size: 0.9rem; color: #64748b;">* 모든 조건을 만족해야 진입합니다. (AND 조건)</p>
+                    <div class="rule-card">
+                        <div class="rule-header">
+                            <span class="rule-label"><i class="far fa-comment-alt"></i> 진입 조건 설명 (Description)</span>
+                        </div>
+                        <textarea id="entry_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
+                            onchange="updateRuleBlock('entry_conditions', 'desc', this.value)"></textarea>
+
+                        <div class="rule-header" style="margin-top: 15px;">
+                            <span class="rule-label"><i class="fas fa-code"></i> 파이썬 수식 (Python Expression)</span>
+                        </div>
+                        <div class="rule-code-wrapper">
+                            <textarea id="entry_conditions_code" class="rule-code"
+                                placeholder="예: price > ma_short and prev_price <= prev_ma_short"
+                                onchange="updateRuleBlock('entry_conditions', 'code', this.value)"></textarea>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="exit_conditions" class="tab-content">
-                    <div id="exit-list" class="rule-list"></div>
-                    <button class="add-btn" onclick="addRule('exit_conditions')"><i class="fas fa-plus"></i> 새 청산 조건
-                        추가</button>
-                    <p style="margin-top: 10px; font-size: 0.9rem; color: #64748b;">* 하나라도 만족하면 청산합니다. (OR 조건)</p>
+                    <div class="rule-card">
+                        <div class="rule-header">
+                            <span class="rule-label"><i class="far fa-comment-alt"></i> 청산 조건 설명 (Description)</span>
+                        </div>
+                        <textarea id="exit_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
+                            onchange="updateRuleBlock('exit_conditions', 'desc', this.value)"></textarea>
+
+                        <div class="rule-header" style="margin-top: 15px;">
+                            <span class="rule-label"><i class="fas fa-code"></i> 파이썬 수식 (Python Expression)</span>
+                        </div>
+                        <div class="rule-code-wrapper">
+                            <textarea id="exit_conditions_code" class="rule-code"
+                                placeholder="예: pnl_pct > 5.0 or pnl_pct < -3.0"
+                                onchange="updateRuleBlock('exit_conditions', 'code', this.value)"></textarea>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -396,10 +466,19 @@
                 fullConfig = await res.json();
                 renderSidebar();
 
-                // Select first strategy by default if available
+                // Select first strategy by default if available and none selected
                 const keys = Object.keys(fullConfig);
                 if (keys.length > 0) {
-                    selectStrategy(keys[0]);
+                    if (!currentStrategy || !fullConfig[currentStrategy]) {
+                        selectStrategy(keys[0]);
+                    } else {
+                        // Reselect current to update UI
+                        selectStrategy(currentStrategy);
+                    }
+                } else {
+                    // No strategies
+                    document.getElementById('editor-area').style.display = 'none';
+                    currentStrategy = null;
                 }
             } catch (e) {
                 console.error("Failed to load config", e);
@@ -415,6 +494,7 @@
             Object.keys(fullConfig).forEach(key => {
                 const div = document.createElement('div');
                 div.className = 'strategy-item';
+                if (key === currentStrategy) div.classList.add('active');
                 div.textContent = key;
                 div.onclick = () => selectStrategy(key);
                 div.dataset.key = key;
@@ -426,7 +506,7 @@
         function selectStrategy(key) {
             currentStrategy = key;
 
-            // UI Active State
+            // Update Sidebar UI
             document.querySelectorAll('.strategy-item').forEach(el => el.classList.remove('active'));
             const activeItem = document.querySelector(`.strategy-item[data-key="${key}"]`);
             if (activeItem) activeItem.classList.add('active');
@@ -434,13 +514,78 @@
             // Show Editor
             document.getElementById('editor-area').style.display = 'flex';
 
+            // Set Name Input
+            document.getElementById('strategy-name-input').value = key;
+
             renderVariables();
-            renderRules('monitoring_exclusions');
-            renderRules('entry_conditions');
-            renderRules('exit_conditions');
+            renderConditionBlock('watch_conditions');
+            renderConditionBlock('entry_conditions');
+            renderConditionBlock('exit_conditions');
         }
 
-        // Render Variables Table
+        // --- Strategy Management ---
+
+        function createNewStrategy() {
+            let baseName = "NewStrategy";
+            let count = 1;
+            while (fullConfig[`${baseName}${count}`]) {
+                count++;
+            }
+            const newName = `${baseName}${count}`;
+
+            // Basic Template (Single Block Structure)
+            fullConfig[newName] = {
+                variables: { ma_short: 5, ma_long: 20 },
+                watch_conditions: { desc: "", code: "" },
+                entry_conditions: { desc: "", code: "" },
+                exit_conditions: { desc: "", code: "" }
+            };
+
+            renderSidebar();
+            selectStrategy(newName);
+        }
+
+        function renameStrategy(newName) {
+            if (!newName || newName.trim() === "") {
+                alert("전략 이름을 입력해주세요.");
+                document.getElementById('strategy-name-input').value = currentStrategy;
+                return;
+            }
+
+            if (newName === currentStrategy) return;
+
+            if (fullConfig[newName]) {
+                alert("이미 존재하는 전략 이름입니다.");
+                document.getElementById('strategy-name-input').value = currentStrategy;
+                return;
+            }
+
+            // Rename key by creating new property and deleting old
+            fullConfig[newName] = fullConfig[currentStrategy];
+            delete fullConfig[currentStrategy];
+
+            currentStrategy = newName;
+            renderSidebar();
+        }
+
+        function deleteStrategy() {
+            if (!currentStrategy) return;
+            if (confirm(`전략 '${currentStrategy}'을(를) 삭제하시겠습니까?`)) {
+                delete fullConfig[currentStrategy];
+                currentStrategy = null;
+
+                const keys = Object.keys(fullConfig);
+                if (keys.length > 0) {
+                    selectStrategy(keys[0]);
+                } else {
+                    document.getElementById('editor-area').style.display = 'none';
+                }
+                renderSidebar();
+            }
+        }
+
+        // --- Variables ---
+
         function renderVariables() {
             const tbody = document.getElementById('variables-body');
             tbody.innerHTML = '';
@@ -450,15 +595,26 @@
             Object.entries(vars).forEach(([k, v]) => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td>${k}</td>
+                    <td><input type="text" class="var-input" value="${k}" onchange="renameVariable('${k}', this.value)" style="background:transparent; border:none; border-bottom:1px solid #ddd;"></td>
                     <td><input type="text" class="var-input" value="${v}" onchange="updateVariable('${k}', this.value)"></td>
+                    <td style="width: 40px;"><button class="delete-btn" onclick="deleteVariable('${k}')" style="position:static;"><i class="fas fa-trash-alt"></i></button></td>
                 `;
                 tbody.appendChild(tr);
             });
+
+            // Add new variable row
+            const addTr = document.createElement('tr');
+            addTr.innerHTML = `
+                <td colspan="3" style="text-align:center;">
+                    <button class="add-btn" onclick="addVariable()" style="width:auto; display:inline-flex; border:none; background:none; color:var(--primary-color);">
+                        <i class="fas fa-plus"></i> 변수 추가
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(addTr);
         }
 
         function updateVariable(key, val) {
-            // Try to parse number if possible
             if (!isNaN(val) && val.trim() !== '') {
                 fullConfig[currentStrategy].variables[key] = Number(val);
             } else {
@@ -466,57 +622,51 @@
             }
         }
 
-        // Render Rules
-        function renderRules(section) {
-            const container = document.getElementById(section === 'monitoring_exclusions' ? 'monitoring-list' :
-                section === 'entry_conditions' ? 'entry-list' : 'exit-list');
-            container.innerHTML = '';
-
-            const rules = fullConfig[currentStrategy][section] || [];
-
-            rules.forEach((rule, idx) => {
-                const card = createRuleCard(section, idx, rule.desc, rule.code);
-                container.appendChild(card);
-            });
+        function renameVariable(oldKey, newKey) {
+            if (oldKey === newKey) return;
+            if (fullConfig[currentStrategy].variables[newKey]) {
+                alert("이미 존재하는 변수명입니다.");
+                renderVariables();
+                return;
+            }
+            const val = fullConfig[currentStrategy].variables[oldKey];
+            delete fullConfig[currentStrategy].variables[oldKey];
+            fullConfig[currentStrategy].variables[newKey] = val;
+            renderVariables();
         }
 
-        function createRuleCard(section, idx, desc, code) {
-            const div = document.createElement('div');
-            div.className = 'rule-card';
-            div.innerHTML = `
-                <button class="delete-btn" onclick="deleteRule('${section}', ${idx})" title="삭제"><i class="fas fa-trash-alt"></i></button>
-                <div class="rule-header">
-                    <span class="rule-label"><i class="far fa-comment-alt"></i> 조건 설명 (Description)</span>
-                </div>
-                <textarea class="rule-desc" placeholder="조건을 한글로 설명해주세요. (예: 20일 이동평균선 위에 주가가 존재)" onchange="updateRule('${section}', ${idx}, 'desc', this.value)">${desc}</textarea>
-                
-                <div class="rule-header" style="margin-top: 15px;">
-                    <span class="rule-label"><i class="fas fa-code"></i> 파이썬 코드 (Python Code)</span>
-                </div>
-                <div class="rule-code-wrapper">
-                    <textarea class="rule-code" placeholder="close > ma_20" onchange="updateRule('${section}', ${idx}, 'code', this.value)">${code}</textarea>
-                </div>
-            `;
-            return div;
+        function addVariable() {
+            const key = "new_var_" + Date.now().toString().slice(-4);
+            fullConfig[currentStrategy].variables[key] = 0;
+            renderVariables();
         }
 
-        function updateRule(section, idx, field, val) {
-            fullConfig[currentStrategy][section][idx][field] = val;
+        function deleteVariable(key) {
+            if (confirm(`변수 '${key}' 삭제?`)) {
+                delete fullConfig[currentStrategy].variables[key];
+                renderVariables();
+            }
         }
 
-        function addRule(section) {
+        // --- Rules (Single Block) ---
+
+        function renderConditionBlock(section) {
+            // section: 'watch_conditions', 'entry_conditions', 'exit_conditions'
+            const block = fullConfig[currentStrategy][section] || { desc: '', code: '' };
+
+            // Bind to UI
+            const descEl = document.getElementById(section + '_desc');
+            const codeEl = document.getElementById(section + '_code');
+
+            if (descEl) descEl.value = block.desc || '';
+            if (codeEl) codeEl.value = block.code || '';
+        }
+
+        function updateRuleBlock(section, field, val) {
             if (!fullConfig[currentStrategy][section]) {
-                fullConfig[currentStrategy][section] = [];
+                fullConfig[currentStrategy][section] = {};
             }
-            fullConfig[currentStrategy][section].push({ desc: "", code: "" });
-            renderRules(section);
-        }
-
-        function deleteRule(section, idx) {
-            if (confirm("정말 이 규칙을 삭제하시겠습니까?")) {
-                fullConfig[currentStrategy][section].splice(idx, 1);
-                renderRules(section);
-            }
+            fullConfig[currentStrategy][section][field] = val;
         }
 
         // Tab Switching

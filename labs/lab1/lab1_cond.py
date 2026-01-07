@@ -6,6 +6,9 @@ config/strategies_sandbox.yaml 설정을 읽어 동적으로 판단합니다.
 import os
 import yaml
 import random
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 설정 파일 경로 식별 (같은 폴더 내 lab1_cond.yaml)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,9 +23,9 @@ try:
     STRATEGY_CONFIG = _yaml_data[STRATEGY_NAME]
     VARIABLES = STRATEGY_CONFIG.get("variables", {})
     
-    print(f"[lab1_cond] '{STRATEGY_NAME}' 설정 로드 완료")
+    logger.info(f"[lab1_cond] '{STRATEGY_NAME}' 설정 로드 완료")
 except Exception as e:
-    print(f"[lab1_cond] 설정 로드 실패 (기본값 사용): {e}")
+    logger.error(f"[lab1_cond] 설정 로드 실패 (기본값 사용): {e}")
     STRATEGY_CONFIG = {}
     VARIABLES = {}
 
@@ -40,7 +43,12 @@ def _get_mock_data(symbol: str) -> dict:
     data['price'] = price
     
     # 거래량: 5000 ~ 15000 (10000주 미만 필터 테스트 가능)
-    data['volume'] = random.randint(5000, 15000)
+    volume = random.randint(5000, 15000)
+    data['volume'] = volume
+    
+    # 전일 거래량 및 평균 거래량 (거래량 급증 테스트용)
+    data['prev_volume'] = random.randint(4000, 12000)
+    data['avg_volume_long'] = random.randint(5000, 10000)
     
     # 이동평균선 (골든크로스 등 테스트용)
     # 단기 이평: 현재가 근처
@@ -48,107 +56,83 @@ def _get_mock_data(symbol: str) -> dict:
     # 장기 이평: 현재가 근처
     data['ma_long'] = price + random.randint(-100, 100)
     
-    # 이전 봉 데이터 (크로스 계산용)
+    # 이전 봉 데이터 (크로스 계산용, 추세 확인용)
     data['prev_price'] = price - random.randint(-30, 30)
     data['prev_ma_short'] = data['ma_short'] - random.randint(-20, 20)
+    data['prev_ma_long'] = data['ma_long'] - random.randint(-10, 10) # 20일선 상승/하락 확인용
     
     # 수익률 (청산 테스트용, -3.0% ~ +6.0%)
     data['pnl_pct'] = random.uniform(-3.0, 6.0)
     
     return data
 
-def _evaluate_conditions(conditions: list, symbol: str, data: dict, logic_type: str = "AND") -> bool:
+def _evaluate_single_condition(condition: dict, symbol: str, data: dict) -> bool:
     """
-    조건식 리스트 평가 헬퍼 함수
-    logic_type: 
-      - "AND": 모든 조건이 True여야 최종 True (진입용)
-      - "OR": 하나라도 True면 최종 True (청산/제외용)
+    단일 조건식 평가 헬퍼 함수
+    condition: {'code': '...', 'desc': '...'}
     """
-    if not conditions:
+    if not condition:
         return False
         
-    results = []
-    
-    # 디버깅용 로그 문자열
-    log_details = []
+    code = condition.get('code', '').strip()
+    if not code:
+        return False # 코드가 없으면 False (또는 의도에 따라 True? 보통 조건 없으면 False 처리하거나 상위에서 처리)
 
-    for cond in conditions:
-        code = cond.get('code', 'False')
-        desc = cond.get('desc', '')
-        try:
-            # eval(): 문자열 코드를 실행하여 bool 결과 반환
-            # data 딕셔너리를 로컬 네임스페이스로 전달
-            req_met = eval(code, {}, data)
-            results.append(req_met)
-            
-            # (로그가 너무 많으면 주석 처리)
-            # log_details.append(f"'{desc}':{req_met}")
-        except Exception as e:
-            print(f"  [오류] {symbol} 조건식 실행 불가: {code} -> {e}")
-            results.append(False)
-
-    # 로직 타입에 따른 최종 판단
-    if logic_type == "AND":
-        final_result = all(results)
-    elif logic_type == "OR":
-        final_result = any(results)
-    else:
-        final_result = False
-        
-    return final_result
+    try:
+        # eval(): 문자열 코드를 실행하여 bool 결과 반환
+        req_met = eval(code, {}, data)
+        return bool(req_met)
+    except Exception as e:
+        logger.error(f"  [오류] {symbol} 조건식 실행 불가: {code} -> {e}")
+        return False
 
 def should_watch(symbol: str) -> bool:
     """
-    [감시 조건] monitoring_exclusions (제외 조건)
-    하나라도 True면 '감시 제외'이므로, 함수 반환값은 False여야 함.
+    [감시 조건] watch_conditions (포함 조건)
+    True여야 '감시 대상'이 됨
     """
-    exclusions = STRATEGY_CONFIG.get("monitoring_exclusions", [])
-    if not exclusions:
-        return True # 제외 조건 없으면 감시
+    # 이제 리스트가 아니라 단일 딕셔너리
+    condition = STRATEGY_CONFIG.get("watch_conditions", {})
+    if not condition or not condition.get('code'):
+        return True # 조건이 아예 없으면 모두 감시(기본값)
         
     data = _get_mock_data(symbol)
     
-    # 제외 조건은 하나라도 걸리면(OR) True
-    is_excluded = _evaluate_conditions(exclusions, symbol, data, logic_type="OR")
+    # 단일 조건 평가
+    is_watched = _evaluate_single_condition(condition, symbol, data)
     
-    if is_excluded:
-        # 디버깅: 왜 제외됐는지 알면 좋음 (나중에 상세 로그 추가 가능)
-        # 예: data['volume']이 9000이라서 제외됨 등
-        return False
-        
-    return True
+    return is_watched
 
 def should_enter(symbol: str) -> bool:
     """
     [진입 조건] entry_conditions
-    모두 만족해야(AND) 매수 진입
+    True면 매수 진입
     """
-    conditions = STRATEGY_CONFIG.get("entry_conditions", [])
-    if not conditions:
-        return False
+    condition = STRATEGY_CONFIG.get("entry_conditions", {})
+    if not condition or not condition.get('code'):
+        return False # 진입 조건 없으면 진입 불가
         
     data = _get_mock_data(symbol)
-    can_enter = _evaluate_conditions(conditions, symbol, data, logic_type="AND")
+    can_enter = _evaluate_single_condition(condition, symbol, data)
     
-    # 디버깅 출력 (진입 성공 시에만)
     if can_enter:
-        print(f"  [Debug] {symbol} 진입 데이터: Price={data['price']}, MA5={data['ma_short']}, PrevP={data['prev_price']}")
+        logger.info(f"  [Debug] {symbol} 진입 데이터: Price={data['price']}, MA5={data['ma_short']}, PrevP={data['prev_price']}")
         
     return can_enter
 
 def should_exit(symbol: str) -> bool:
     """
     [청산 조건] exit_conditions
-    하나라도 만족하면(OR) 매도 청산
+    True면 매도 청산
     """
-    conditions = STRATEGY_CONFIG.get("exit_conditions", [])
-    if not conditions:
+    condition = STRATEGY_CONFIG.get("exit_conditions", {})
+    if not condition or not condition.get('code'):
         return False
         
     data = _get_mock_data(symbol)
-    can_exit = _evaluate_conditions(conditions, symbol, data, logic_type="OR")
+    can_exit = _evaluate_single_condition(condition, symbol, data)
     
     if can_exit:
-        print(f"  [Debug] {symbol} 청산 데이터: PnL={data['pnl_pct']:.2f}%")
+        logger.info(f"  [Debug] {symbol} 청산 데이터: PnL={data['pnl_pct']:.2f}%")
         
     return can_exit
