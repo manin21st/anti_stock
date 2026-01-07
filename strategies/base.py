@@ -362,7 +362,11 @@ class BaseStrategy(ABC):
         #     return
 
         last_msg = self.last_log_state.get(symbol)
-        if last_msg != msg:
+        
+        # [User Request] 감시 제외 로그는 중복되어도 계속 표시 (확인용)
+        force_log = "[감시 제외]" in msg
+        
+        if last_msg != msg or force_log:
             self.logger.info(msg)
             self.last_log_state[symbol] = msg
         else:
