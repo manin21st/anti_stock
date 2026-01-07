@@ -26,9 +26,12 @@ class BaseStrategy(ABC):
         self.last_log_state = {} # {symbol: 'state_string'}
         
         # [Day Trading Rule] 당일 손절 종목 재진입 금지 목록
-        # 키: 심볼, 값: 손절 발생한 날짜 (YYYYMMDD) - 나중에 날짜 바뀌면 초기화 로직 추가 가능
-        # 현재는 런타임 세션 기준
-        self.stopped_out_symbols = set()
+        # 변경: set -> dict {symbol: date_str}
+        # 날짜를 확인하여 하루가 지나면 자동 해제되도록 함.
+        self.stopped_out_symbols = {}
+        
+        # 날짜 변경 감지용 (초기값: 현재 날짜)
+        self._current_trading_date = time.strftime("%Y%m%d")
 
     def validate_config(self):
         """
@@ -80,12 +83,32 @@ class BaseStrategy(ABC):
         """
         pass
 
+    def _check_new_day(self):
+        """날짜가 변경되었는지 확인하고, 일일 초기화 작업을 수행합니다."""
+        now_date = time.strftime("%Y%m%d")
+        if self._current_trading_date != now_date:
+            self.logger.info(f"[일일 초기화] 날짜 변경 감지 ({self._current_trading_date} -> {now_date})")
+            
+            # 1. 중복 로그 상태 초기화 (새로운 날에는 다시 안내)
+            self.last_log_state.clear()
+            
+            # 2. 오래된 금지 목록 정리
+            expired = [s for s, date in self.stopped_out_symbols.items() if date != now_date]
+            for s in expired:
+                del self.stopped_out_symbols[s]
+                
+            if expired:
+                self.logger.info(f"[일일 초기화] 금지 목록 해제 ({len(expired)}종목): {expired}")
+
+            self._current_trading_date = now_date
+
     def preprocessing(self, symbol, data) -> bool:
         """
         [게이트키퍼 (Gatekeeper)]
         execute() 실행 여부를 결정하는 전처리 단계입니다.
         
         수행 작업:
+        0. 날짜 변경 확인 (New)
         1. 기본 데이터 체크 및 Rate Limit 확인
         2. 당일 손절 종목 재진입 차단 (Cool-down)
         3. 장 운영 시간 확인
@@ -95,13 +118,22 @@ class BaseStrategy(ABC):
         Returns:
             bool: True면 execute()(진입 로직) 진행, False면 건너뜀.
         """
+        # 0. 날짜 변경 체크
+        self._check_new_day()
+
         # 1. 기본 데이터 체크 및 Rate Limit
         if not data: return False
         
         # [Cool-down] 당일 손절 종목 재진입 방지
         # manage_position에서 손절매 발생 시 이 목록에 추가됨
-        if symbol in self.stopped_out_symbols:
-            return False
+        stop_date = self.stopped_out_symbols.get(symbol)
+        if stop_date:
+            if stop_date == self._current_trading_date:
+                # 당일 차단된 종목
+                return False
+            else:
+                # 날짜 지났으면 해제 (Safety net, _check_new_day에서도 처리하지만 즉시성을 위해)
+                del self.stopped_out_symbols[symbol]
 
         if not self.check_rate_limit(symbol, interval_seconds=5):
             return False
@@ -358,7 +390,8 @@ class BaseStrategy(ABC):
             self.broker.sell_market(symbol, position.qty, tag=self.config["id"])
             
             # [Cool-down] 손절매 발생 종목 기록 -> preprocessing에서 차단
-            self.stopped_out_symbols.add(symbol)
+            # 변경: 날짜 정보 포함하여 저장
+            self.stopped_out_symbols[symbol] = self._current_trading_date
             return True # Action taken
 
         # 2. 부분 익절 (Optional - 공통 로직으로 통합됨)
