@@ -75,6 +75,8 @@ class MovingAverageTrendStrategy(BaseStrategy):
         # 데이터 부족 시 조기 리턴
         bars = self.market_data.get_bars(symbol, timeframe=self.config["timeframe"])
         if bars is None or len(bars) < 20: 
+            self.log_state_once(symbol, f"[감시 중] {stock_name} | 데이터 수집 중... ({len(bars) if bars is not None else 0}/20)")
+            return
             return None
         
         current_price = data.get('close', 0.0)
@@ -139,6 +141,16 @@ class MovingAverageTrendStrategy(BaseStrategy):
         vol_ok = volume_now > (avg_vol20 * vol_k)
         
         in_uptrend = ma_short > ma_long
+        
+        # [User Request] 감시 중 로그 추가 (필터 통과 시)
+        # in_uptrend가 True이거나 적어도 하락 추세가 아니면 감시 중으로 표시
+        # check_daily_trend를 통과했으므로 여기 왔다는 것은 기본 필터는 통과했다는 뜻임.
+        if in_uptrend:
+             # 상세 진행 상황
+             self.log_state_once(symbol, f"[감시 중] {stock_name} | 상승 추세 (이격 {((ma_short/ma_long)-1)*100:.1f}%) | 거래량 {volume_now/avg_vol20:.1f}x")
+        else:
+             # 정배열은 아니지만 20일선 위에 있는 경우 등
+             self.log_state_once(symbol, f"[감시 중] {stock_name} | 추세 확인 중 (단기 역배열)")
         
         # 2. 고도화 필터 (ADX, Slope)
         adx = self.calculate_adx(bars)

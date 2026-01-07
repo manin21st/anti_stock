@@ -139,9 +139,9 @@ class Universe:
 
             try:
                 if mode == "volume":
-                    items = self.scanner.get_trading_value_leaders(limit=50)
+                    items = self.scanner.get_trading_value_leaders(limit=30)
                 else:
-                    items = self.scanner.get_top_gainers(limit=50)
+                    items = self.scanner.get_top_gainers(limit=30)
 
                 scanned_symbols = []
                 if items:
@@ -165,7 +165,7 @@ class Universe:
                 if watchlist:
                     watchlist = [str(x).zfill(6) for x in watchlist]
                     universe = [s for s in scanned_symbols if s in watchlist]
-                    logger.info(f"Filtered by Watchlist: {len(universe)} stocks selected {universe}")
+                    logger.info(f"[스캐너 결과] 관심종목 일치: {len(universe)}개 (스캔된 21개 중)")
                 else:
                     logger.warning("Auto-Scanner is on, but Watchlist is empty. No stocks selected.")
                     universe = []
@@ -190,5 +190,6 @@ class Universe:
         if subscription_list:
             final_list = [str(x).zfill(6) for x in subscription_list]
             self.market_data.subscribe_market_data(final_list)
+            logger.info(f"[최종 감시 목록] 총 {len(final_list)}종목 (스캔/관심 {len(universe)} + 보유 {len(final_list)-len(universe)})")
 
         self.last_scan_time = time.time()

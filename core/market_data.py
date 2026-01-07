@@ -368,7 +368,7 @@ class MarketData:
         current_symbols = set(self.polling_symbols if hasattr(self, 'polling_symbols') else [])
         current_symbols.update(symbols)
         self.polling_symbols = list(current_symbols)
-        logger.info(f"Updated polling list: {len(self.polling_symbols)} symbols")
+        logger.debug(f"Updated polling list: {len(self.polling_symbols)} symbols")
 
     def start(self):
         """Start the polling loop in a background thread"""

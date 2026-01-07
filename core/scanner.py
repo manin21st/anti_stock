@@ -79,7 +79,7 @@ class Scanner:
             "FID_TRGT_EXLS_CLS_CODE": "000000",
             "FID_INPUT_PRICE_1": "",
             "FID_INPUT_PRICE_2": "",
-            "FID_VOL_CNT": "",
+            "FID_VOL_CNT": "100",
             "FID_INPUT_DATE_1": ""
         }
         
@@ -95,8 +95,11 @@ class Scanner:
             # Filter keywords for ETF/SPAC/ETN
             exclusion_keywords = ["스팩", "ETN", "KODEX", "TIGER", "KBSTAR", "ACE", "SOL", "HANARO", "KOSEF", "ARIRANG", "TIMEFOLIO", "WOORI", "HK", "FOCUS", "KTOP", "TREX", "SMART"]
             
+            logger.info(f"[Scanner] Raw items from API: {len(items)}")
+            
             count = 0
             for item in items:
+                # [Fix] 필터링 후 실제 유효 종목이 limit 개수에 도달할 때까지 반복
                 if count >= limit:
                     break
                     
