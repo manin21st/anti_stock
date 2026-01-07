@@ -32,7 +32,7 @@ app = FastAPI()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
-templates = Jinja2Templates(directory="web/templates")
+templates = Jinja2Templates(directory=["web/templates", "labs/lab1"])
 
 # Global variables
 engine_instance = None
@@ -406,25 +406,25 @@ async def get_manual(request: Request):
 async def get_backtest_process(request: Request):
     return templates.TemplateResponse("backtest_process.html", {"request": request})
 
-@app.get("/sandbox", response_class=HTMLResponse)
-async def get_sandbox(request: Request):
-    return templates.TemplateResponse("sandbox.html", {"request": request})
+@app.get("/lab1", response_class=HTMLResponse)
+async def get_lab1(request: Request):
+    return templates.TemplateResponse("lab1.html", {"request": request})
 
-@app.get("/api/sandbox/config")
-async def get_sandbox_config():
-    """Read strategies_sandbox.yaml"""
-    config_path = os.path.join("config", "strategies_sandbox.yaml")
+@app.get("/api/lab1/config")
+async def get_lab1_config():
+    """Read strategies_sandbox.yaml -> lab1_cond.yaml"""
+    config_path = os.path.join("labs", "lab1", "lab1_cond.yaml")
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     return {}
 
-@app.post("/api/sandbox/config")
-async def update_sandbox_config(request: Request):
-    """Write strategies_sandbox.yaml"""
+@app.post("/api/lab1/config")
+async def update_lab1_config(request: Request):
+    """Write strategies_sandbox.yaml -> lab1_cond.yaml"""
     try:
         data = await request.json()
-        config_path = os.path.join("config", "strategies_sandbox.yaml")
+        config_path = os.path.join("labs", "lab1", "lab1_cond.yaml")
         # Ensure directory exists (though it should)
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         
@@ -433,7 +433,7 @@ async def update_sandbox_config(request: Request):
             
         return {"status": "ok"}
     except Exception as e:
-        logger.error(f"Failed to save sandbox config: {e}")
+        logger.error(f"Failed to save lab1 config: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/control")

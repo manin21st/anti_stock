@@ -285,6 +285,11 @@
         .fab-save:active {
             transform: scale(0.95);
         }
+
+        /* Fallback for primary color if variable not loaded */
+        .fab-save {
+            background-color: #3b82f6 !important;
+        }
     </style>
 </head>
 
@@ -296,7 +301,7 @@
                 style="color: #3b82f6; font-weight: 400;">Sandbox</span></div>
         <nav>
             <a href="/" style="text-decoration: none; color: #64748b; font-weight: 600; margin-right: 20px;">대시보드</a>
-            <a href="/sandbox" style="text-decoration: none; color: #3b82f6; font-weight: 600;">전략실험실</a>
+            <a href="/lab1" style="text-decoration: none; color: #3b82f6; font-weight: 600;">전략실험실</a>
         </nav>
     </header>
 
@@ -311,6 +316,13 @@
 
         <!-- Main Editor -->
         <main class="editor-area" id="editor-area" style="display: none;">
+
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 0px;">
+                <button onclick="saveConfig()" class="add-btn"
+                    style="width: auto; background-color: #3b82f6; color: white; border: none;">
+                    <i class="fas fa-save"></i> 전략 저장하기
+                </button>
+            </div>
 
             <!-- 1. Variables Section -->
             <section class="section-card">
@@ -380,7 +392,7 @@
         // Load Config on Start
         async function loadConfig() {
             try {
-                const res = await fetch('/api/sandbox/config');
+                const res = await fetch('/api/lab1/config');
                 fullConfig = await res.json();
                 renderSidebar();
 
@@ -525,7 +537,7 @@
                 const originalIcon = btn.innerHTML;
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
-                const res = await fetch('/api/sandbox/config', {
+                const res = await fetch('/api/lab1/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(fullConfig)
