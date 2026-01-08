@@ -436,6 +436,34 @@ async def update_lab1_config(request: Request):
         logger.error(f"Failed to save lab1 config: {e}")
         return {"status": "error", "message": str(e)}
 
+@app.post("/api/lab1/llm")
+async def generate_llm_condition(request: Request):
+    """
+    Generate Python condition from natural language using lab1_llm.py
+    """
+    try:
+        data = await request.json()
+        description = data.get("text")
+        if not description:
+            return {"status": "error", "message": "설명 텍스트가 필요합니다."}
+
+        # Dynamic import to avoid top-level dependency if possible or just straightforward import
+        # Since lab1_llm.py is in labs/lab1, we need to adjust path or treat as package
+        from labs.lab1.lab1_llm import ConditionGenerator
+        
+        agent = ConditionGenerator()
+        code = agent.generate_condition(description)
+        
+        if code.startswith("Error"):
+            return {"status": "error", "message": code}
+            
+        return {"status": "ok", "code": code}
+    except ImportError:
+        return {"status": "error", "message": "lab1_llm 모듈을 찾을 수 없거나 의존성(google-generativeai)이 설치되지 않았습니다."}
+    except Exception as e:
+        logger.error(f"LLM Generation Error: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/control")
 async def control_engine(action: dict):
     # action: { "command": "start" | "stop" | "restart" }
