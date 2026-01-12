@@ -5,12 +5,11 @@
     stop_loss_pct: 2
     take_profit_pct: 5
   watch_conditions:
-    desc: ' 현재가가 20일 이동평균가격 이상이고 전일거래량이 20일 평균거래량의 1.1배보다 크면서 20일선이 상승 중인 종목 감시'
-    code: (price >= ma_long) and (prev_volume > avg_volume_long * 1.1) and (ma_long
-      > prev_ma_long)
+    desc: 현재가가 20일 이동평균가격 이상이고 전일거래량이 20일 평균거래량의 1.1배보다 크면서 20일선이 상승 중인 종목
+    code: (price >= ma_long) and (prev_volume > avg_volume_long * 1.1) and (ma_long > prev_ma_long)
   entry_conditions:
-    desc: 현재가가 단기 이평선 돌파(Golden Cross) AND 장기 이평선 위
-    code: (price > ma_short and prev_price <= prev_ma_short) and (price > ma_long)
+    desc: "신규 진입: 현재가가 단기 이평선 돌파 시 1차 매수(10%) | 추가 진입: -5% 하락 시마다 물타기(20% 비중까지)"
+    code: ((price > ma_short) and (price > ma_long)) or (has_position)
   exit_conditions:
     desc: 손실 제한(2%) 또는 목표 수익(5%) 달성 시 청산
     code: (pnl_pct < -stop_loss_pct) or (pnl_pct > take_profit_pct)

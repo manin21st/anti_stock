@@ -1,0 +1,183 @@
+import logging
+import math
+
+logger = logging.getLogger(__name__)
+
+def sell(symbol, broker, portfolio, market_data, **kwargs):
+    """
+    [매도 실행]
+    Action 파라미터(kwargs) 우선 적용
+    - qty: 지정 수량 매도
+    - qty_pct: 보유량의 % 매도 (0.5 = 50%)
+    """
+    # 보유 수량 조회
+    pos = portfolio.get_position(symbol)
+    if not pos:
+         # 안전장치: API 잔고 확인
+         balance = broker.get_balance()
+         holdings = balance.get('holdings', [])
+         found = next((h for h in holdings if h['pdno'] == symbol), None)
+         qty = int(found['hldg_qty']) if found else 0
+    else:
+         qty = pos.qty
+    
+    if qty <= 0:
+        logger.warning(f"[{symbol}] 매도할 수량이 없습니다.")
+        return
+
+    # [Action Logic] 동적 파라미터 처리
+    sell_qty = qty # 기본: 전량
+    
+    if 'qty' in kwargs:
+        sell_qty = int(kwargs['qty'])
+    elif 'qty_pct' in kwargs:
+        pct = float(kwargs['qty_pct'])
+        sell_qty = int(qty * pct)
+    
+    # 0 이하 또는 보유량 초과 보정
+    if sell_qty <= 0: sell_qty = 0
+    if sell_qty > qty: sell_qty = qty
+
+    if sell_qty == 0:
+        return
+
+    logger.info(f"  >>> {symbol} 매도 주문 전송 (qty={sell_qty}, 보유={qty})")
+    if broker.sell_market(symbol, qty=sell_qty, tag="LAB1"):
+        logger.info(f"  >>> {symbol} 매도 주문 성공")
+        
+        # [Optimistic Update]
+        order_info = {
+             "side": "SELL",
+             "symbol": symbol,
+             "qty": sell_qty,
+             "price": 0,
+             "tag": "LAB1"
+        }
+        portfolio.on_order_sent(order_info, market_data)
+    else:
+        logger.error(f"  >>> {symbol} 매도 주문 실패")
+
+def buy(symbol, broker, portfolio, market_data, **kwargs):
+    """
+    [매수 실행]
+    Action 파라미터(kwargs) 우선 적용
+    - target_pct: 총 자산 대비 목표 비중 (0.1 = 10%)
+    - buy_amt: 지정 금액 매수 (원)
+    - buy_qty: 지정 수량 매수
+    """
+    try:
+        name = market_data.get_stock_name(symbol)
+
+        current_price = market_data.get_last_price(symbol)
+        if current_price <= 0:
+            logger.error(f"[{name}({symbol})] 현재가 조회 실패, 매수 중단")
+            return
+
+        # 1. 자산 데이터 및 상태 조회
+        total_asset = portfolio.total_asset
+        if total_asset <= 0: total_asset = portfolio.cash # fallback
+        buying_power = portfolio.buying_power
+        
+        pos = portfolio.get_position(symbol)
+        has_position = (pos is not None and pos.qty > 0)
+        current_qty = pos.qty if has_position else 0
+        current_val = current_qty * current_price
+        
+        # 2. 파라미터 해석 (Dynamic) - 사용자가 지정한 로직 우선
+        buy_qty = 0
+        mode = "DYNAMIC_ACTION"
+        
+        if kwargs:
+            # A. 목표 비중 지정 (예: 자산의 10%까지 채워라)
+            if 'target_pct' in kwargs:
+                target_pct = float(kwargs['target_pct'])
+                target_amt = total_asset * target_pct
+                target_qty = int(target_amt // current_price)
+                buy_qty = target_qty - current_qty # 부족분 매수
+                mode = f"TARGET_PCT({target_pct*100}%)"
+                
+            # B. 매수 금액 지정 (예: 100만원 어치 사라)
+            elif 'buy_amt' in kwargs:
+                amt = float(kwargs['buy_amt'])
+                buy_qty = int(amt // current_price)
+                mode = f"BUY_AMT({int(amt):,})"
+                
+            # C. 매수 수량 지정 (예: 10주 사라)
+            elif 'buy_qty' in kwargs:
+                buy_qty = int(kwargs['buy_qty'])
+                mode = f"BUY_QTY({buy_qty})"
+                
+            # 계산된 수량이 0 이하면 (이미 목표 달성 등) 리턴
+            if buy_qty <= 0:
+                # logger.info(f"[{symbol}] {mode} - 추가 매수 불필요 (보유충분)")
+                return
+
+        else:
+            # (기존 하드코딩 로직 유지 - 파라미터 없을 때 Fallback)
+            return
+            # ... (기존 로직 생략, 필요시 복구 가능하지만 현재는 Dynamic 위주로 전환)
+
+
+        # 3. 목표 수량 및 필요 수량 계산
+        target_amount = total_asset * target_pct_of_asset
+        target_qty = int(target_amount // current_price)
+        
+        buy_qty = target_qty - current_qty
+        
+        # [Debug] 수량 계산 결과 확인
+        logger.info(f"[{name}({symbol})] 수량 계산: Mode={mode}, Target%={target_pct_of_asset}, TargetQty={target_qty}, CurrentQty={current_qty} -> BuyQty={buy_qty}")
+        
+        if buy_qty <= 0:
+            return
+
+        # 4. 자금력 확인
+        estimated_cost = buy_qty * current_price * 1.00015
+        if estimated_cost > buying_power:
+            # 자금 부족 시 가능한 만큼만 매수 (혹은 취소 정책) -> 여기선 가능한 만큼 조정
+            adj_qty = int(buying_power // (current_price * 1.00015))
+            if adj_qty <= 0:
+                logger.info(f"[{name}({symbol})] 주문 가능 자금 부족 (필요: {int(estimated_cost):,}, 가용: {int(buying_power):,})")
+                return
+            logger.info(f"[{name}({symbol})] 자금 부족으로 수량 조정 ({buy_qty} -> {adj_qty})")
+            buy_qty = adj_qty
+
+        # 5. 주문 실행
+        logger.info(f"[{name}({symbol})] [{mode}] 매수 주문: {buy_qty}주 (현재포지션: {current_qty}주 -> 목표: {target_qty}주)")
+        
+        if broker.buy_market(symbol, qty=buy_qty, tag="LAB1"):
+             # logger.info(f"  >>> [{name}({symbol})] 매수 주문 성공")
+             
+             # Optimistic Update
+             order_info = {
+                 "side": "BUY",
+                 "symbol": symbol,
+                 "qty": buy_qty,
+                 "price": current_price,
+                 "tag": "LAB1"
+             }
+             portfolio.on_order_sent(order_info, market_data)
+        else:
+             logger.error(f"  >>> [{name}({symbol})] 매수 주문 실패")
+
+    except Exception as e:
+        logger.error(f"[{name}({symbol})] 매수 실행 중 오류: {e}")
+
+def _check_trend_valid(symbol, market_data):
+    """
+    [추세 확인 Helper]
+    고점/저점 상승 구조 또는 단순 이평 배열 확인
+    여기서는 간단히 일봉상 정배열(Close > MA20 > MA60) 또는 MA20 상승 기울기 확인
+    """
+    try:
+        df = market_data.get_bars(symbol, timeframe="1d", lookback=30)
+        if df.empty or len(df) < 20: 
+            return True # 데이터 없으면 관대하게 처리 (실험실 특성)
+            
+        # 1. MA20 상승 확인
+        ma20 = df['close'].rolling(20).mean()
+        if ma20.iloc[-1] > ma20.iloc[-2]:
+            return True
+            
+        return False
+    except:
+        return True # 에러 시 안전하게 True (매수 기회 우선)

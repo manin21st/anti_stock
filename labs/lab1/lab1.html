@@ -309,11 +309,39 @@
         .fab-save {
             background-color: #3b82f6 !important;
         }
+
+        /* Collapsible Support */
+        .section-header {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .section-header:hover {
+            background-color: #f8fafc;
+        }
+
+        .chevron {
+            transition: transform 0.3s;
+        }
+
+        .section-card.collapsed .chevron {
+            transform: rotate(-90deg);
+        }
+
+        .section-content {
+            display: block;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .section-card.collapsed .section-content {
+            display: none;
+        }
     </style>
 </head>
 
 <body>
-    <!-- Simple Header -->
+    <!-- Simple Header (omitted for brevity, unchanged) -->
     <header
         style="background: white; padding: 0 20px; height: 60px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0;">
         <div style="font-weight: 800; font-size: 1.25rem; color: #1e293b;">Anti-Stock <span
@@ -360,109 +388,145 @@
             </div>
 
             <!-- 1. Variables Section -->
-            <section class="section-card">
-                <div class="section-header">
-                    <div class="section-title"><i class="fas fa-sliders-h"></i> 변수 설정 (Variables)</div>
+            <section class="section-card" id="card-variables">
+                <div class="section-header" onclick="toggleSection('card-variables')">
+                    <div class="section-title">
+                        <i class="fas fa-chevron-down chevron" style="font-size: 0.8rem; margin-right: 5px;"></i>
+                        <i class="fas fa-sliders-h"></i> 변수 설정 (Variables)
+                    </div>
                 </div>
-                <table class="var-table">
-                    <thead>
-                        <tr>
-                            <th>변수명 (Variable)</th>
-                            <th>값 (Value)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="variables-body">
-                        <!-- Dynamic Rows -->
-                    </tbody>
-                </table>
+                <div class="section-content">
+                    <table class="var-table">
+                        <thead>
+                            <tr>
+                                <th>변수명 (Variable)</th>
+                                <th>값 (Value)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="variables-body">
+                            <!-- Dynamic Rows -->
+                        </tbody>
+                    </table>
+                </div>
             </section>
 
             <!-- 2. Rules Section -->
-            <section class="section-card">
-                <div class="section-header">
-                    <div class="section-title"><i class="fas fa-code-branch"></i> 로직 구성 (Logic Rules)</div>
-                </div>
-
-                <div class="tabs">
-                    <button class="tab-btn active" onclick="switchTab('watch_conditions')">감시 조건 (Watch)</button>
-                    <button class="tab-btn" onclick="switchTab('entry_conditions')">진입 조건 (Entry)</button>
-                    <button class="tab-btn" onclick="switchTab('exit_conditions')">청산 조건 (Exit)</button>
-                </div>
-
-                <div id="watch_conditions" class="tab-content active">
-                    <div class="rule-card">
-                        <div class="rule-header">
-                            <span class="rule-label"><i class="far fa-comment-alt"></i> 감시 조건 설명 (Description)</span>
-                        </div>
-                        <textarea id="watch_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
-                            onchange="updateRuleBlock('watch_conditions', 'desc', this.value)"></textarea>
-
-                        <div class="rule-header"
-                            style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
-                            <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식 (Python
-                                Expression)</span>
-                            <button id="watch_conditions_llm_btn" class="add-btn"
-                                style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
-                                onclick="generateExpression('watch_conditions')">
-                                <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
-                            </button>
-                        </div>
-                        <div class="rule-code-wrapper">
-                            <textarea id="watch_conditions_code" class="rule-code"
-                                placeholder="예: volume >= 10000 and price >= 1000"
-                                onchange="updateRuleBlock('watch_conditions', 'code', this.value)"></textarea>
-                        </div>
+            <section class="section-card" id="card-rules">
+                <div class="section-header" onclick="toggleSection('card-rules')">
+                    <div class="section-title">
+                        <i class="fas fa-chevron-down chevron" style="font-size: 0.8rem; margin-right: 5px;"></i>
+                        <i class="fas fa-code-branch"></i> 로직 구성 (Logic Rules)
                     </div>
                 </div>
 
-                <div id="entry_conditions" class="tab-content">
-                    <div class="rule-card">
-                        <div class="rule-header">
-                            <span class="rule-label"><i class="far fa-comment-alt"></i> 진입 조건 설명 (Description)</span>
-                        </div>
-                        <textarea id="entry_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
-                            onchange="updateRuleBlock('entry_conditions', 'desc', this.value)"></textarea>
+                <div class="section-content">
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab('watch_conditions')">감시 조건 (Watch)</button>
+                        <button class="tab-btn" onclick="switchTab('exit_conditions')">청산 조건 (Exit)</button>
+                        <button class="tab-btn" onclick="switchTab('entry_conditions')">진입 조건 (Entry)</button>
+                    </div>
 
-                        <div class="rule-header"
-                            style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
-                            <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식 (Python
-                                Expression)</span>
-                            <button id="entry_conditions_llm_btn" class="add-btn"
-                                style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
-                                onclick="generateExpression('entry_conditions')">
-                                <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
-                            </button>
-                        </div>
-                        <div class="rule-code-wrapper">
-                            <textarea id="entry_conditions_code" class="rule-code"
-                                placeholder="예: price > ma_short and prev_price <= prev_ma_short"
-                                onchange="updateRuleBlock('entry_conditions', 'code', this.value)"></textarea>
+                    <div id="watch_conditions" class="tab-content active">
+                        <div class="rule-card">
+                            <div class="rule-header">
+                                <span class="rule-label"><i class="far fa-comment-alt"></i> 감시 조건 설명
+                                    (Description)</span>
+                            </div>
+                            <textarea id="watch_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
+                                onchange="updateRuleBlock('watch_conditions', 'desc', this.value)"></textarea>
+
+                            <div class="rule-header"
+                                style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
+                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식
+                                    (Python
+                                    Expression)</span>
+                                <button id="watch_conditions_llm_btn" class="add-btn"
+                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
+                                    onclick="generateExpression('watch_conditions')">
+                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
+                                </button>
+                            </div>
+                            <div class="rule-code-wrapper">
+                                <textarea id="watch_conditions_code" class="rule-code"
+                                    placeholder="예: volume >= 10000 and price >= 1000"
+                                    onchange="updateRuleBlock('watch_conditions', 'code', this.value)"></textarea>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div id="exit_conditions" class="tab-content">
-                    <div class="rule-card">
-                        <div class="rule-header">
-                            <span class="rule-label"><i class="far fa-comment-alt"></i> 청산 조건 설명 (Description)</span>
-                        </div>
-                        <textarea id="exit_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
-                            onchange="updateRuleBlock('exit_conditions', 'desc', this.value)"></textarea>
+                    <div id="entry_conditions" class="tab-content">
+                        <div class="rule-card">
+                            <div class="rule-header">
+                                <span class="rule-label"><i class="far fa-comment-alt"></i> 진입 조건 설명
+                                    (Description)</span>
+                            </div>
+                            <textarea id="entry_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
+                                onchange="updateRuleBlock('entry_conditions', 'desc', this.value)"></textarea>
 
-                        <div class="rule-header"
-                            style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
-                            <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식 (Python
-                                Expression)</span>
-                            <button id="exit_conditions_llm_btn" class="add-btn"
-                                style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
-                                onclick="generateExpression('exit_conditions')">
-                                <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
-                            </button>
+                            <div class="rule-header"
+                                style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
+                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식
+                                    (Python
+                                    Expression)</span>
+                                <button id="entry_conditions_llm_btn" class="add-btn"
+                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
+                                    onclick="generateExpression('entry_conditions')">
+                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
+                                </button>
+                            </div>
+                            <div class="rule-code-wrapper">
+                                <textarea id="entry_conditions_code" class="rule-code"
+                                    placeholder="예: price > ma_short and prev_price <= prev_ma_short"
+                                    onchange="updateRuleBlock('entry_conditions', 'code', this.value)"></textarea>
+                            </div>
+
+                            <div class="rule-header" style="margin-top: 15px;">
+                                <span class="rule-label"><i class="fas fa-bolt"></i> 실행 수식 (Action: How)</span>
+                            </div>
+                            <div class="rule-code-wrapper">
+                                <textarea id="entry_conditions_action" class="rule-code"
+                                    style="min-height: 40px; background: #0f172a;"
+                                    placeholder="예: {'target_pct': 0.1} 또는 {'buy_amt': 1000000}"
+                                    onchange="updateRuleBlock('entry_conditions', 'action', this.value)"></textarea>
+                            </div>
                         </div>
-                        <div class="rule-code-wrapper">
-                            <textarea id="exit_conditions_code" class="rule-code"
-                                placeholder="예: pnl_pct > 5.0 or pnl_pct < -3.0"
-                                onchange="updateRuleBlock('exit_conditions', 'code', this.value)"></textarea>
+                    </div>
+
+                    <div id="exit_conditions" class="tab-content">
+                        <div class="rule-card">
+                            <div class="rule-header">
+                                <span class="rule-label"><i class="far fa-comment-alt"></i> 청산 조건 설명
+                                    (Description)</span>
+                            </div>
+                            <textarea id="exit_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
+                                onchange="updateRuleBlock('exit_conditions', 'desc', this.value)"></textarea>
+
+                            <div class="rule-header"
+                                style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
+                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식
+                                    (Python
+                                    Expression)</span>
+                                <button id="exit_conditions_llm_btn" class="add-btn"
+                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
+                                    onclick="generateExpression('exit_conditions')">
+                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
+                                </button>
+                            </div>
+                            <div class="rule-code-wrapper">
+                                <textarea id="exit_conditions_code" class="rule-code"
+                                    placeholder="예: pnl_pct > 5.0 or pnl_pct < -3.0"
+                                    onchange="updateRuleBlock('exit_conditions', 'code', this.value)"></textarea>
+                            </div>
+
+                            <div class="rule-header" style="margin-top: 15px;">
+                                <span class="rule-label"><i class="fas fa-bolt"></i> 실행 수식 (Action: How)</span>
+                            </div>
+                            <div class="rule-code-wrapper">
+                                <textarea id="exit_conditions_action" class="rule-code"
+                                    style="min-height: 40px; background: #0f172a;"
+                                    placeholder="예: {'qty_pct': 1.0} (전량매도) 또는 {'qty_pct': 0.5} (절반매도)"
+                                    onchange="updateRuleBlock('exit_conditions', 'action', this.value)"></textarea>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -540,8 +604,8 @@
 
             renderVariables();
             renderConditionBlock('watch_conditions');
-            renderConditionBlock('entry_conditions');
             renderConditionBlock('exit_conditions');
+            renderConditionBlock('entry_conditions');
         }
 
         // --- Strategy Management ---
@@ -673,14 +737,16 @@
 
         function renderConditionBlock(section) {
             // section: 'watch_conditions', 'entry_conditions', 'exit_conditions'
-            const block = fullConfig[currentStrategy][section] || { desc: '', code: '' };
+            const block = fullConfig[currentStrategy][section] || { desc: '', code: '', action: '' };
 
             // Bind to UI
             const descEl = document.getElementById(section + '_desc');
             const codeEl = document.getElementById(section + '_code');
+            const actionEl = document.getElementById(section + '_action'); // [New]
 
             if (descEl) descEl.value = block.desc || '';
             if (codeEl) codeEl.value = block.code || '';
+            if (actionEl) actionEl.value = block.action || '';
         }
 
         function updateRuleBlock(section, field, val) {
@@ -754,12 +820,30 @@
                 const data = await res.json();
 
                 if (data.status === 'ok') {
-                    const codeEl = document.getElementById(section + '_code');
-                    codeEl.value = data.code;
-                    // Trigger change event to save config state
-                    updateRuleBlock(section, 'code', data.code);
+                    // [Upgrade] JSON (condition, action) handling
+                    if (data.result && typeof data.result === 'object' && (data.result.condition || data.result.action)) {
+                        // New Format
+                        if (data.result.condition) {
+                            document.getElementById(section + '_code').value = data.result.condition;
+                            updateRuleBlock(section, 'code', data.result.condition);
+                        }
+
+                        const actionEl = document.getElementById(section + '_action');
+                        if (actionEl && data.result.action) {
+                            actionEl.value = data.result.action;
+                            updateRuleBlock(section, 'action', data.result.action);
+                        }
+                    } else if (data.result) {
+                        // Fallback for simple string result
+                        document.getElementById(section + '_code').value = data.result;
+                        updateRuleBlock(section, 'code', data.result);
+                    } else if (data.code) {
+                        // Legacy format fallback
+                        document.getElementById(section + '_code').value = data.code;
+                        updateRuleBlock(section, 'code', data.code);
+                    }
                 } else {
-                    alert('생성 실패: ' + data.message);
+                    alert('생성 실패: ' + (data.message || '알 수 없는 오류'));
                 }
             } catch (e) {
                 console.error(e);
@@ -767,6 +851,14 @@
             } finally {
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
+            }
+        }
+
+        // Toggle Section
+        function toggleSection(id) {
+            const card = document.getElementById(id);
+            if (card) {
+                card.classList.toggle('collapsed');
             }
         }
 

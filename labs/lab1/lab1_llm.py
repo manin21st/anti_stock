@@ -78,59 +78,45 @@ class ConditionGenerator:
         prompt = """
 [역할]
 당신은 Python 주식 거래 시스템의 전략 조건을 작성하는 전문가입니다.
-사용자가 자연어로 전략 조건(예: "가격이 20일 이동평균선보다 높다")을 설명하면,
-이를 시스템에서 즉시 실행 가능한 Python 조건식(Boolean Expression)으로 변환하세요.
+사용자의 자연어 설명을 분석하여 "진입/청산 조건(Boolean Expression)"과 "실행 액션(Dictionary)"으로 분리하여 변환하세요.
 
-[사용 가능한 변수 목록]
-이 변수들은 코드 내에서 이미 정의되어 있다고 가정합니다.
-오직 아래 변수들만 사용해야 합니다.
+[사용 가능한 변수 목록 (조건식용)]
+1. 시세 데이터: price, volume, prev_price, prev_volume
+2. 보조 지표: ma_short (단기이평), ma_long (장기이평), prev_ma_short, prev_ma_long, avg_volume_long
+3. 자산/수익률: pnl_pct (수익률%), cash (보유현금), total_asset (총자산), rsi (RSI지표)
 
-1. 시세 데이터
-   - price (int): 현재가
-   - volume (int): 현재 거래량
-   - prev_price (int): 전일 종가 (또는 이전 봉 종가)
-   - prev_volume (int): 전일 거래량
+[실행 액션 파라미터 (Action Dictionary)]
+- 매수 시: {'target_pct': 0.1} (자산 10% 매수), {'buy_amt': 1000000} (100만원 매수), {'buy_qty': 10} (10주 매수)
+- 매도 시: {'qty_pct': 1.0} (전량 매도), {'qty_pct': 0.5} (절반 매도), {'qty': 10} (10주 매도)
 
-2. 보조 지표 (이동평균선 등)
-   - ma_short (float): 단기 이평선 값 (예: 5일선)
-   - ma_long (float): 장기 이평선 값 (예: 20일선)
-   - prev_ma_short (float): 이전 봉의 단기 이평선
-   - prev_ma_long (float): 이전 봉의 장기 이평선
-   - avg_volume_long (float): 장기 평균 거래량
-
-3. 수익률 정보
-   - pnl_pct (float): 현재 수익률 (단위: %, 예: 3.5 = 3.5% 수익)
-
-[제약 사항]
-1. 결과는 오직 Python 조건식 문자열(String) 하나만 출력하세요. 설명이나 마크다운(```)을 포함하지 마세요.
-2. 조건식은 True 또는 False로 평가될 수 있어야 합니다.
-3. import 문을 사용하지 마세요.
-4. 알 수 없는 변수나 함수를 사용하지 마세요.
-5. 복잡한 로직은 괄호()를 사용하여 명확히 표현하세요.
+[출력 형식]
+반드시 아래와 같은 JSON 형식으로만 출력하세요. 마크다운(```)이나 추가 설명은 포함하지 마세요.
+{
+    "condition": "Python 조건식 (예: price > ma_short)",
+    "action": "{Action Dictionary 문자열} (예: {'target_pct': 0.2})"
+}
 
 [예시]
-입력: 현재가가 20일 이평선 위에 있다
-출력: price > ma_long
+입력: "골든크로스 발생 시 자산의 20% 매수"
+출력: {"condition": "price > ma_short and prev_price <= prev_ma_short", "action": "{'target_pct': 0.2}"}
 
-입력: 거래량이 10000주 이상이고 수익률이 5% 이상일 때
-출력: volume >= 10000 and pnl_pct >= 5.0
-
-입력: 골든 크로스 (단기 이평이 장기 이평을 상향 돌파)
-출력: prev_ma_short <= prev_ma_long and ma_short > ma_long
+입력: "수익률이 -3% 이하이면 전량 손절"
+출력: {"condition": "pnl_pct <= -3.0", "action": "{'qty_pct': 1.0}"}
 """
         return prompt.strip()
 
-    def generate_condition(self, user_description: str) -> str:
+    def generate_condition(self, user_description: str) -> dict:
         """
-        사용자의 자연어 설명을 받아 파이썬 조건식을 반환합니다.
+        사용자의 자연어 설명을 받아 파이썬 조건식과 액션을 포함한 딕셔너리를 반환합니다.
         """
         if not self.model:
-            return "Error: 모델이 초기화되지 않았습니다."
+            return {"code": "Error: 모델이 초기화되지 않았습니다."}
 
         system_prompt = self._get_system_prompt()
         full_prompt = f"{system_prompt}\n\n[사용자 입력]\n{user_description}\n\n[출력]\n"
 
         import time
+        import json
         max_retries = 3
         retry_delay = 5
 
@@ -138,8 +124,19 @@ class ConditionGenerator:
             try:
                 response = self.model.generate_content(full_prompt)
                 # 불필요한 공백 및 마크다운 제거
-                result = response.text.replace('```python', '').replace('```', '').strip()
-                return result
+                result = response.text.replace('```json', '').replace('```', '').strip()
+                
+                try:
+                    # JSON 파싱 시도
+                    parsed = json.loads(result)
+                    # 프론트엔드 호환성을 위해 code 필드도 추가 (하위 호환성)
+                    if 'condition' in parsed:
+                        parsed['code'] = parsed['condition']
+                    return parsed
+                except json.JSONDecodeError:
+                    # JSON 파싱 실패 시, 기존처럼 단순 문자열로 가정하고 code에 담음
+                    return {"code": result, "raw": result}
+
             except Exception as e:
                 # 429 에러 체크 (Rate Limit)
                 if "429" in str(e):
@@ -147,9 +144,9 @@ class ConditionGenerator:
                     time.sleep(retry_delay)
                     retry_delay *= 2  # 지수 백오프
                 else:
-                    return f"Error: 변환 중 오류 발생 ({e})"
+                    return {"code": f"Error: 변환 중 오류 발생 ({e})"}
         
-        return "Error: API 호출 실패 (재시도 횟수 초과)"
+        return {"code": "Error: API 호출 실패 (재시도 횟수 초과)"}
 
 # --- 실행 테스트 (Main) ---
 if __name__ == "__main__":
