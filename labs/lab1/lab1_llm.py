@@ -83,25 +83,41 @@ class ConditionGenerator:
 [사용 가능한 변수 목록 (조건식용)]
 1. 시세 데이터: price, volume, prev_price, prev_volume
 2. 보조 지표: ma_short (단기이평), ma_long (장기이평), prev_ma_short, prev_ma_long, avg_volume_long
-3. 자산/수익률: pnl_pct (수익률%), cash (보유현금), total_asset (총자산), rsi (RSI지표)
+3. 자산/수익률: pnl_pct (수익률%), cash (보유현금), total_asset (총자산), rsi (RSI지표), has_position (보유여부)
 
 [실행 액션 파라미터 (Action Dictionary)]
-- 매수 시: {'target_pct': 0.1} (자산 10% 매수), {'buy_amt': 1000000} (100만원 매수), {'buy_qty': 10} (10주 매수)
-- 매도 시: {'qty_pct': 1.0} (전량 매도), {'qty_pct': 0.5} (절반 매도), {'qty': 10} (10주 매도)
+- 매수 시: {'target_pct': 0.1} (자산 10% 비중), {'buy_amt': 1000000} (100만원 매수)
+- 매도 시: {'qty_pct': 1.0} (전량 매도), {'qty_pct': 0.5} (절반 매도)
+
+[고급 문법 가이드]
+1. 복합 조건 (OR): 진입과 물타기가 섞여 있다면 `(조건 A) or (조건 B)` 형태로 작성하세요.
+2. 조건부 액션 (ternary): 상황에 따라 매수 비중이 다르다면 Python 삼항 연산자를 사용하세요.
+   예: `{'target_pct': 0.1} if not has_position else {'target_pct': 0.2}`
 
 [출력 형식]
 반드시 아래와 같은 JSON 형식으로만 출력하세요. 마크다운(```)이나 추가 설명은 포함하지 마세요.
 {
-    "condition": "Python 조건식 (예: price > ma_short)",
-    "action": "{Action Dictionary 문자열} (예: {'target_pct': 0.2})"
+    "condition": "Python 조건식",
+    "action": "Action Dictionary 문자열 (Python 표현식 허용)"
 }
 
-[예시]
-입력: "골든크로스 발생 시 자산의 20% 매수"
-출력: {"condition": "price > ma_short and prev_price <= prev_ma_short", "action": "{'target_pct': 0.2}"}
+[주의]
+예시는 참고용입니다. 사용자의 입력에 맞춰 논리를 새로 구성하세요. 예시를 그대로 복사하지 마십시오.
 
-입력: "수익률이 -3% 이하이면 전량 손절"
-출력: {"condition": "pnl_pct <= -3.0", "action": "{'qty_pct': 1.0}"}
+[예시 1: 단순 진입]
+입력: "RSI가 30 이하이면 자산의 20% 매수"
+출력: {"condition": "rsi <= 30", "action": "{'target_pct': 0.2}"}
+
+[예시 2: 복합 시나리오 (신규 + 물타기)]
+입력: "신규는 볼린저밴드 하단 터치 시 10%, 보유 중이면 평단가 대비 10% 하락 시 30%까지 추가 매수"
+출력: {
+    "condition": "(price <= bollinger_lower) or (has_position and pnl_pct <= -10.0)",
+    "action": "{'target_pct': 0.1} if not has_position else {'target_pct': 0.3}"
+}
+
+[예시 3: 조건부 청산]
+입력: "수익률 5% 익절 혹은 -3% 손절"
+출력: {"condition": "pnl_pct >= 5.0 or pnl_pct <= -3.0", "action": "{'qty_pct': 1.0}"}
 """
         return prompt.strip()
 

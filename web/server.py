@@ -452,12 +452,15 @@ async def generate_llm_condition(request: Request):
         from labs.lab1.lab1_llm import ConditionGenerator
         
         agent = ConditionGenerator()
-        code = agent.generate_condition(description)
+        result = agent.generate_condition(description)
         
-        if code.startswith("Error"):
-            return {"status": "error", "message": code}
+        # result is dict, check 'code' key for error message or content
+        code_val = result.get('code', '')
+
+        if isinstance(code_val, str) and code_val.startswith("Error"):
+            return {"status": "error", "message": code_val}
             
-        return {"status": "ok", "code": code}
+        return {"status": "ok", "result": result}
     except ImportError:
         return {"status": "error", "message": "lab1_llm 모듈을 찾을 수 없거나 의존성(google-generativeai)이 설치되지 않았습니다."}
     except Exception as e:

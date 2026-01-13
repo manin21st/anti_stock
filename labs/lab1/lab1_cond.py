@@ -176,7 +176,7 @@ def _get_real_data(symbol: str, market_data: MarketData) -> dict:
         logger.error(f"[{symbol}] 실시간 데이터 조회 실패: {e}")
         return data
 
-def _evaluate_single_condition(condition: dict, symbol: str, data: dict) -> bool:
+def _evaluate_condition(condition: dict, symbol: str, data: dict) -> bool:
     """단일 조건식 평가"""
     if not condition: return False
     code = condition.get('code', '').strip()
@@ -221,7 +221,7 @@ def should_watch(symbol: str, market_data: MarketData) -> bool:
     
     # Context 생성
     data = _get_real_data(symbol, market_data)
-    return _evaluate_single_condition(condition, symbol, data)
+    return _evaluate_condition(condition, symbol, data)
 
 def should_enter(symbol: str, market_data: MarketData, portfolio=None) -> tuple[bool, dict]:
     """[진입 조건] -> (진입여부, 실행파라미터)"""
@@ -239,18 +239,19 @@ def should_enter(symbol: str, market_data: MarketData, portfolio=None) -> tuple[
     _inject_portfolio_data(data, portfolio, symbol)
 
     # 3. 조건식(When) 평가
-    can_enter = _evaluate_single_condition(condition, symbol, data)
+    can_enter = _evaluate_condition(condition, symbol, data)
 
     action_params = {}
     if can_enter:
         desc = condition.get('desc', '진입 조건 설명 없음')
-        logger.info(f"[{name}({symbol})] Data: {data}")
-        logger.info(f"[{name}({symbol})] 진입 조건 통과: {desc}")
+        logger.info(f"[{name}({symbol})] 데이터: {data}")
+        logger.info(f"[{name}({symbol})] 진입 조건 통과 => {desc}")
+        logger.info(f"[{name}({symbol})] 조건 수식: {condition.get('code')}")
         
         # 4. 실행식(How) 평가
         action_params = _evaluate_action(condition, symbol, data)
         if action_params:
-            logger.info(f"  => 실행 파라미터: {action_params}")
+            logger.info(f"[{name}({symbol})] 실행 수식: {action_params}")
 
     return can_enter, action_params
 
@@ -270,16 +271,18 @@ def should_exit(symbol: str, market_data: MarketData, portfolio=None) -> tuple[b
     _inject_portfolio_data(data, portfolio, symbol)
 
     # 3. 조건식 평가
-    can_exit = _evaluate_single_condition(condition, symbol, data)
+    can_exit = _evaluate_condition(condition, symbol, data)
     
     action_params = {}
     if can_exit:
         desc = condition.get('desc', '청산 조건 설명 없음')
-        logger.info(f"[{name}({symbol})] 청산 조건 통과: {desc}")
+        logger.info(f"[{name}({symbol})] 데이터: {data}")
+        logger.info(f"[{name}({symbol})] 청산 조건 통과 => {desc}")
+        logger.info(f"[{name}({symbol})] 조건 수식: {condition.get('code')}")
         
         # 4. 실행식 평가
         action_params = _evaluate_action(condition, symbol, data)
         if action_params:
-            logger.info(f"  => 실행 파라미터: {action_params}")
+            logger.info(f"[{name}({symbol})] 실행 수식: {action_params}")
         
     return can_exit, action_params

@@ -175,7 +175,7 @@
             border: 1px solid var(--border-color);
             border-radius: 6px;
             resize: vertical;
-            min-height: 40px;
+            min-height: 60px;
             font-family: inherit;
             margin-bottom: 15px;
         }
@@ -388,7 +388,7 @@
             </div>
 
             <!-- 1. Variables Section -->
-            <section class="section-card" id="card-variables">
+            <section class="section-card collapsed" id="card-variables">
                 <div class="section-header" onclick="toggleSection('card-variables')">
                     <div class="section-title">
                         <i class="fas fa-chevron-down chevron" style="font-size: 0.8rem; margin-right: 5px;"></i>
@@ -429,22 +429,21 @@
                     <div id="watch_conditions" class="tab-content active">
                         <div class="rule-card">
                             <div class="rule-header">
-                                <span class="rule-label"><i class="far fa-comment-alt"></i> 감시 조건 설명
+                                <span class="rule-label"><i class="far fa-comment-alt"></i> 조건 설명
                                     (Description)</span>
+                                <button id="watch_conditions_llm_btn" class="add-btn"
+                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
+                                    onclick="generateExpression('watch_conditions')">
+                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
+                                </button>
                             </div>
                             <textarea id="watch_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
                                 onchange="updateRuleBlock('watch_conditions', 'desc', this.value)"></textarea>
 
                             <div class="rule-header"
                                 style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
-                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식
-                                    (Python
-                                    Expression)</span>
-                                <button id="watch_conditions_llm_btn" class="add-btn"
-                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
-                                    onclick="generateExpression('watch_conditions')">
-                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
-                                </button>
+                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 조건 수식
+                                    (Condition: When)</span>
                             </div>
                             <div class="rule-code-wrapper">
                                 <textarea id="watch_conditions_code" class="rule-code"
@@ -457,22 +456,21 @@
                     <div id="entry_conditions" class="tab-content">
                         <div class="rule-card">
                             <div class="rule-header">
-                                <span class="rule-label"><i class="far fa-comment-alt"></i> 진입 조건 설명
+                                <span class="rule-label"><i class="far fa-comment-alt"></i> 조건 설명
                                     (Description)</span>
+                                <button id="entry_conditions_llm_btn" class="add-btn"
+                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
+                                    onclick="generateExpression('entry_conditions')">
+                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
+                                </button>
                             </div>
                             <textarea id="entry_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
                                 onchange="updateRuleBlock('entry_conditions', 'desc', this.value)"></textarea>
 
                             <div class="rule-header"
                                 style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
-                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식
-                                    (Python
-                                    Expression)</span>
-                                <button id="entry_conditions_llm_btn" class="add-btn"
-                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
-                                    onclick="generateExpression('entry_conditions')">
-                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
-                                </button>
+                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 조건 수식
+                                    (Condition: When)</span>
                             </div>
                             <div class="rule-code-wrapper">
                                 <textarea id="entry_conditions_code" class="rule-code"
@@ -495,22 +493,21 @@
                     <div id="exit_conditions" class="tab-content">
                         <div class="rule-card">
                             <div class="rule-header">
-                                <span class="rule-label"><i class="far fa-comment-alt"></i> 청산 조건 설명
+                                <span class="rule-label"><i class="far fa-comment-alt"></i> 조건 설명
                                     (Description)</span>
+                                <button id="exit_conditions_llm_btn" class="add-btn"
+                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
+                                    onclick="generateExpression('exit_conditions')">
+                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
+                                </button>
                             </div>
                             <textarea id="exit_conditions_desc" class="rule-desc" placeholder="조건을 한글로 설명해주세요."
                                 onchange="updateRuleBlock('exit_conditions', 'desc', this.value)"></textarea>
 
                             <div class="rule-header"
                                 style="margin-top: 15px; display:flex; align-items:center; justify-content:flex-start; gap:10px;">
-                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 파이썬 수식
-                                    (Python
-                                    Expression)</span>
-                                <button id="exit_conditions_llm_btn" class="add-btn"
-                                    style="width:auto; padding:5px 10px; font-size:0.85rem; border:1px solid #ddd; background:white;"
-                                    onclick="generateExpression('exit_conditions')">
-                                    <i class="fas fa-magic" style="color:#d946ef;"></i> AI 생성
-                                </button>
+                                <span class="rule-label" style="margin-bottom:0;"><i class="fas fa-code"></i> 조건 수식
+                                    (Condition: When)</span>
                             </div>
                             <div class="rule-code-wrapper">
                                 <textarea id="exit_conditions_code" class="rule-code"

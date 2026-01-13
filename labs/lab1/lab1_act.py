@@ -113,36 +113,30 @@ def buy(symbol, broker, portfolio, market_data, **kwargs):
                 return
 
         else:
-            # (기존 하드코딩 로직 유지 - 파라미터 없을 때 Fallback)
+            # 파라미터가 없으면 실행 불가
+            logger.warning(f"[{name}({symbol})] 실행 액션(Action Dictionary) 없음. 매수 스킵.")
             return
-            # ... (기존 로직 생략, 필요시 복구 가능하지만 현재는 Dynamic 위주로 전환)
 
-
-        # 3. 목표 수량 및 필요 수량 계산
-        target_amount = total_asset * target_pct_of_asset
-        target_qty = int(target_amount // current_price)
-        
-        buy_qty = target_qty - current_qty
-        
-        # [Debug] 수량 계산 결과 확인
-        logger.info(f"[{name}({symbol})] 수량 계산: Mode={mode}, Target%={target_pct_of_asset}, TargetQty={target_qty}, CurrentQty={current_qty} -> BuyQty={buy_qty}")
-        
+        # 3. 계산된 수량이 유효한지 확인
         if buy_qty <= 0:
             return
 
         # 4. 자금력 확인
+        buying_power = portfolio.buying_power
+        # 수수료/슬리피지 고려 (0.015%)
         estimated_cost = buy_qty * current_price * 1.00015
+        
         if estimated_cost > buying_power:
-            # 자금 부족 시 가능한 만큼만 매수 (혹은 취소 정책) -> 여기선 가능한 만큼 조정
+            # 자금 부족 시 가능한 만큼만 매수
             adj_qty = int(buying_power // (current_price * 1.00015))
             if adj_qty <= 0:
-                logger.info(f"[{name}({symbol})] 주문 가능 자금 부족 (필요: {int(estimated_cost):,}, 가용: {int(buying_power):,})")
+                logger.warning(f"[{name}({symbol})] 주문 가능 자금 부족 (필요: {int(estimated_cost):,}, 가용: {int(buying_power):,})")
                 return
             logger.info(f"[{name}({symbol})] 자금 부족으로 수량 조정 ({buy_qty} -> {adj_qty})")
             buy_qty = adj_qty
 
         # 5. 주문 실행
-        logger.info(f"[{name}({symbol})] [{mode}] 매수 주문: {buy_qty}주 (현재포지션: {current_qty}주 -> 목표: {target_qty}주)")
+        logger.info(f"[{name}({symbol})] [{mode}] 매수 주문: {buy_qty}주 (현재: {current_qty}주, 가격: {int(current_price):,})")
         
         if broker.buy_market(symbol, qty=buy_qty, tag="LAB1"):
              # logger.info(f"  >>> [{name}({symbol})] 매수 주문 성공")
@@ -157,7 +151,8 @@ def buy(symbol, broker, portfolio, market_data, **kwargs):
              }
              portfolio.on_order_sent(order_info, market_data)
         else:
-             logger.error(f"  >>> [{name}({symbol})] 매수 주문 실패")
+            pass
+            # logger.error(f"  >>> [{name}({symbol})] 매수 주문 실패")
 
     except Exception as e:
         logger.error(f"[{name}({symbol})] 매수 실행 중 오류: {e}")
