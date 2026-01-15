@@ -5,8 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ app_title }}</title>
-    <link rel="stylesheet" href="/static/style.css?v=7">
-    <script src="/static/app.js?v=7" defer></script>
+    <link rel="stylesheet" href="/static/style.css?v=8">
     <!-- Chart.js for Charts -->
     <link rel="manifest" href="/manifest.json?v=110">
     <meta name="theme-color" content="#3b82f6">
@@ -17,8 +16,19 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/logo.png?v=110">
     <link rel="apple-touch-icon" href="/static/logo.png?v=110">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Third Party Libraries -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- App Modules -->
+    <script src="/static/modules/chart.js" defer></script>
+    <script src="/static/modules/watchlist.js" defer></script>
+    <script src="/static/modules/backtest.js" defer></script>
+    <script src="/static/modules/journal.js" defer></script>
+    <script src="/static/modules/checklist.js" defer></script>
+    <script src="/static/app.js?v=9" defer></script>
 </head>
 
 <body>
@@ -44,7 +54,7 @@
                 <button onclick="toggleChecklist()" class="btn-secondary small-btn" style="margin-right: 10px;">📝
                     체크리스트</button>
                 <a href="/lab1" target="_blank" class="manual-link"
-                    style="margin-right: 15px; text-decoration: none; color: #3b82f6; font-weight: 500;">전략실험실</a>
+                    style="display: inline-flex !important; margin-right: 15px; text-decoration: none; color: #3b82f6 !important; font-weight: 600;">전략실험실</a>
                 <a href="/manual" target="_blank" class="manual-link"
                     style="margin-right: 15px; text-decoration: none; color: var(--accent); font-weight: 500;">사용
                     설명서</a>
@@ -265,9 +275,6 @@
             <button onclick="addChecklistItem()">추가</button>
         </div>
     </div>
-
-    <script src="/static/chart.js"></script>
-    <script src="/static/watchlist.js"></script>
 
     <script>
         if ('serviceWorker' in navigator) {

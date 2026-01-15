@@ -1,9 +1,14 @@
-const CACHE_NAME = 'anti-stock-v1';
+const CACHE_NAME = 'anti-stock-v3';
 const ASSETS = [
     '/',
     '/static/style.css',
     '/static/app.js',
-    '/static/logo.png'
+    '/static/logo.png',
+    '/static/modules/chart.js',
+    '/static/modules/watchlist.js',
+    '/static/modules/backtest.js',
+    '/static/modules/journal.js',
+    '/static/modules/checklist.js'
 ];
 
 self.addEventListener('install', (event) => {
