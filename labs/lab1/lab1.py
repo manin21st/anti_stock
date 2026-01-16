@@ -4,17 +4,29 @@ import os
 import logging
 
 # [Fix] 프로젝트 루트 경로를 가장 먼저 추가해야 함
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Main.py에서 실행될 때는 이미 root가 path에 있음.
+# 하지만 단독 실행을 위해 유지하되, import 방식을 변경함.
 
-import lab1_cond  # [전략 실험실] 조건식 정의 모듈 Import
+try:
+    from labs.lab1 import lab1_cond
+    from labs.lab1 import lab1_act
+except ImportError:
+    import lab1_cond
+    import lab1_act
 
 from core.dao import WatchlistDAO
 from core.scanner import Scanner
 from core.market_data import MarketData
 from core.broker import Broker
 from core.portfolio import Portfolio
+from core.universe import Universe # [Added] For compatibility
+from core.config import Config # [Added] For compatibility
+from utils.telegram import TelegramBot # [Added] For notifications
 from core import interface as ka
-import lab1_act # [Refactor] 매매 로직 분리
+# import lab1_act # (Moved up)
+from typing import Dict, List, Optional
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +48,19 @@ class Investor:
     - 6. 진입 (entry)
     """
 
-    def __init__(self):
+    def __init__(self, config_path: str = "config/strategies.yaml"):
         """
         [1. 초기화]
         API 인증 및 Scanner, MarketData, Broker 초기화
         """
         logger.info("[시스템] Investor 초기화 중...")
+        
+        # [Engine Compatibility] Config Load
+        self.config_actor = Config(strategies_path=config_path)
+        self.config = self.config_actor.config
+        self.system_config = self.config.get("system", {})
+        self.is_trading = True
+        self.strategies = {"lab1": "Active"}
         
         # 1. API 인증 (Scanner 사용을 위해 필요)
         try:
@@ -56,7 +75,11 @@ class Investor:
         self.broker = Broker() # [추가] 브로커(주문 집행기) 초기화
         self.portfolio = Portfolio() # [추가] 포트폴리오 관리자 (자산/잔고)
         
+        # [Engine Compatibility] Universe for Watchlist
+        self.universe = Universe(self.system_config, self.market_data, self.scanner, self.portfolio)
+        
         try:
+             # WatchlistDAO is still used for DB interaction
             self.watchlist_pool = WatchlistDAO.get_all_symbols()
             logger.info(f"[시스템] DB 관심종목 로드 완료: {len(self.watchlist_pool)}개")
         except Exception as e:
@@ -77,7 +100,58 @@ class Investor:
         # 4. 감시 대상 초기화 (Run 루프에서 갱신됨)
         self.target_universe = []
         
+        # [Engine Compatibility] Telegram Bot
+        self.telegram = None
+        self._init_telegram()
+        
         logger.info("[시스템] 초기화 완료")
+
+    def _init_telegram(self):
+        """텔레그램 봇 초기화"""
+        try:
+            self.telegram = TelegramBot(self.system_config)
+            self.telegram.send_system_alert("🚀 <b>[Lab1 Engine]</b> 시스템이 시작되었습니다.")
+            logger.info("[시스템] 텔레그램 봇 연결 완료")
+        except Exception as e:
+            logger.warning(f"[시스템] 텔레그램 연결 실패: {e}")
+
+    # --- [Engine Compatibility] Server Hooks ---
+
+    @property
+    def watchlist(self):
+        """웹: 감시종목 페이지용"""
+        # Lab1은 target_universe를 우선 사용, 없으면 DB 목록
+        return self.target_universe if self.target_universe else self.watchlist_pool
+
+    @property
+    def trade_history(self):
+        """웹: 차트/로그용 Stub"""
+        return []
+
+    def update_system_config(self, new_config: Dict):
+        """웹: 설정 변경"""
+        self.config_actor.update_system_config(new_config)
+        self.system_config.update(new_config)
+
+    def update_strategy_config(self, new_config: Dict):
+        """웹: 전략 설정"""
+        self.config_actor.update_strategy_config(new_config)
+
+    def start_trading(self):
+        self.is_trading = True
+        if self.telegram: self.telegram.send_system_alert("▶️ 매매 재개")
+
+    def stop_trading(self):
+        self.is_trading = False
+        if self.telegram: self.telegram.send_system_alert("⏸ 매매 중지")
+        
+    def restart(self):
+        logger.info("[시스템] 재시작 요청됨 (Stub)")
+        
+    def register_strategy(self, strategy_class, strategy_id: str):
+        pass # Stub
+
+    # --- [Engine Compatibility] End ---
 
     def run(self):
         """
@@ -96,7 +170,7 @@ class Investor:
                     self.scan()
                 
                 # 감시 단계 (선정된 target_universe 대상) - 매 루프 실행
-                if self.target_universe:
+                if self.is_trading and self.target_universe:
                     self.watch()
                 else:
                     # 로그 소음 방지를 위해 스캔 주기에만 로그 출력
@@ -196,7 +270,7 @@ class Investor:
 
         if is_exit_condition_met:
             # Action 파라미터(예: {'qty': 100})를 매도 함수로 전달
-            lab1_act.sell(symbol, self.broker, self.portfolio, self.market_data, **action_params)
+            lab1_act.sell(symbol, self.broker, self.portfolio, self.market_data, telegram=self.telegram, **action_params)
         else:
             pass
             # logger.info(f"[{name}({symbol})] 청산 조건 미충족")
@@ -218,7 +292,7 @@ class Investor:
 
         if is_entry_condition_met:
             # Action 파라미터(예: {'target_pct': 10})를 매수 함수로 전달
-            lab1_act.buy(symbol, self.broker, self.portfolio, self.market_data, **action_params)
+            lab1_act.buy(symbol, self.broker, self.portfolio, self.market_data, telegram=self.telegram, **action_params)
         else:
             logger.info(f"[{name}({symbol})] 진입 조건 미충족")
 
@@ -236,3 +310,8 @@ if __name__ == "__main__":
     # 프로그램 실행 진입점
     investor = Investor()
     investor.run()
+
+# [Legacy Alias]
+class Engine(Investor):
+    """Alias for main.py compatibility"""
+    pass

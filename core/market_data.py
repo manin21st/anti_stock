@@ -371,7 +371,8 @@ class MarketData:
         logger.debug(f"Updated polling list: {len(self.polling_symbols)} symbols")
 
     def start(self):
-        """Start the polling loop in a background thread"""
+        """실시간 폴링 루프를 백그라운드 스레드에서 시작합니다."""
+        # [중복 실행 방지] 이미 스레드가 생성되어 있고 살아있다면, 새로 만들지 않고 유지합니다.
         if hasattr(self, 'poll_thread') and self.poll_thread.is_alive():
             logger.warning("MarketData polling thread is already running. Skipping start.")
             return
@@ -379,6 +380,8 @@ class MarketData:
         self.is_polling = True
         if not hasattr(self, 'polling_symbols'):
              self.polling_symbols = []
+        
+        # 데몬 스레드로 실행하여 메인 프로세스 종료 시 자동 종료되게 함
         self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
         self.poll_thread.start()
         logger.info("MarketData Polling Started")

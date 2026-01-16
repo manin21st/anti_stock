@@ -25,7 +25,9 @@ root_logger.addHandler(file_handler)
 
 logger = logging.getLogger(__name__)
 
-from core.engine import Engine
+# from core.engine import Engine
+from labs.lab1.lab1 import Engine # [Lab1 Direct]
+# from core.lab1_bridge import Lab1Bridge as Engine
 from strategies.ma_trend import MovingAverageTrendStrategy
 from strategies.bollinger_mr import BollingerMeanReversion
 from strategies.breakout import PreviousHighBreakout

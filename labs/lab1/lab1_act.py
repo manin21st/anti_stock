@@ -3,7 +3,7 @@ import math
 
 logger = logging.getLogger(__name__)
 
-def sell(symbol, broker, portfolio, market_data, **kwargs):
+def sell(symbol, broker, portfolio, market_data, telegram=None, **kwargs):
     """
     [매도 실행]
     Action 파라미터(kwargs) 우선 적용
@@ -54,10 +54,25 @@ def sell(symbol, broker, portfolio, market_data, **kwargs):
              "tag": "LAB1"
         }
         portfolio.on_order_sent(order_info, market_data)
+
+        # [Telegram Alert] (Engine Upgrade)
+        if telegram:
+             # 매도 시 현재가 조회 (알림용)
+            cur_price = market_data.get_last_price(symbol)
+            stock_name = market_data.get_stock_name(symbol)
+            telegram.send_trade_event(
+                event_type="SELL", 
+                symbol=symbol, 
+                price=cur_price, 
+                qty=sell_qty, 
+                side="SELL", 
+                stock_name=stock_name,
+                position_info={"new_qty": qty - sell_qty} # approximate remaining
+            )
     else:
         logger.error(f"  >>> {symbol} 매도 주문 실패")
 
-def buy(symbol, broker, portfolio, market_data, **kwargs):
+def buy(symbol, broker, portfolio, market_data, telegram=None, **kwargs):
     """
     [매수 실행]
     Action 파라미터(kwargs) 우선 적용
@@ -150,6 +165,18 @@ def buy(symbol, broker, portfolio, market_data, **kwargs):
                  "tag": "LAB1"
              }
              portfolio.on_order_sent(order_info, market_data)
+
+             # [Telegram Alert] (Engine Upgrade)
+             if telegram:
+                telegram.send_trade_event(
+                    event_type="BUY", 
+                    symbol=symbol, 
+                    price=current_price, 
+                    qty=buy_qty, 
+                    side="BUY", 
+                    stock_name=name,
+                    position_info={"new_qty": current_qty + buy_qty, "new_avg_price": current_price}
+                )
         else:
             pass
             # logger.error(f"  >>> [{name}({symbol})] 매수 주문 실패")

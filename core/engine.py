@@ -180,8 +180,7 @@ class Engine:
         
         # Reload components
         if hasattr(self, 'telegram'):
-            self.telegram.reload_config(self.system_config)
-            
+            self.telegram.reload_config(self.system_config)            
 
     def update_strategy_config(self, new_config: Dict):
         """Update strategy configuration (Config only, applied on restart)"""
@@ -191,8 +190,7 @@ class Engine:
         """Restart the engine with new settings"""
         logger.info("Restart requested...")
         self.restart_requested = True
-        self.is_trading = False
-        
+        self.is_trading = False        
 
     def start_trading(self):
         """Enable trading"""
@@ -402,7 +400,6 @@ class Engine:
             return start <= current_time <= end
             
         return True
-
 
     def register_strategy(self, strategy_class, strategy_id: str):
         """Register a strategy class"""
