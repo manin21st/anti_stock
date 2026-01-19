@@ -167,7 +167,7 @@ async function updateStatus() {
                     // Calculate derived metrics
                     const investedAmt = pos.qty * pos.avg_price;
                     const evalAmt = pos.qty * pos.current_price;
-                    const pnl = evalAmt - investedAmt;
+                    const pnl = Math.round(evalAmt - investedAmt);
                     const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative'; // Red for profit, Blue for loss (KR style)
 
                     // Decide input value: either user's current input or current held qty
@@ -180,7 +180,6 @@ async function updateStatus() {
                         <td style="text-align: left;">
                             <div class="symbol-cell-wrapper" style="display: flex; align-items: center; gap: 8px;">
                                 <span style="font-weight: 600;">${pos.name || pos.symbol}</span>
-                                <span style="color: var(--text-secondary); font-size: 0.9em;">[${pos.symbol}]</span>
                                 <div class="chart-icon-badge" onclick="window.openChart('${pos.symbol}', '${pos.name || pos.symbol}')">📊</div>
                             </div>
                         </td>
@@ -226,7 +225,7 @@ async function loadConfig() {
     const strategySelect = document.getElementById("strategy-select");
 
     // Populate Strategy Selector if empty
-    if (strategySelect.options.length === 1) {
+    if (strategySelect && strategySelect.options.length === 1) {
         let keys = [];
         if (currentConfig.strategies_list) {
             keys = currentConfig.strategies_list;

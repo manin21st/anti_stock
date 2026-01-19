@@ -35,17 +35,32 @@ def _reload_config():
         mtime = os.path.getmtime(CONFIG_PATH)
         if mtime > _LAST_LOAD_TIME:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                _yaml_data = yaml.safe_load(f)
+                _yaml_data = yaml.safe_load(f) or {}
                 
-            # 최상위 키가 하나라고 가정 (MySandboxStrategy)
-            strategy_name = list(_yaml_data.keys())[0]
-            new_config = _yaml_data[strategy_name]
+            # 1. 메타 데이터 확인
+            _meta = _yaml_data.get("_meta", {})
+            active_strategy_name = _meta.get("active_strategy")
+            
+            # 2. 전략 선택 로직
+            # 메타에 지정된 활성 전략이 있고, 실제로 존재하는 키라면 사용
+            if active_strategy_name and active_strategy_name in _yaml_data:
+                target_strategy = active_strategy_name
+            else:
+                # 폴백: 메타가 없거나 유효하지 않으면 첫 번째 일반 키 사용 ( _meta 제외 )
+                available_keys = [k for k in _yaml_data.keys() if k != "_meta"]
+                if available_keys:
+                    target_strategy = available_keys[0]
+                else:
+                    logger.warning("[lab1_cond] 유효한 전략이 없습니다.")
+                    return
+
+            logger.info(f"[lab1_cond] 전략 로드: {target_strategy}")
+            new_config = _yaml_data[target_strategy]
             
             STRATEGY_CONFIG = new_config
             VARIABLES = new_config.get("variables", {})
             
             _LAST_LOAD_TIME = mtime
-            logger.info(f"[lab1_cond] '{strategy_name}' 설정 리로드 완료 (Updated)")
             
     except Exception as e:
         logger.error(f"[lab1_cond] 설정 리로드 실패: {e}")

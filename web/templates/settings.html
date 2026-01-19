@@ -1,0 +1,63 @@
+<!-- Tab 4: Settings -->
+<div id="tab-settings" class="tab-content">
+    <div class="settings-grid">
+        <!-- Left: System Settings -->
+        <section class="card system-card">
+            <h2>시스템 설정</h2>
+            <div class="system-options">
+                <div class="option-group">
+                    <label class="group-label">투자 모드</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="env_type" value="real" disabled>
+                            실전투자</label>
+                        <label><input type="radio" name="env_type" value="paper" disabled> 모의투자</label>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <label class="group-label">거래소</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="market_type" value="KRX" checked> 정규장
+                            (KRX)</label>
+                        <label><input type="radio" name="market_type" value="NXT"> 대체거래소
+                            (NXT)</label>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <label class="group-label">종목 선정</label>
+                    <label><input type="checkbox" id="use_auto_scanner"> 자동 선정
+                        (Auto-Scanner)</label>
+                </div>
+                <div class="option-group" id="scanner-mode-group" style="display: none;">
+                    <label class="group-label">스캐너 모드</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="scanner_mode" value="volume" checked> 거래량
+                            상위</label>
+                        <label><input type="radio" name="scanner_mode" value="gainers"> 급등주
+                            상위</label>
+                    </div>
+                </div>
+                <!-- Removed Manual Universe Input -->
+                <div class="option-group">
+                    <label class="group-label">알림 설정 (Telegram)</label>
+                    <label><input type="checkbox" id="enable_trade_alert"> 매매 알림</label>
+                    <label><input type="checkbox" id="enable_system_alert"> 시스템 알림</label>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: Strategy Settings -->
+        <section class="card config-card">
+            <h2>전략 설정</h2>
+            <div class="strategy-selector">
+                <label for="strategy-select">전략 선택</label>
+                <select id="strategy-select">
+                    <option value="" disabled selected>전략을 선택하세요</option>
+                </select>
+            </div>
+            <form id="config-form">
+                <!-- Config fields will be generated here -->
+            </form>
+
+        </section>
+    </div>
+</div>

@@ -124,7 +124,8 @@ def buy(symbol, broker, portfolio, market_data, telegram=None, **kwargs):
                 
             # 계산된 수량이 0 이하면 (이미 목표 달성 등) 리턴
             if buy_qty <= 0:
-                # logger.info(f"[{symbol}] {mode} - 추가 매수 불필요 (보유충분)")
+                holding_pct = (current_val / total_asset * 100) if total_asset > 0 else 0
+                logger.info(f"[{name}({symbol})] {mode} - 추가 매수 불필요 (보유: {current_qty}주, 금액: {int(current_val):,}원, 비중: {holding_pct:.2f}%)")
                 return
 
         else:
@@ -154,7 +155,7 @@ def buy(symbol, broker, portfolio, market_data, telegram=None, **kwargs):
         logger.info(f"[{name}({symbol})] [{mode}] 매수 주문: {buy_qty}주 (현재: {current_qty}주, 가격: {int(current_price):,})")
         
         if broker.buy_market(symbol, qty=buy_qty, tag="LAB1"):
-             # logger.info(f"  >>> [{name}({symbol})] 매수 주문 성공")
+             logger.info(f"  >>> [{name}({symbol})] 매수 주문 성공")
              
              # Optimistic Update
              order_info = {
@@ -178,8 +179,7 @@ def buy(symbol, broker, portfolio, market_data, telegram=None, **kwargs):
                     position_info={"new_qty": current_qty + buy_qty, "new_avg_price": current_price}
                 )
         else:
-            pass
-            # logger.error(f"  >>> [{name}({symbol})] 매수 주문 실패")
+            logger.error(f"  >>> [{name}({symbol})] 매수 주문 실패")
 
     except Exception as e:
         logger.error(f"[{name}({symbol})] 매수 실행 중 오류: {e}")

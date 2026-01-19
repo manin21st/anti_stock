@@ -1,4 +1,4 @@
-const CACHE_NAME = 'anti-stock-v3';
+const CACHE_NAME = 'anti-stock-v10';
 const ASSETS = [
     '/',
     '/static/style.css',
@@ -8,7 +8,8 @@ const ASSETS = [
     '/static/modules/watchlist.js',
     '/static/modules/backtest.js',
     '/static/modules/journal.js',
-    '/static/modules/checklist.js'
+    '/static/modules/checklist.js',
+    '/static/modules/config.js'
 ];
 
 self.addEventListener('install', (event) => {

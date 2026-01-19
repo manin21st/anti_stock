@@ -9,9 +9,25 @@
     code: (price >= ma_long) and (prev_volume > avg_volume_long * 1.1) and (ma_long
       > prev_ma_long)
   entry_conditions:
-    desc: '신규 진입: 현재가가 단기 이평선 돌파 시 1차 매수(10%) | 추가 진입: -5% 하락 시마다 물타기(20% 비중까지)'
-    code: price > ma_short or (has_position and pnl_pct <= -5.0)
-    action: '{''target_pct'': 0.1} if not has_position else {''target_pct'': 0.2}'
+    desc: 5일 이동평균선이 20일 이동평균선을 상향 돌파 (골든크로스)
+    code: ma_short > ma_long and prev_ma_short <= prev_ma_long
+    action: buy(code, 1)
   exit_conditions:
-    desc: 손실 제한(2%) 또는 목표 수익(5%) 달성 시 청산
-    code: (pnl_pct < -stop_loss_pct) or (pnl_pct > take_profit_pct)
+    desc: 5일 이평선이 20일 이평선을 하향 돌파하거나 익절/손절 조건 도달 (데드크로스)
+    code: (ma_short < ma_long) or (pnl_pct >= take_profit_pct) or (pnl_pct <= -stop_loss_pct)
+    action: sell(code, 1)
+NewStrategy1:
+  variables:
+    ma_short: 5
+    ma_long: 20
+  watch_conditions:
+    desc: ''
+    code: ''
+  entry_conditions:
+    desc: ''
+    code: ''
+  exit_conditions:
+    desc: ''
+    code: ''
+_meta:
+  active_strategy: 이동평균 추세 추종

@@ -797,6 +797,349 @@ a.btn-success {
     gap: 10px;
 }
 
+/* --- Config / Sandbox Styles (Migrated from lab1.html) --- */
+
+/* Settings Grid Layout for Config Page */
+.settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    /* Balanced 50:50 Layout */
+    gap: 20px;
+    height: calc(100vh - 110px);
+    padding: 20px;
+    padding-bottom: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.system-card {
+    overflow-y: auto;
+}
+
+.config-card {
+    overflow-y: hidden;
+    /* Managed by inner editor-area */
+    display: flex;
+    flex-direction: column;
+}
+
+.sandbox-container {
+    display: flex;
+    height: calc(100vh - 120px);
+    /* Adjust for header + nav */
+    gap: 20px;
+    padding-top: 20px;
+}
+
+/* Sidebar Strategy List */
+.strategy-sidebar {
+    width: 250px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.strategy-list-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 700;
+    font-size: 1.1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.strategy-item {
+    padding: 15px 20px;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+    transition: all 0.2s;
+}
+
+.strategy-item:hover {
+    background-color: var(--bg-color);
+}
+
+.strategy-item.active {
+    background-color: #eff6ff;
+    color: var(--accent);
+    border-left: 4px solid var(--accent);
+}
+
+/* Main Editor Area */
+.editor-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.section-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 25px;
+    margin-bottom: 20px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #f1f5f9;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Variables Table */
+/* Variables Table */
+.var-table {
+    width: 100%;
+    /* Fully fill the container */
+    min-width: 400px;
+    border-collapse: collapse;
+}
+
+.var-table th:nth-child(1),
+.var-table td:nth-child(1) {
+    width: auto;
+    /* Reverted to auto as requested */
+}
+
+.var-table th:nth-child(2),
+.var-table td:nth-child(2) {
+    width: auto;
+}
+
+.var-table th:nth-child(3),
+.var-table td:nth-child(3) {
+    width: 50px;
+}
+
+.var-table th {
+    text-align: left;
+    padding: 12px;
+    background: #f8fafc;
+    color: var(--text-secondary);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+}
+
+.var-table td {
+    padding: 12px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.var-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: monospace;
+    box-sizing: border-box;
+}
+
+/* Rule Cards */
+.rule-card {
+    background: #fdfdfd;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.rule-card:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.rule-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    align-items: center;
+}
+
+.rule-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+    display: block;
+}
+
+.rule-desc {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    resize: vertical;
+    min-height: 120px;
+    font-family: inherit;
+    margin-bottom: 15px;
+    box-sizing: border-box;
+}
+
+.rule-code-wrapper {
+    position: relative;
+}
+
+.rule-code {
+    width: 100%;
+    padding: 15px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    font-family: 'Consolas', monospace;
+    min-height: 120px;
+    resize: vertical;
+    line-height: 1.5;
+    box-sizing: border-box;
+}
+
+.delete-btn {
+    background: none;
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.delete-btn:hover {
+    background: #fee2e2;
+}
+
+.add-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 15px;
+    background: #f1f5f9;
+    color: var(--text-primary);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    width: 100%;
+    justify-content: center;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-sizing: border-box;
+}
+
+.add-btn:hover {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+}
+
+/* Edit Tabs in Config */
+.edit-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.edit-tab-btn {
+    padding: 8px 15px;
+    border: none;
+    background: transparent;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+
+.edit-tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.edit-tab-btn:hover {
+    color: var(--accent);
+    background-color: #eff6ff;
+}
+
+.edit-tab-content {
+    display: none;
+}
+
+.edit-tab-content.active {
+    display: block;
+}
+
+/* Floating Save Button */
+.fab-save {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 60px;
+    height: 60px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    cursor: pointer;
+    transition: transform 0.2s;
+    border: none;
+    z-index: 100;
+}
+
+.fab-save:hover {
+    transform: scale(1.05);
+}
+
+.fab-save:active {
+    transform: scale(0.95);
+}
+
+/* Collapsible Support */
+.chevron {
+    transition: transform 0.3s;
+}
+
+.section-card.collapsed .chevron {
+    transform: rotate(-90deg);
+}
+
+.section-content {
+    display: block;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+
+.section-card.collapsed .section-content {
+    display: none;
+}
+
 
 .backtest-metrics {
     display: grid;
@@ -1263,20 +1606,153 @@ a.btn-success {
         flex-shrink: 0;
         padding-right: 5px;
     }
-}  
-/* Manual Link - Force Visibility */  
-.manual-link {  
-    display: inline-flex !important;  
-    align-items: center;  
-    color: #3b82f6 !important;  
-    font-weight: 600;  
-    text-decoration: none;  
-    margin-right: 15px;  
-    padding: 5px 10px;  
-    border-radius: 4px;  
-    transition: background-color 0.2s;  
-}  
-  
-.manual-link:hover {  
-    background-color: rgba(59, 130, 246, 0.1);  
-}  
+}
+
+/* Manual Link - Force Visibility */
+.manual-link {
+    display: inline-flex !important;
+    align-items: center;
+    color: #3b82f6 !important;
+    font-weight: 600;
+    text-decoration: none;
+    margin-right: 15px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.manual-link:hover {
+    background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* Strategy Toolbar & Header Redesign */
+/* Strategy Toolbar & Header Redesign */
+.strategy-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    /* Clean layout without container box */
+    margin-bottom: 20px;
+    gap: 15px;
+}
+
+.strategy-toolbar-left,
+.strategy-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.strategy-label {
+    font-size: 18px;
+    /* Matches h2 size typical in cards */
+    font-weight: 700;
+    color: #000;
+    /* Distinct black as requested */
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.strategy-select {
+    padding: 6px 30px 6px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #334155;
+    background-color: #fff;
+    min-width: 200px;
+    cursor: pointer;
+    outline: none;
+    transition: box-shadow 0.2s, border-color 0.2s;
+    height: 36px;
+}
+
+.strategy-select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.status-active-text {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #166534;
+    background-color: #dcfce7;
+    padding: 6px 12px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #86efac;
+    white-space: nowrap;
+}
+
+.action-group {
+    display: flex;
+    gap: 5px;
+}
+
+.tool-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background-color: #fff;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.9rem;
+}
+
+.tool-btn:hover {
+    background-color: #f1f5f9;
+    color: #334155;
+    border-color: #94a3b8;
+}
+
+.tool-btn.primary {
+    background-color: #3b82f6;
+    color: #fff;
+    border-color: #3b82f6;
+}
+
+.tool-btn.primary:hover {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
+.tool-btn.danger {
+    color: #ef4444;
+}
+
+.tool-btn.danger:hover {
+    background-color: #fee2e2;
+    border-color: #fca5a5;
+    color: #dc2626;
+}
+
+.btn-activate {
+    height: 36px;
+    padding: 0 15px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #f59e0b;
+    color: #fff;
+    border: 1px solid #d97706;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    white-space: nowrap;
+}
+
+.btn-activate:hover {
+    background-color: #d97706;
+}

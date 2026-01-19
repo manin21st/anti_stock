@@ -32,7 +32,7 @@ app = FastAPI()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
-templates = Jinja2Templates(directory=["web/templates", "labs/lab1"])
+templates = Jinja2Templates(directory=["web/templates", "labs/lab1"], auto_reload=True)
 
 # Global variables
 engine_instance = None
@@ -412,7 +412,7 @@ async def get_lab1(request: Request):
 
 @app.get("/api/lab1/config")
 async def get_lab1_config():
-    """Read strategies_sandbox.yaml -> lab1_cond.yaml"""
+    """Read lab1_cond.yaml"""
     config_path = os.path.join("labs", "lab1", "lab1_cond.yaml")
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
@@ -421,7 +421,7 @@ async def get_lab1_config():
 
 @app.post("/api/lab1/config")
 async def update_lab1_config(request: Request):
-    """Write strategies_sandbox.yaml -> lab1_cond.yaml"""
+    """Write lab1_cond.yaml"""
     try:
         data = await request.json()
         config_path = os.path.join("labs", "lab1", "lab1_cond.yaml")

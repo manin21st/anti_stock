@@ -1,32 +1,24 @@
-import time
-import sys
 import os
+import sys
+import time
+import yaml
 import logging
+from datetime import datetime
+from typing import Dict, List, Optional
 
-# [Fix] 프로젝트 루트 경로를 가장 먼저 추가해야 함
-# sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-# Main.py에서 실행될 때는 이미 root가 path에 있음.
-# 하지만 단독 실행을 위해 유지하되, import 방식을 변경함.
-
-try:
-    from labs.lab1 import lab1_cond
-    from labs.lab1 import lab1_act
-except ImportError:
-    import lab1_cond
-    import lab1_act
+from labs.lab1 import lab1_cond, lab1_act
 
 from core.dao import WatchlistDAO
 from core.scanner import Scanner
 from core.market_data import MarketData
 from core.broker import Broker
 from core.portfolio import Portfolio
-from core.universe import Universe # [Added] For compatibility
-from core.config import Config # [Added] For compatibility
-from utils.telegram import TelegramBot # [Added] For notifications
+from core.universe import Universe # [추가] 엔진 호환성
+from core.config import Config # [추가] 엔진 호환성
+from core.trade import Trader
+from core.backtester import Backtester
 from core import interface as ka
-# import lab1_act # (Moved up)
-from typing import Dict, List, Optional
-import yaml
+from utils.telegram import TelegramBot # [추가] 알림 발송용
 
 logger = logging.getLogger(__name__)
 
@@ -55,68 +47,70 @@ class Investor:
         """
         logger.info("[시스템] Investor 초기화 중...")
         
-        # [Engine Compatibility] Config Load
+        # 1. 설정(Config) 로드
         self.config_actor = Config(strategies_path=config_path)
         self.config = self.config_actor.config
-        self.system_config = self.config.get("system", {})
-        self.is_trading = True
-        self.strategies = {"lab1": "Active"}
+        self.system_config = self.config_actor.get_system_config()
+
+        # 2. API 인증
+        env_type = self.system_config.get("env_type", "paper")
+        svr = "vps" if env_type == "paper" else "prod"
         
-        # 1. API 인증 (Scanner 사용을 위해 필요)
         try:
-            ka.auth(svr='vps') # 모의투자(vps) 환경 인증
-            logger.info("[시스템] API 인증 완료 (Mock/VPS)")
+            ka.auth(svr=svr)
+            ka.auth_ws(svr=svr)
+            logger.info("[시스템] API 인증 완료")
         except Exception as e:
             logger.error(f"[시스템] API 인증 실패: {e}")
 
-        # 2. Scanner 및 Watchlist 초기화
+        # 3. Core Components 초기화
+        self.market_data = MarketData()
+        self.broker = Broker()
+        self.portfolio = Portfolio()
         self.scanner = Scanner()
-        self.market_data = MarketData() # [수정] MarketData 초기화
-        self.broker = Broker() # [추가] 브로커(주문 집행기) 초기화
-        self.portfolio = Portfolio() # [추가] 포트폴리오 관리자 (자산/잔고)
-        
-        # [Engine Compatibility] Universe for Watchlist
+        self.telegram = TelegramBot(self.system_config)
+        self.trader = Trader(telegram_bot=self.telegram, env_type=env_type)
         self.universe = Universe(self.system_config, self.market_data, self.scanner, self.portfolio)
+        self.backtester = Backtester(self.config, {})
         
+        # 텔레그램 초기 알림 (봇 초기화 성공 시)
+        if self.telegram:
+            logger.info("[시스템] 텔레그램 봇 연결 완료")
+            self.telegram.send_system_alert("🚀 <b>System Started</b>\nAnti-Stock Lab1 Engine Initialized.")
+
+        # 4. Event Subscriptions (동기화 핵심)
+        # Subscribe to Broker and Portfolio events via Trader
+        self.broker.on_order_sent.append(self.trader.record_order_event)
+        # Optimistic Update for Portfolio (Buying Power)
+        self.broker.on_order_sent.append(lambda x: self.portfolio.on_order_sent(x, self.market_data))
+        # Pass market_data dynamically using lambda
+        self.portfolio.on_position_change.append(lambda x: self.trader.record_position_event(x, self.market_data))
+
+        self.is_trading = True
+        self.strategies = {"lab1": "Active"}
+        self.last_sync_time = 0
+
         try:
-             # WatchlistDAO is still used for DB interaction
+             # DB 상호작용을 위해 WatchlistDAO 사용
             self.watchlist_pool = WatchlistDAO.get_all_symbols()
             logger.info(f"[시스템] DB 관심종목 로드 완료: {len(self.watchlist_pool)}개")
         except Exception as e:
             logger.error(f"[시스템] 관심종목 로드 실패: {e}")
             self.watchlist_pool = []
 
-        # 3. 초기 잔고 동기화 (중요: 매수 여력 확보)
-        try:
-            balance = self.broker.get_balance()
-            if balance:
-                self.portfolio.sync_with_broker(balance, notify=False, tag_lookup_fn=lambda x: "LAB1")
-                logger.info(f"[시스템] 잔고 동기화 완료 (예수금: {int(self.portfolio.cash):,}원, 총자산: {int(self.portfolio.total_asset):,}원)")
-            else:
-                logger.warning("[시스템] 잔고 조회 실패 (Mock/API 오류). 자산 0으로 시작합니다.")
-        except Exception as e:
-            logger.error(f"[시스템] 잔고 동기화 중 오류: {e}")
+        # 5. 초기 잔고 동기화 (중요: 매수 여력 확보)
+        self._sync_balance(notify=False)
             
-        # 4. 감시 대상 초기화 (Run 루프에서 갱신됨)
+        # 6. 감시 대상 초기화 (Run 루프에서 갱신됨)
         self.target_universe = []
         
-        # [Engine Compatibility] Telegram Bot
-        self.telegram = None
-        self._init_telegram()
+        # [장 운영 시간] 상태 추적용 (None: 초기상태, True: 장중, False: 장외)
+        self._last_market_status = None
         
         logger.info("[시스템] 초기화 완료")
 
-    def _init_telegram(self):
-        """텔레그램 봇 초기화"""
-        try:
-            self.telegram = TelegramBot(self.system_config)
-            self.telegram.send_system_alert("🚀 <b>[Lab1 Engine]</b> 시스템이 시작되었습니다.")
-            logger.info("[시스템] 텔레그램 봇 연결 완료")
-        except Exception as e:
-            logger.warning(f"[시스템] 텔레그램 연결 실패: {e}")
 
-    # --- [Engine Compatibility] Server Hooks ---
-
+    # --- [엔진 호환성] 서버 연동 훅 (Server Hooks) ---
     @property
     def watchlist(self):
         """웹: 감시종목 페이지용"""
@@ -125,13 +119,15 @@ class Investor:
 
     @property
     def trade_history(self):
-        """웹: 차트/로그용 Stub"""
-        return []
+        """웹: 차트/로그용 Proxy"""
+        return self.trader.trade_history
 
     def update_system_config(self, new_config: Dict):
         """웹: 설정 변경"""
         self.config_actor.update_system_config(new_config)
         self.system_config.update(new_config)
+        if hasattr(self, 'telegram'):
+            self.telegram.reload_config(self.system_config)
 
     def update_strategy_config(self, new_config: Dict):
         """웹: 전략 설정"""
@@ -150,8 +146,65 @@ class Investor:
         
     def register_strategy(self, strategy_class, strategy_id: str):
         pass # Stub
+    
+    def _resolve_strategy_tag(self, symbol: str) -> str:
+        """포트폴리오 동기화 시 태그(전략ID) 복구 헬퍼"""
+        # Lab1은 단일 전략이므로 기본값 LAB1 반환하되, 거래내역이 있으면 참조
+        for event in reversed(self.trader.trade_history):
+            if event.symbol == symbol and event.event_type == "ORDER_SUBMITTED":
+                 return event.strategy_id
+        return "lab1"
 
-    # --- [Engine Compatibility] End ---
+    def _sync_balance(self, notify: bool = True):
+        """실시간 잔고 동기화 (기본 5초 간격)"""
+        now = time.time()
+        # notify가 False이면(초기화 등) 시간 체크 없이 강제 수행하거나, 
+        # last_sync_time이 0일 때도 통과하므로 그대로 둠
+        if (now - self.last_sync_time > 5) or (not notify):
+            try:
+                balance = self.broker.get_balance()
+                if balance:
+                    self.portfolio.sync_with_broker(balance, notify=notify, tag_lookup_fn=self._resolve_strategy_tag)
+                            
+                    # [단순화] Lab1은 WebSocket 폴링을 사용하지 않으므로 무조건 현재가 업데이트 수행
+                    for symbol in list(self.portfolio.positions.keys()):
+                        price = self.market_data.get_last_price(symbol)
+                        if price > 0:
+                            self.portfolio.update_market_price(symbol, price)
+                self.last_sync_time = now
+            except Exception as e:
+                logger.error(f"주기적 잔고 동기화 실패: {e}")
+
+    # --- [엔진 호환성] 끝 ---
+
+    def _is_market_open(self) -> bool:
+        """
+        현재 시간이 장 운영 시간(평일 09:00 ~ 15:30)인지 확인하고 상태 변경 시 로그를 출력합니다.
+        단순화를 위해 공휴일 API 체크는 생략하고 요일과 시간만 봅니다.
+        """
+        now = datetime.now()
+        is_open = False
+        
+        # 1. 주말 체크 (월=0, ... 금=4, 토=5, 일=6)
+        if now.weekday() < 5:
+            # 2. 시간 체크
+            current_time = now.time()
+            start_time = now.replace(hour=9, minute=0, second=0, microsecond=0).time()
+            end_time = now.replace(hour=15, minute=30, second=0, microsecond=0).time()
+            
+            if start_time <= current_time <= end_time:
+                is_open = True
+        
+        # 상태 변경 감지 및 로그 출력 (최초 1회 포함)
+        if self._last_market_status != is_open:
+            if is_open:
+                logger.info("▶️ [시스템] 장 운영 시간입니다 (Market Open). 감시를 시작합니다.")
+            else:
+                logger.info("⏸ [시스템] 장 운영 시간이 아닙니다 (Market Closed). 대기 모드로 전환합니다.")
+            
+            self._last_market_status = is_open
+
+        return is_open
 
     def run(self):
         """
@@ -165,10 +218,18 @@ class Investor:
 
         try:
             while True:
+                # 0. 장 운영 시간 체크 (상태 변경 로그는 내부에서 처리)
+                if not self._is_market_open():
+                    time.sleep(30) # 장외 시간 대기
+                    continue
+
                 # 종목 스캔 (주기적 실행)
                 if tick_count % scan_interval == 0:
                     self.scan()
                 
+                # 실시간 잔고 동기화 (5초 간격)
+                self._sync_balance()
+
                 # 감시 단계 (선정된 target_universe 대상) - 매 루프 실행
                 if self.is_trading and self.target_universe:
                     self.watch()
@@ -296,22 +357,9 @@ class Investor:
         else:
             logger.info(f"[{name}({symbol})] 진입 조건 미충족")
 
-if __name__ == "__main__":
-    # 로그 설정
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # 웹 서버 및 브라우저 실행 모듈
-    import lab1_web
-    lab1_web.start_server_thread(port=8000)
-    
-    # 프로그램 실행 진입점
-    investor = Investor()
-    investor.run()
-
-# [Legacy Alias]
+# [레거시 별칭]
 class Engine(Investor):
-    """Alias for main.py compatibility"""
+    """main.py 호환성을 위한 별칭"""
     pass
+
+
